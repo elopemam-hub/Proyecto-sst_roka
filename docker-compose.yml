@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: ./laravel-app
+      dockerfile: Dockerfile
+    container_name: sst_roka_app
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./laravel-app:/var/www
+      - ./laravel-app/storage:/var/www/storage
+    networks:
+      - sst_roka_network
+    depends_on:
+      - mysql
+      - redis
+
+  nginx:
+    image: nginx:alpine
+    container_name: sst_roka_nginx
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./laravel-app:/var/www
+      - ./laravel-app/docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - sst_roka_network
+    depends_on:
+      - app
+
+  mysql:
+    image: mysql:8.0
+    container_name: sst_roka_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-sst_roka}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_secret}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-sst_secret}
+      MYSQL_USER: ${DB_USERNAME:-sst_user}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - sst_roka_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: sst_roka_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - sst_roka_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sst_roka_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000/api
+      - VITE_PUSHER_APP_KEY=${PUSHER_APP_KEY:-sst_roka_key}
+      - VITE_PUSHER_APP_CLUSTER=${PUSHER_APP_CLUSTER:-mt1}
+    networks:
+      - sst_roka_network
+
+  queue:
+    build:
+      context: ./laravel-app
+      dockerfile: Dockerfile
+    container_name: sst_roka_queue
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./laravel-app:/var/www
+    command: php artisan queue:work --sleep=3 --tries=3
+    networks:
+      - sst_roka_network
+    depends_on:
+      - mysql
+      - redis
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  sst_roka_network:
+    driver: bridge

@@ -1,0 +1,167 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+
+  :root {
+    --sidebar-w: 260px;
+    --header-h: 60px;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  ::-webkit-scrollbar        { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track  { @apply bg-gray-100; }
+  ::-webkit-scrollbar-thumb  { @apply bg-gray-300 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-gray-400; }
+}
+
+@layer components {
+  /* Tarjeta base */
+  .card {
+    @apply bg-white border border-gray-200 rounded-xl shadow-sm;
+  }
+
+  /* Input base */
+  .input {
+    @apply w-full bg-white border border-gray-300 rounded-lg px-3 py-2
+           text-gray-900 placeholder-gray-400 text-sm
+           focus:outline-none focus:ring-2 focus:ring-roka-500 focus:border-roka-500
+           transition-all duration-200;
+  }
+
+  /* Botón primario */
+  .btn-primary {
+    @apply bg-roka-600 hover:bg-roka-500 text-white font-medium
+           px-4 py-2 rounded-lg text-sm transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-roka-500 focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Botón secundario */
+  .btn-secondary {
+    @apply bg-white hover:bg-gray-50 text-gray-700 hover:text-gray-900
+           border border-gray-300 font-medium px-4 py-2 rounded-lg text-sm
+           transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-300;
+  }
+
+  /* Badge de estado */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+  .badge-green  { @apply bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200; }
+  .badge-yellow { @apply bg-amber-50 text-amber-700 ring-1 ring-amber-200; }
+  .badge-red    { @apply bg-red-50 text-red-700 ring-1 ring-red-200; }
+  .badge-blue   { @apply bg-roka-50 text-roka-700 ring-1 ring-roka-200; }
+  .badge-gray   { @apply bg-gray-100 text-gray-600 ring-1 ring-gray-200; }
+
+  /* KPI card */
+  .kpi-card {
+    @apply card p-5 flex flex-col gap-3 hover:shadow-md transition-all duration-200;
+  }
+
+  /* Nav item */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
+           text-gray-600 hover:text-gray-900 hover:bg-gray-100
+           transition-all duration-150 cursor-pointer;
+  }
+  .nav-item.active {
+    @apply bg-roka-50 text-roka-700 hover:bg-roka-100;
+  }
+}
+
+/* Animaciones de entrada escalonadas */
+.stagger > * { animation: slideUp 0.3s ease-out both; }
+.stagger > *:nth-child(1) { animation-delay: 0.05s; }
+.stagger > *:nth-child(2) { animation-delay: 0.10s; }
+.stagger > *:nth-child(3) { animation-delay: 0.15s; }
+.stagger > *:nth-child(4) { animation-delay: 0.20s; }
+.stagger > *:nth-child(5) { animation-delay: 0.25s; }
+.stagger > *:nth-child(6) { animation-delay: 0.30s; }
+.stagger > *:nth-child(7) { animation-delay: 0.35s; }
+.stagger > *:nth-child(8) { animation-delay: 0.40s; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   LIGHT THEME — overrides globales sobre clases oscuras de las páginas
+   El sidebar usa zinc-* por lo que NO es afectado por estos overrides.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ─── Fondos ─────────────────────────────────────────────────────── */
+.bg-slate-950 { background-color: #f8fafc !important; }
+.bg-slate-925 { background-color: #f1f5f9 !important; }
+.bg-slate-900 { background-color: #f1f5f9 !important; }
+.bg-slate-850 { background-color: #e9eff5 !important; }
+.bg-slate-800 { background-color: #ffffff !important; }
+.bg-slate-700 { background-color: #e2e8f0 !important; }
+.bg-slate-700\/50 { background-color: rgba(226,232,240,0.5) !important; }
+
+/* ─── Bordes ─────────────────────────────────────────────────────── */
+.border-slate-900, .border-slate-800 { border-color: #e2e8f0 !important; }
+.border-slate-700, .border-slate-600 { border-color: #e2e8f0 !important; }
+
+/* ─── Divisores ──────────────────────────────────────────────────── */
+.divide-slate-700 > :not([hidden]) ~ :not([hidden]),
+.divide-slate-800 > :not([hidden]) ~ :not([hidden]) { border-color: #e2e8f0 !important; }
+
+/* ─── Texto ──────────────────────────────────────────────────────── */
+.text-white      { color: #0f172a !important; }
+.text-slate-50   { color: #0f172a !important; }
+.text-slate-100  { color: #0f172a !important; }
+.text-slate-200  { color: #1e293b !important; }
+.text-slate-300  { color: #334155 !important; }
+.text-slate-400  { color: #64748b !important; }
+.text-slate-500  { color: #94a3b8 !important; }
+.text-slate-600  { color: #94a3b8 !important; }
+
+/* ─── Hover fondos ───────────────────────────────────────────────── */
+.hover\:bg-slate-900:hover { background-color: #e9eff5 !important; }
+.hover\:bg-slate-800:hover { background-color: #f1f5f9 !important; }
+.hover\:bg-slate-700:hover { background-color: #e2e8f0 !important; }
+.hover\:bg-slate-700\/50:hover { background-color: rgba(226,232,240,0.6) !important; }
+
+/* ─── Hover texto ────────────────────────────────────────────────── */
+.hover\:text-slate-100:hover { color: #0f172a !important; }
+.hover\:text-slate-200:hover { color: #1e293b !important; }
+
+/* ─── Ring / focus ───────────────────────────────────────────────── */
+.ring-slate-700, .ring-slate-800 { --tw-ring-color: #e2e8f0 !important; }
+
+/* ─── Roka sobre fondo claro ─────────────────────────────────────── */
+.text-roka-300 { color: #0369a1 !important; }
+.text-roka-400 { color: #0284c7 !important; }
+
+/* ─── Colores semáforo — más oscuros para fondo claro ───────────── */
+.text-emerald-400 { color: #059669 !important; }
+.text-amber-400   { color: #d97706 !important; }
+.text-orange-400  { color: #ea580c !important; }
+.text-blue-400    { color: #2563eb !important; }
+.text-red-400     { color: #dc2626 !important; }
+
+/* ─── Badges inline con opacidad ────────────────────────────────── */
+.bg-blue-500\/10     { background-color: #eff6ff !important; }
+.bg-amber-500\/10    { background-color: #fffbeb !important; }
+.bg-emerald-500\/10  { background-color: #ecfdf5 !important; }
+.bg-orange-500\/10   { background-color: #fff7ed !important; }
+.bg-red-500\/10      { background-color: #fef2f2 !important; }
+.bg-slate-500\/10    { background-color: #f8fafc !important; }
+.bg-roka-500\/10,
+.bg-roka-500\/15     { background-color: #f0f9ff !important; }
+
+.border-blue-500\/20    { border-color: #bfdbfe !important; }
+.border-amber-500\/20   { border-color: #fde68a !important; }
+.border-emerald-500\/20 { border-color: #a7f3d0 !important; }
+.border-orange-500\/20  { border-color: #fed7aa !important; }
+.border-red-500\/20     { border-color: #fecaca !important; }
+.border-slate-500\/20   { border-color: #e2e8f0 !important; }
+
+.text-blue-400    { color: #2563eb !important; }
+.text-amber-400   { color: #d97706 !important; }
+.text-emerald-400 { color: #059669 !important; }
+.text-orange-400  { color: #ea580c !important; }
+.text-red-400     { color: #dc2626 !important; }
