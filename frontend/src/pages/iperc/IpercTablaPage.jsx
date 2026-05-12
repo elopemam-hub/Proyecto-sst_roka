@@ -43,27 +43,42 @@ const COL_NAVY   = '#17375e'
 
 export default function IpercTablaPage() {
   const navigate  = useNavigate()
-  const [matrices, setMatrices]   = useState([])
-  const [selected, setSelected]   = useState('')
-  const [iperc,    setIperc]      = useState(null)
-  const [loading,  setLoading]    = useState(false)
+  const [matrices, setMatrices]     = useState([])
+  const [selected, setSelected]     = useState('')
+  const [iperc,    setIperc]        = useState(null)
+  const [loading,  setLoading]      = useState(false)
   const [loadingList, setLoadingList] = useState(true)
+  const [error,    setError]        = useState(null)
 
   // Cargar lista de matrices
   useEffect(() => {
     api.get('/iperc', { params: { per_page: 100 } })
-      .then(({ data }) => setMatrices(data.data || data))
+      .then(({ data }) => {
+        const list = data.data || data || []
+        setMatrices(Array.isArray(list) ? list : [])
+      })
       .catch(() => {})
       .finally(() => setLoadingList(false))
   }, [])
 
   // Cargar detalle cuando se selecciona una matriz
   useEffect(() => {
-    if (!selected) { setIperc(null); return }
+    if (!selected) { setIperc(null); setError(null); return }
     setLoading(true)
+    setError(null)
+    setIperc(null)
     api.get(`/iperc/${selected}`)
-      .then(({ data }) => setIperc(data))
-      .catch(() => setIperc(null))
+      .then(({ data }) => {
+        if (data && typeof data === 'object') {
+          setIperc(data)
+        } else {
+          setError('La respuesta del servidor no es válida.')
+        }
+      })
+      .catch((err) => {
+        setError(err.response?.data?.message || 'No se pudo cargar la matriz IPERC.')
+        setIperc(null)
+      })
       .finally(() => setLoading(false))
   }, [selected])
 
@@ -137,10 +152,13 @@ export default function IpercTablaPage() {
       </div>
 
       {/* ── Estado vacío ── */}
-      {!selected && (
+      {!selected && !loadingList && (
         <div className="bg-slate-800 rounded-xl border border-slate-700 p-16 text-center">
           <FileSpreadsheet size={48} className="mx-auto mb-3 text-slate-600" />
           <p className="text-slate-400 text-sm">Seleccione una matriz IPERC para visualizar la tabla</p>
+          {matrices.length === 0 && (
+            <p className="text-slate-500 text-xs mt-2">No hay matrices registradas. Crea una desde Gestión IPERC.</p>
+          )}
         </div>
       )}
 
@@ -149,6 +167,14 @@ export default function IpercTablaPage() {
         <div className="bg-slate-800 rounded-xl border border-slate-700 p-12 text-center">
           <div className="w-8 h-8 border-2 border-roka-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
           <p className="text-slate-500 text-sm">Cargando matriz...</p>
+        </div>
+      )}
+
+      {/* ── Error ── */}
+      {error && !loading && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center">
+          <p className="text-red-400 font-medium text-sm">{error}</p>
+          <p className="text-slate-500 text-xs mt-1">Verifique que el servidor esté activo y vuelva a intentarlo.</p>
         </div>
       )}
 

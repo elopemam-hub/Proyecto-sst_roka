@@ -1,0 +1,35 @@
+# ============================================================
+# SST ROKA — public_html/.htaccess
+# Renombrar este archivo a .htaccess y subirlo a public_html/
+# ============================================================
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Pasar el header Authorization a PHP (necesario para Sanctum)
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Archivos y directorios reales se sirven directamente
+    # (esto incluye la carpeta api/ y todos los assets del frontend)
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Todo lo demás → React SPA (index.html)
+    RewriteRule ^ index.html [L]
+</IfModule>
+
+# Compresión GZIP para assets
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json
+</IfModule>
+
+# Cache de assets estáticos
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 1 year"
+    ExpiresByType application/javascript "access plus 1 year"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/svg+xml "access plus 1 month"
+</IfModule>
