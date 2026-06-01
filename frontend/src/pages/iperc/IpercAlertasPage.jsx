@@ -1,15 +1,34 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bell, AlertTriangle, Clock, Calendar, Eye, ChevronLeft } from 'lucide-react'
+import { Bell, AlertTriangle, Clock, Calendar, Eye, ArrowLeft, Edit } from 'lucide-react'
 import api from '../../services/api'
-import { format, parseISO } from 'date-fns'
+import toast from 'react-hot-toast'
+import { format, parseISO, isValid } from 'date-fns'
 
 const CLASIF_COLOR = {
-  trivial:     'text-emerald-400',
-  tolerable:   'text-lime-400',
-  moderado:    'text-amber-400',
-  importante:  'text-orange-400',
-  intolerable: 'text-red-400',
+  trivial:     'text-emerald-600',
+  tolerable:   'text-lime-600',
+  moderado:    'text-amber-600',
+  importante:  'text-orange-600',
+  intolerable: 'text-red-600',
+}
+
+const CLASIF_BG = {
+  trivial:     'bg-emerald-50 text-emerald-700 border-emerald-200',
+  tolerable:   'bg-lime-50 text-lime-700 border-lime-200',
+  moderado:    'bg-amber-50 text-amber-700 border-amber-200',
+  importante:  'bg-orange-50 text-orange-700 border-orange-200',
+  intolerable: 'bg-red-50 text-red-700 border-red-200',
+}
+
+function safeDate(val) {
+  if (!val) return '—'
+  try {
+    const d = parseISO(String(val).substring(0, 10))
+    return isValid(d) ? format(d, 'dd/MM/yyyy') : '—'
+  } catch {
+    return '—'
+  }
 }
 
 export default function IpercAlertasPage() {
@@ -21,97 +40,136 @@ export default function IpercAlertasPage() {
   useEffect(() => {
     api.get('/iperc/alertas')
       .then(({ data }) => setData(data))
-      .catch(() => {})
+      .catch(err => {
+        const msg = err?.response?.data?.message || err?.message || 'Error de conexión'
+        toast.error(`Error al cargar alertas: ${msg}`)
+      })
       .finally(() => setLoading(false))
   }, [])
 
   const tabs = [
-    { key: 'significativos', label: 'Riesgos Significativos', icon: AlertTriangle, count: data?.riesgos_significativos?.length || 0, color: 'text-red-400' },
-    { key: 'proximos',       label: 'Próximos a vencer',      icon: Clock,         count: data?.proximos_vencer?.length || 0,        color: 'text-amber-400' },
-    { key: 'vencidos',       label: 'IPERC Vencidos',         icon: Calendar,      count: data?.vencidos?.length || 0,               color: 'text-rose-400' },
+    {
+      key: 'significativos', label: 'Riesgos Significativos',
+      icon: AlertTriangle, count: data?.riesgos_significativos?.length || 0,
+      color: 'text-red-600', bg: 'bg-red-50', iconBg: 'bg-red-100',
+    },
+    {
+      key: 'proximos', label: 'Próximos a vencer',
+      icon: Clock, count: data?.proximos_vencer?.length || 0,
+      color: 'text-amber-600', bg: 'bg-amber-50', iconBg: 'bg-amber-100',
+    },
+    {
+      key: 'vencidos', label: 'IPERC Vencidos',
+      icon: Calendar, count: data?.vencidos?.length || 0,
+      color: 'text-rose-600', bg: 'bg-rose-50', iconBg: 'bg-rose-100',
+    },
   ]
 
   const active = tabs.find(t => t.key === tab)
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
+
+      {/* Encabezado */}
       <div>
-        <button
-          onClick={() => navigate('/iperc')}
-          className="inline-flex items-center gap-1.5 text-xs text-slate-200 hover:text-white bg-slate-600/80 hover:bg-slate-600 px-2.5 py-1.5 rounded-lg border border-slate-600/50 transition-colors mb-3"
-        >
-          <ChevronLeft size={13} /> Volver al módulo IPERC
+        <button onClick={() => navigate('/iperc')} className="btn-back mb-3">
+          <ArrowLeft size={16} /> Volver a IPERC
         </button>
-        <h1 className="text-2xl font-bold text-white">Alertas IPERC</h1>
-        <p className="text-slate-400 text-sm mt-1">Riesgos críticos y vencimientos que requieren atención inmediata</p>
+        <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+          <span>Riesgos y Control</span><span>/</span>
+          <span>IPERC</span><span>/</span>
+          <span>Alertas</span>
+        </div>
+        <h1 className="text-2xl font-bold text-slate-100">Alertas IPERC</h1>
+        <p className="text-slate-400 text-sm mt-0.5">Riesgos críticos y vencimientos que requieren atención inmediata</p>
       </div>
 
       {/* KPIs */}
-      {!loading && data && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {tabs.map(({ key, label, icon: Icon, count, color }) => (
-            <button key={key} onClick={() => setTab(key)}
-              className={`flex items-center gap-3 p-4 rounded-xl border transition-all text-left ${
-                tab === key ? 'bg-slate-700 border-roka-500' : 'bg-slate-800 border-slate-700 hover:border-slate-500'
-              }`}>
-              <div className={`p-2 rounded-lg ${key === 'significativos' ? 'bg-red-500/10' : key === 'proximos' ? 'bg-amber-500/10' : 'bg-rose-500/10'}`}>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {tabs.map(({ key, label, icon: Icon, count, color, bg, iconBg }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`card p-4 text-left transition-all ring-1 ring-inset ${
+              tab === key ? 'ring-roka-500' : 'ring-transparent hover:ring-gray-200'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${iconBg}`}>
                 <Icon size={18} className={color} />
               </div>
               <div>
-                <p className={`text-2xl font-bold ${color}`}>{count}</p>
+                <p className={`text-2xl font-bold tabular-nums ${color}`}>
+                  {loading ? '—' : count}
+                </p>
                 <p className="text-xs text-slate-400">{label}</p>
               </div>
-            </button>
-          ))}
-        </div>
-      )}
+            </div>
+          </button>
+        ))}
+      </div>
 
-      {/* Tab content */}
+      {/* Contenido del tab */}
       {loading ? (
-        <div className="text-center py-12 text-slate-500">Cargando...</div>
+        <div className="card p-12 text-center">
+          <div className="inline-block w-5 h-5 border-2 border-roka-500 border-t-transparent rounded-full animate-spin mb-3" />
+          <p className="text-slate-500 text-sm">Cargando alertas...</p>
+        </div>
       ) : (
-        <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-700 flex items-center gap-2">
+        <div className="card overflow-hidden">
+          {/* Tab header */}
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
             {active && <active.icon size={16} className={active.color} />}
-            <p className="text-sm font-semibold text-slate-300">{active?.label}</p>
+            <p className="text-sm font-semibold text-slate-200">{active?.label}</p>
             <span className={`text-sm font-bold ml-auto ${active?.color}`}>{active?.count}</span>
           </div>
 
+          {/* Riesgos Significativos */}
           {tab === 'significativos' && (
-            <>
-              {(data?.riesgos_significativos || []).length === 0 ? (
-                <div className="p-12 text-center text-slate-500">
-                  <Bell size={32} className="mx-auto mb-2 text-slate-700" />
-                  No hay riesgos significativos activos en matrices aprobadas
-                </div>
-              ) : (
+            (data?.riesgos_significativos || []).length === 0 ? (
+              <div className="p-12 text-center">
+                <Bell size={32} className="mx-auto mb-2 text-slate-300" />
+                <p className="text-slate-500">No hay riesgos significativos activos</p>
+                <p className="text-slate-400 text-xs mt-1">Solo se muestran peligros de matrices en estado "Aprobado"</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-900 border-b border-slate-700">
+                  <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       {['Peligro / Riesgo', 'NR', 'Clasificación', 'Proceso', 'IPERC', 'Área', ''].map(h => (
-                        <th key={h} className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">{h}</th>
+                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">{h}</th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-700">
+                  <tbody>
                     {data.riesgos_significativos.map(r => (
-                      <tr key={r.id} className="hover:bg-slate-700/30">
-                        <td className="px-4 py-3 max-w-44">
-                          <div className="text-slate-200 text-xs font-medium">{r.descripcion_peligro}</div>
-                          <div className="text-xs text-slate-500">{r.riesgo}</div>
+                      <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3 max-w-52">
+                          <div className="text-gray-800 text-xs font-medium">{r.descripcion_peligro}</div>
+                          <div className="text-xs text-gray-400">{r.riesgo}</div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`text-xl font-bold ${CLASIF_COLOR[r.clasificacion_inicial]}`}>{r.nivel_riesgo_inicial}</span>
+                          <span className={`text-xl font-bold tabular-nums ${CLASIF_COLOR[r.clasificacion_inicial] || 'text-gray-700'}`}>
+                            {r.nivel_riesgo_inicial}
+                          </span>
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`text-xs capitalize font-medium ${CLASIF_COLOR[r.clasificacion_inicial]}`}>{r.clasificacion_inicial}</span>
+                          <span className={`text-xs capitalize font-medium px-2 py-0.5 rounded-full border ${CLASIF_BG[r.clasificacion_inicial] || 'text-gray-500'}`}>
+                            {r.clasificacion_inicial}
+                          </span>
                         </td>
-                        <td className="px-4 py-3 text-slate-400 text-xs max-w-36 truncate">{r.proceso}</td>
-                        <td className="px-4 py-3"><code className="text-xs font-mono text-roka-400">{r.codigo}</code></td>
-                        <td className="px-4 py-3 text-slate-400 text-xs">{r.area_nombre}</td>
+                        <td className="px-4 py-3 text-gray-500 text-xs max-w-36 truncate">{r.proceso}</td>
                         <td className="px-4 py-3">
-                          <button onClick={() => navigate(`/iperc/${r.iperc_id}`)}
-                            className="p-1.5 rounded text-slate-400 hover:text-roka-400 hover:bg-slate-700 transition-colors">
+                          <code className="text-xs font-mono text-roka-600">{r.codigo}</code>
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{r.area_nombre}</td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => navigate(`/iperc/${r.iperc_id}`)}
+                            className="p-1.5 rounded-md text-gray-400 hover:text-roka-600 hover:bg-gray-100 transition-colors"
+                            title="Ver detalle"
+                          >
                             <Eye size={14} />
                           </button>
                         </td>
@@ -119,56 +177,109 @@ export default function IpercAlertasPage() {
                     ))}
                   </tbody>
                 </table>
-              )}
-            </>
+              </div>
+            )
           )}
 
-          {(tab === 'proximos' || tab === 'vencidos') && (
-            <>
-              {(tab === 'proximos' ? data?.proximos_vencer : data?.vencidos)?.length === 0 ? (
-                <div className="p-12 text-center text-slate-500">
-                  <Calendar size={32} className="mx-auto mb-2 text-slate-700" />
-                  {tab === 'proximos' ? 'No hay IPERC próximos a vencer en 30 días' : 'No hay IPERC vencidos'}
-                </div>
-              ) : (
+          {/* Próximos a vencer */}
+          {tab === 'proximos' && (
+            (data?.proximos_vencer || []).length === 0 ? (
+              <div className="p-12 text-center">
+                <Clock size={32} className="mx-auto mb-2 text-slate-300" />
+                <p className="text-slate-500">No hay IPERC próximos a vencer en los próximos 30 días</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-900 border-b border-slate-700">
+                  <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      {['Código', 'Título', 'Área', tab === 'proximos' ? 'Días restantes' : 'Venció el', 'Estado', ''].map(h => (
-                        <th key={h} className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">{h}</th>
+                      {['Código', 'Título', 'Área', 'Días restantes', 'Vigencia', 'Estado', ''].map(h => (
+                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">{h}</th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-700">
-                    {(tab === 'proximos' ? data.proximos_vencer : data.vencidos).map(item => (
-                      <tr key={item.id} className="hover:bg-slate-700/30">
-                        <td className="px-4 py-3"><code className="text-xs font-mono text-roka-400">{item.codigo}</code></td>
-                        <td className="px-4 py-3 text-slate-200">{item.titulo}</td>
-                        <td className="px-4 py-3 text-slate-400 text-xs">{item.area?.nombre}</td>
+                  <tbody>
+                    {data.proximos_vencer.map(item => (
+                      <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                         <td className="px-4 py-3">
-                          {tab === 'proximos' ? (
-                            <span className="text-amber-400 font-medium">{item.dias_restantes}d</span>
-                          ) : (
-                            <span className="text-red-400 text-xs">
-                              {item.fecha_vigencia ? format(parseISO(item.fecha_vigencia + 'T00:00:00'), 'dd/MM/yyyy') : '—'}
-                            </span>
-                          )}
+                          <code className="text-xs font-mono text-roka-600">{item.codigo}</code>
+                        </td>
+                        <td className="px-4 py-3 text-gray-800 font-medium">{item.titulo}</td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{item.area?.nombre || '—'}</td>
+                        <td className="px-4 py-3">
+                          <span className={`font-bold tabular-nums ${item.dias_restantes <= 7 ? 'text-red-600' : 'text-amber-600'}`}>
+                            {item.dias_restantes}d
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{safeDate(item.fecha_vigencia)}</td>
+                        <td className="px-4 py-3">
+                          <span className="text-xs text-gray-500 capitalize">{item.estado?.replace('_', ' ')}</span>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-xs text-slate-400 capitalize">{item.estado?.replace('_', ' ')}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <button onClick={() => navigate(`/iperc/${item.id}`)}
-                            className="p-1.5 rounded text-slate-400 hover:text-roka-400 hover:bg-slate-700 transition-colors">
-                            <Eye size={14} />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => navigate(`/iperc/${item.id}`)} className="p-1.5 rounded-md text-gray-400 hover:text-roka-600 hover:bg-gray-100 transition-colors" title="Ver detalle">
+                              <Eye size={14} />
+                            </button>
+                            <button onClick={() => navigate(`/iperc/${item.id}/editar`)} className="p-1.5 rounded-md text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title="Editar">
+                              <Edit size={14} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              )}
-            </>
+              </div>
+            )
+          )}
+
+          {/* Vencidos */}
+          {tab === 'vencidos' && (
+            (data?.vencidos || []).length === 0 ? (
+              <div className="p-12 text-center">
+                <Calendar size={32} className="mx-auto mb-2 text-slate-300" />
+                <p className="text-slate-500">No hay IPERC vencidos</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      {['Código', 'Título', 'Área', 'Venció el', 'Estado', ''].map(h => (
+                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.vencidos.map(item => (
+                      <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3">
+                          <code className="text-xs font-mono text-roka-600">{item.codigo}</code>
+                        </td>
+                        <td className="px-4 py-3 text-gray-800 font-medium">{item.titulo}</td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{item.area?.nombre || '—'}</td>
+                        <td className="px-4 py-3">
+                          <span className="text-red-600 text-xs font-medium">{safeDate(item.fecha_vigencia)}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-xs text-gray-500 capitalize">{item.estado?.replace('_', ' ')}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => navigate(`/iperc/${item.id}`)} className="p-1.5 rounded-md text-gray-400 hover:text-roka-600 hover:bg-gray-100 transition-colors" title="Ver detalle">
+                              <Eye size={14} />
+                            </button>
+                            <button onClick={() => navigate(`/iperc/${item.id}/editar`)} className="p-1.5 rounded-md text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title="Editar">
+                              <Edit size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
           )}
         </div>
       )}

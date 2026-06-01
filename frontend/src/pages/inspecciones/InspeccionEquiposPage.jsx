@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Pencil, Power, Wrench, Search, ArrowLeft, Trash2 } from 'lucide-react'
 import api from '../../services/api'
@@ -9,7 +9,16 @@ const SUBMOD_COLOR = {
   C: 'bg-red-100 text-red-700 border-red-200',
 }
 
-const EMPTY = { submodulo_id: '', nombre: '', codigo: '', descripcion: '', requiere_operador: false, orden: 0 }
+const EMPTY = { submodulo_id: '', nombre: '', codigo: '', descripcion: '', requiere_operador: false, orden: 0, frecuencia_inspeccion: 'mensual' }
+
+const FRECUENCIAS = [
+  { value: 'diaria',      label: '📅 Diaria',      color: 'bg-red-50 text-red-700 border-red-200' },
+  { value: 'semanal',     label: '📆 Semanal',     color: 'bg-amber-50 text-amber-700 border-amber-200' },
+  { value: 'mensual',     label: '🗓️ Mensual',     color: 'bg-blue-50 text-blue-700 border-blue-200' },
+  { value: 'trimestral',  label: '📋 Trimestral',  color: 'bg-purple-50 text-purple-700 border-purple-200' },
+  { value: 'semestral',   label: '📊 Semestral',   color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  { value: 'anual',       label: '📈 Anual',       color: 'bg-gray-100 text-gray-600 border-gray-300' },
+]
 
 export default function InspeccionEquiposPage() {
   const navigate = useNavigate()
@@ -28,7 +37,9 @@ export default function InspeccionEquiposPage() {
   }, [])
 
   const cargar = () => {
-    api.get('/checklist/equipos?activos=false').then(({ data }) => setEquipos(data)).catch(() => {})
+    api.get('/checklist/inventario-resumen').then(({ data }) => setEquipos(data)).catch(() => {
+      api.get('/checklist/equipos?activos=false').then(({ data }) => setEquipos(data)).catch(() => {})
+    })
   }
 
   const subActual = submodulos.find(s => s.codigo === tabSub)
@@ -48,6 +59,7 @@ export default function InspeccionEquiposPage() {
     setForm({
       submodulo_id: e.submodulo_id, nombre: e.nombre, codigo: e.codigo || '',
       descripcion: e.descripcion || '', requiere_operador: e.requiere_operador, orden: e.orden,
+      frecuencia_inspeccion: e.frecuencia_inspeccion || 'mensual',
     })
     setEditId(e.id)
     setModal(true)
@@ -75,9 +87,13 @@ export default function InspeccionEquiposPage() {
   }
 
   const eliminar = async (e) => {
-    if (!window.confirm(`¿Eliminar el equipo "${e.nombre}"?`)) return
-    await api.delete(`/checklist/equipos/${e.id}`).catch(() => {})
-    cargar()
+    if (!window.confirm(`¿Eliminar "${e.nombre}" y todas sus preguntas? Esta acción no se puede deshacer.`)) return
+    try {
+      await api.delete(`/checklist/equipos/${e.id}`)
+      cargar()
+    } catch (err) {
+      alert(err.response?.data?.message || 'Error al eliminar el equipo')
+    }
   }
 
   return (
@@ -85,19 +101,25 @@ export default function InspeccionEquiposPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/inspecciones')}
-            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 hover:border-gray-300 px-3 py-2 rounded-lg transition-colors">
-            <ArrowLeft size={14} /> Inspecciones
+          <button onClick={() => navigate('/equipos')}
+            className="btn-back">
+            <ArrowLeft size={14} /> Equipos
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Catálogo de Equipos</h1>
-            <p className="text-gray-500 text-sm mt-1">Equipos e ítems por sub-módulo de inspección</p>
+            <h1 className="text-2xl font-bold text-gray-900">Catálogo de Tipos de Equipo</h1>
+            <p className="text-gray-500 text-sm mt-1">Tipos de equipo con checklist de inspección · Sub-módulos A·B·C</p>
           </div>
         </div>
-        <button onClick={abrirNuevo}
-          className="flex items-center gap-2 bg-roka-500 hover:bg-roka-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-          <Plus size={16} /> Nuevo equipo
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => navigate('/equipos/preguntas')}
+            className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm transition-colors">
+            <Wrench size={14} /> Banco de preguntas
+          </button>
+          <button onClick={abrirNuevo}
+            className="flex items-center gap-2 bg-roka-500 hover:bg-roka-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+            <Plus size={16} /> Nuevo tipo
+          </button>
+        </div>
       </div>
 
       {/* Tabs sub-módulo */}
@@ -129,18 +151,28 @@ export default function InspeccionEquiposPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['Código', 'Nombre', 'Req. Operador', 'N° Preguntas', 'Orden', 'Estado', 'Acciones'].map(h => (
+                {['Código', 'Nombre', 'Frecuencia', 'Req. Operador', 'N° Preguntas', 'Orden', 'Estado', 'Acciones'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {equiposFiltrados.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-10 text-gray-400">Sin equipos en este sub-módulo</td></tr>
+                <tr><td colSpan={8} className="text-center py-10 text-gray-400">Sin equipos en este sub-módulo</td></tr>
               ) : equiposFiltrados.map(e => (
                 <tr key={e.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-mono text-xs text-gray-500">{e.codigo || '—'}</td>
                   <td className="px-4 py-3 font-medium text-gray-800">{e.nombre}</td>
+                  <td className="px-4 py-3">
+                    {(() => {
+                      const fr = FRECUENCIAS.find(f => f.value === e.frecuencia_inspeccion) || FRECUENCIAS[2]
+                      return (
+                        <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${fr.color}`}>
+                          {fr.label}
+                        </span>
+                      )
+                    })()}
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${
                       e.requiere_operador ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-gray-100 text-gray-500 border-gray-200'
@@ -148,7 +180,14 @@ export default function InspeccionEquiposPage() {
                       {e.requiere_operador ? 'Sí' : 'No'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{e.preguntas_count ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-600">
+                    <span>{e.preguntas_count ?? '—'}</span>
+                    {e.activos_total > 0 && (
+                      <span className="ml-2 text-xs bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded-full font-medium">
+                        {e.activos_total} activos
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-gray-500">{e.orden}</td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${
@@ -213,6 +252,24 @@ export default function InspeccionEquiposPage() {
               <label className="text-xs font-medium text-gray-500 mb-1 block">Descripción</label>
               <textarea rows={2} value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-roka-400" />
+            </div>
+
+            {/* Frecuencia de inspección */}
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-2 block">Frecuencia de inspección</label>
+              <div className="flex flex-wrap gap-2">
+                {FRECUENCIAS.map(fr => (
+                  <button key={fr.value} type="button"
+                    onClick={() => setForm(f => ({ ...f, frecuencia_inspeccion: fr.value }))}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                      form.frecuencia_inspeccion === fr.value
+                        ? fr.color + ' ring-2 ring-offset-1 ring-current shadow-sm'
+                        : 'bg-white text-gray-500 border-gray-300 hover:border-gray-400'
+                    }`}>
+                    {fr.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="flex items-center gap-4">

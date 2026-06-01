@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Edit, Play, Star, Users, Clock, MapPin, AlertTriangle } from 'lucide-react'
 import api from '../../services/api'
@@ -13,7 +13,7 @@ const ESTADOS = {
 
 const TIPOS = {
   sismo: '🌍 Sismo', incendio: '🔥 Incendio', derrame: '☠️ Derrame',
-  evacuacion: '🚨 Evacuación', primeros_auxilios: '🩺 Primeros Auxilios', otro: '📋 Otro',
+  evacuacion: '🚨 Evacuación', primeros_auxilios: '🩺 Primeros Auxilios', violencia: '🚔 Violencia',
 }
 
 const CRITERIOS_DEFAULT = [
@@ -108,7 +108,7 @@ export default function SimulacroDetailPage() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-4">
           <button onClick={() => navigate('/simulacros')}
-            className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors">
+            className="btn-back">
             <ArrowLeft size={20} />
           </button>
           <div>

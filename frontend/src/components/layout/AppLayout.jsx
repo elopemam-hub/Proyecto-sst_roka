@@ -10,12 +10,13 @@ import {
   BarChart3, FileSignature, ChevronRight, ChevronDown,
   LogOut, Bell, RefreshCw, Building2, LayoutGrid,
   UserCog, Truck, Wrench, CalendarRange, BellRing, ScrollText,
-  PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen, FlaskConical, ShieldCheck,
 } from 'lucide-react'
 import { logout } from '../../store/slices/authSlice'
 import api from '../../services/api'
 import OfflineBanner from '../OfflineBanner'
 import { useServiceWorker } from '../../hooks/useServiceWorker'
+import { tieneAccesoRuta, ROLES_CONFIG } from '../../utils/roles'
 
 const GRUPOS = {
   principal:     null,
@@ -48,32 +49,56 @@ const menu = [
   { to: '/iperc/guia',              label: 'IPERC · Guía Referencial', icon: AlertTriangle, group: 'operativo', hidden: true },
   { to: '/iperc/banco',             label: 'IPERC · Banco de Datos', icon: AlertTriangle, group: 'operativo', hidden: true },
   { to: '/iperc/nuevo',             label: 'Nueva Matriz IPERC', icon: AlertTriangle,   group: 'operativo', hidden: true },
-  { to: '/ats',                     label: 'ATS',              icon: ClipboardList,   group: 'operativo' },
-  { to: '/inspecciones',       label: 'Inspecciones',      icon: Search,      group: 'operativo' },
-  { to: '/inspecciones/lista', label: 'Lista inspecciones', icon: ClipboardList, group: 'operativo', hidden: true },
-  { to: '/accidentes',              label: 'Accidentes',       icon: AlertCircle,     group: 'operativo' },
+  { to: '/ats',                     label: 'ATS',              icon: ClipboardList,   group: 'operativo', modulo: 'ats' },
+  { to: '/ats/gestion',             label: 'ATS · Gestión',    icon: ClipboardList,   group: 'operativo', hidden: true },
+  { to: '/ats/alertas',             label: 'ATS · Alertas',    icon: ClipboardList,   group: 'operativo', hidden: true },
+  { to: '/inspecciones',         label: 'Inspecciones',           icon: Search,        group: 'operativo', modulo: 'inspecciones' },
+  { to: '/inspecciones/lista',   label: 'Lista inspecciones',     icon: ClipboardList, group: 'operativo', hidden: true },
+  { to: '/inspecciones/alertas', label: 'Inspecciones · Alertas', icon: ClipboardList, group: 'operativo', hidden: true },
+  { to: '/accidentes',              label: 'Accidentes',       icon: AlertCircle,     group: 'operativo', modulo: 'accidentes' },
   { to: '/seguimiento',             label: 'Seguimiento',      icon: TrendingUp,      group: 'operativo' },
-  { to: '/personal',                label: 'Gestión Humana',   icon: Users,           group: 'gestion' },
-  { to: '/epps',                    label: 'EPPs',             icon: HardHat,         group: 'gestion' },
+  { to: '/personal',                label: 'Gestión Humana',   icon: Users,           group: 'gestion',   modulo: 'personal' },
+  { to: '/epps',                    label: 'EPPs',             icon: HardHat,         group: 'gestion',   modulo: 'epps' },
   { to: '/epps/inventario',         label: 'Inventario EPPs',  icon: HardHat,         group: 'gestion', hidden: true },
   { to: '/epps/proveedores',        label: 'Proveedores EPP',  icon: HardHat,         group: 'gestion', hidden: true },
   { to: '/epps/mantenimiento',      label: 'Mantenimiento EPP',icon: HardHat,         group: 'gestion', hidden: true },
   { to: '/epps/capacitacion',       label: 'Capacitación EPP', icon: HardHat,         group: 'gestion', hidden: true },
   { to: '/epps/reportes',           label: 'Reportes EPPs',    icon: HardHat,         group: 'gestion', hidden: true },
   { to: '/epps/configuracion',      label: 'Configuración EPPs',icon: HardHat,        group: 'gestion', hidden: true },
-  { to: '/salud',                   label: 'Salud / EMO',      icon: HeartPulse,      group: 'gestion' },
-  { to: '/capacitaciones',          label: 'Capacitaciones',   icon: GraduationCap,   group: 'gestion' },
-  { to: '/simulacros',              label: 'Simulacros',       icon: Siren,           group: 'gestion' },
-  { to: '/auditorias',              label: 'Auditorías',       icon: FileSearch,      group: 'gestion' },
-  { to: '/formatos',                label: 'Formatos',         icon: FileText,        group: 'documental' },
-  { to: '/documentos',              label: 'Documentos',       icon: FolderArchive,   group: 'documental' },
-  { to: '/reportes',                label: 'Reportes MINTRA',  icon: BarChart3,       group: 'documental' },
-  { to: '/vehiculos',               label: 'Vehículos',        icon: Truck,           group: 'activos' },
-  { to: '/equipos',                 label: 'Equipos',          icon: Wrench,          group: 'activos' },
+  { to: '/salud',                   label: 'Salud / EMO',        icon: HeartPulse, group: 'gestion', modulo: 'salud' },
+  { to: '/salud/mi-panel',          label: 'Salud · Mi panel',       icon: HeartPulse, group: 'gestion', hidden: true },
+  { to: '/salud/mi-ficha',          label: 'Salud · Mi ficha',       icon: HeartPulse, group: 'gestion', hidden: true },
+  { to: '/salud/ficha-medica',      label: 'Salud · Ficha médica',    icon: HeartPulse, group: 'gestion', hidden: true },
+  { to: '/salud/fichas-medicas',   label: 'Salud · Fichas (admin)',  icon: HeartPulse, group: 'gestion', hidden: true },
+  { to: '/salud/documentos',       label: 'Salud · Documentos',      icon: HeartPulse, group: 'gestion', hidden: true },
+  { to: '/salud/cronograma',        label: 'Salud · Cronograma', icon: HeartPulse, group: 'gestion', hidden: true },
+  { to: '/salud/lista',             label: 'Salud · Lista EMOs', icon: HeartPulse, group: 'gestion', hidden: true },
+  { to: '/capacitaciones',                    label: 'Capacitaciones',      icon: GraduationCap, group: 'gestion', modulo: 'capacitaciones' },
+  { to: '/capacitaciones/cronograma',         label: 'Capacit. · Cronograma', icon: GraduationCap, group: 'gestion', hidden: true },
+  { to: '/capacitaciones/lista',              label: 'Capacit. · Lista',      icon: GraduationCap, group: 'gestion', hidden: true },
+  { to: '/capacitaciones/mis-capacitaciones', label: 'Mis Capacitaciones',    icon: GraduationCap, group: 'gestion', hidden: true },
+  { to: '/simulacros',              label: 'Simulacros',         icon: Siren,       group: 'gestion',    modulo: 'simulacros' },
+  { to: '/simulacros/lista',        label: 'Simulacros · Lista', icon: Siren,       group: 'gestion',    hidden: true },
+  { to: '/auditorias',              label: 'Auditorías',         icon: FileSearch,  group: 'gestion',    modulo: 'auditorias' },
+  { to: '/formatos',                label: 'Formatos',           icon: FileText,    group: 'documental', modulo: 'formatos' },
+  { to: '/formatos/biblioteca',     label: 'Formatos · Biblioteca', icon: FileText,      group: 'documental', hidden: true },
+  { to: '/documentos',              label: 'Documentos',       icon: FolderArchive,   group: 'documental', modulo: 'documentos' },
+  { to: '/reportes',                label: 'Reportes MINTRA',  icon: BarChart3,       group: 'documental', modulo: 'reportes' },
+  { to: '/vehiculos',               label: 'Vehículos',        icon: Truck,           group: 'activos',    modulo: 'vehiculos' },
+  { to: '/equipos',                 label: 'Equipos',          icon: Wrench,          group: 'activos',    modulo: 'equipos' },
+  { to: '/sustancias',              label: 'Sust. Peligrosas', icon: FlaskConical,    group: 'activos',    modulo: 'sustancias' },
+  { to: '/sustancias/dashboard',          label: 'Sust. · Dashboard',        icon: FlaskConical, group: 'activos', hidden: true },
+  { to: '/sustancias/incompatibilidades', label: 'Sust. · Incompatibilidades',icon: FlaskConical, group: 'activos', hidden: true },
+  { to: '/equipos/inventario',      label: 'Equipos · Inventario', icon: Wrench,       group: 'activos', hidden: true },
+  { to: '/equipos/catalogo',        label: 'Equipos · Catálogo',   icon: Wrench,       group: 'activos', hidden: true },
+  { to: '/equipos/preguntas',       label: 'Equipos · Checklists', icon: Wrench,       group: 'activos', hidden: true },
+  { to: '/equipos/emergencia',      label: 'Equipos · Emergencia', icon: Wrench,       group: 'activos', hidden: true },
+  { to: '/equipos/inventario-area', label: 'Equipos · Por Área',   icon: Wrench,       group: 'activos', hidden: true },
   { to: '/programa',                label: 'Programa SST',     icon: CalendarRange,   group: 'planeacion' },
-  { to: '/configuracion/empresa',   label: 'Empresa',          icon: Building2,       group: 'configuracion' },
+  { to: '/configuracion/empresa',   label: 'Empresa',          icon: Building2,       group: 'configuracion', modulo: 'empresa' },
   { to: '/configuracion/areas',     label: 'Áreas y Cargos',   icon: LayoutGrid,      group: 'configuracion' },
-  { to: '/configuracion/usuarios',  label: 'Usuarios',         icon: UserCog,         group: 'configuracion' },
+  { to: '/configuracion/usuarios',  label: 'Usuarios',         icon: UserCog,         group: 'configuracion', modulo: 'usuarios' },
+  { to: '/configuracion/permisos',  label: 'Permisos Módulos', icon: ShieldCheck,     group: 'configuracion', modulo: 'permisos' },
   { to: '/notificaciones',          label: 'Notificaciones',   icon: BellRing,        group: 'sistema' },
   { to: '/auditoria',               label: 'Auditoría Log',    icon: ScrollText,      group: 'sistema' },
 ]
@@ -156,10 +181,10 @@ export default function AppLayout() {
 
       {/* ── Sidebar ─────────────────────────────────────────── */}
       <aside
-        className={`${collapsed ? 'w-[60px]' : 'w-[240px]'} bg-white border-r border-gray-200 flex flex-col flex-shrink-0 transition-[width] duration-200 ease-in-out overflow-hidden`}
+        className={`${collapsed ? 'w-[60px]' : 'w-[240px]'} bg-[#111827] flex flex-col flex-shrink-0 transition-[width] duration-200 ease-in-out overflow-hidden`}
       >
         {/* Logo row */}
-        <div className={`h-16 flex items-center flex-shrink-0 border-b border-gray-100 ${collapsed ? 'justify-center px-2' : 'pl-3 pr-2 justify-between'}`}>
+        <div className={`h-16 flex items-center flex-shrink-0 border-b border-white/5 ${collapsed ? 'justify-center px-2' : 'pl-3 pr-2 justify-between'}`}>
           <div className="flex items-center gap-2 min-w-0">
             {collapsed ? (
               <img src={cabezasaf} alt="SST ROKA" className="w-8 h-8 object-contain" />
@@ -167,8 +192,8 @@ export default function AppLayout() {
               <div className="flex items-center gap-2 min-w-0">
                 <img src={cabezasaf} alt="SST ROKA" className="h-9 w-9 object-contain flex-shrink-0" />
                 <div className="min-w-0">
-                  <p className="text-[11px] font-black text-gray-900 leading-tight">SST ROKA</p>
-                  <p className="text-[8px] font-bold text-gray-900 leading-tight tracking-wide">SEGURIDAD SALUD EN EL TRABAJO</p>
+                  <p className="text-[11px] font-black text-white leading-tight">SST ROKA</p>
+                  <p className="text-[8px] font-bold text-gray-400 leading-tight tracking-wide">SEGURIDAD SALUD EN EL TRABAJO</p>
                 </div>
               </div>
             )}
@@ -176,7 +201,7 @@ export default function AppLayout() {
           {!collapsed && (
             <button
               onClick={() => setCollapsed(true)}
-              className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0"
+              className="p-1.5 rounded-md text-gray-500 hover:text-gray-300 hover:bg-white/10 transition-colors flex-shrink-0"
             >
               <PanelLeftClose size={15} />
             </button>
@@ -184,7 +209,7 @@ export default function AppLayout() {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-px">
+        <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-px sidebar-nav">
           {GROUP_ORDER.map(groupKey => {
             const items = menuByGroup[groupKey]
             if (!items) return null
@@ -197,7 +222,7 @@ export default function AppLayout() {
                 {label && !collapsed && (
                   <button
                     onClick={() => toggleGroup(groupKey)}
-                    className="w-full flex items-center justify-between px-2 py-1.5 rounded-md text-[9px] font-semibold text-gray-900 uppercase tracking-widest bg-gray-100 hover:bg-gray-200 transition-colors"
+                    className="w-full flex items-center justify-between px-2 py-1.5 rounded-md text-[9px] font-semibold text-gray-500 uppercase tracking-widest hover:text-gray-300 transition-colors mt-1"
                   >
                     {label}
                     <ChevronDown
@@ -210,7 +235,16 @@ export default function AppLayout() {
                 {/* Items */}
                 {(isOpen || collapsed) && (
                   <div className="space-y-px">
-                    {items.filter(i => !i.hidden).map(item => {
+                    {items.filter(i => {
+                      if (i.hidden) return false
+                      if (!tieneAccesoRuta(user?.rol, i.to)) return false
+                      // Verificar permiso de módulo si el item tiene campo modulo
+                      if (i.modulo && user?.rol !== 'administrador') {
+                        const pm = user?.permisos_modulos?.[i.modulo]
+                        if (pm && !pm.puede_ver) return false
+                      }
+                      return true
+                    }).map(item => {
                       const Icon = item.icon
                       return (
                         <NavLink
@@ -222,8 +256,8 @@ export default function AppLayout() {
                               collapsed ? 'justify-center p-2.5' : 'px-2.5 py-[7px]'
                             } ${
                               isActive
-                                ? 'bg-roka-50 text-roka-600 font-medium'
-                                : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800'
+                                ? 'bg-roka-500/10 text-roka-400 font-medium'
+                                : 'text-gray-400 hover:bg-white/5 hover:text-gray-100'
                             }`
                           }
                         >
@@ -231,13 +265,13 @@ export default function AppLayout() {
                             <>
                               <Icon
                                 size={16}
-                                className={`flex-shrink-0 transition-colors ${isActive ? 'text-roka-500' : ''}`}
+                                className={`flex-shrink-0 transition-colors ${isActive ? 'text-roka-400' : ''}`}
                               />
                               {!collapsed && (
                                 <>
                                   <span className="flex-1 truncate">{item.label}</span>
                                   {isActive && (
-                                    <span className="w-1.5 h-1.5 rounded-full bg-roka-500 flex-shrink-0" />
+                                    <span className="w-1.5 h-1.5 rounded-full bg-roka-400 flex-shrink-0" />
                                   )}
                                 </>
                               )}
@@ -257,32 +291,32 @@ export default function AppLayout() {
         </nav>
 
         {/* User card / bottom */}
-        <div className="border-t border-gray-100 p-2">
+        <div className="border-t border-white/5 p-2">
           {collapsed ? (
             <button
               onClick={() => setCollapsed(false)}
-              className="w-full flex justify-center p-2.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+              className="w-full flex justify-center p-2.5 text-gray-500 hover:text-gray-300 hover:bg-white/10 rounded-lg transition-colors"
               title="Expandir menú"
             >
               <PanelLeftOpen size={16} />
             </button>
           ) : (
-            <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-gray-50 transition-colors group">
+            <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-white/5 transition-colors group">
               <div className="w-7 h-7 rounded-full bg-roka-500 flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0 select-none">
                 {initials}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-gray-800 truncate leading-tight">
+                <p className="text-xs font-semibold text-gray-200 truncate leading-tight">
                   {user?.nombres} {user?.apellidos}
                 </p>
-                <p className="text-[10px] text-gray-400 truncate leading-tight capitalize">
-                  {user?.rol?.replace(/_/g, ' ')}
-                </p>
+                <span className={`inline-block text-[9px] font-semibold px-1.5 py-0.5 rounded-full border mt-0.5 ${ROLES_CONFIG[user?.rol]?.color || 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                  {ROLES_CONFIG[user?.rol]?.label || user?.rol}
+                </span>
               </div>
               <button
                 onClick={handleLogout}
                 title="Cerrar sesión"
-                className="p-1 text-gray-300 hover:text-red-500 rounded-md transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
+                className="p-1 text-gray-600 hover:text-red-400 rounded-md transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
               >
                 <LogOut size={14} />
               </button>

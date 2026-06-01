@@ -1,5 +1,5 @@
-import { useNavigate } from 'react-router-dom'
-import { Link2, ClipboardList, Search, AlertCircle, TrendingUp, ArrowRight, ChevronLeft } from 'lucide-react'
+﻿import { useNavigate } from 'react-router-dom'
+import { Link2, ClipboardList, Search, AlertCircle, TrendingUp, ArrowRight, ArrowLeft } from 'lucide-react'
 
 const INTEGRACIONES = [
   {
@@ -67,9 +67,9 @@ export default function IpercIntegracionPage() {
       <div>
         <button
           onClick={() => navigate('/iperc')}
-          className="inline-flex items-center gap-1.5 text-xs text-slate-200 hover:text-white bg-slate-600/80 hover:bg-slate-600 px-2.5 py-1.5 rounded-lg border border-slate-600/50 transition-colors mb-3"
+          className="btn-back mb-3"
         >
-          <ChevronLeft size={13} /> Volver al módulo IPERC
+          <ArrowLeft size={16} /> Volver a IPERC
         </button>
         <h1 className="text-2xl font-bold text-white">Integración SST</h1>
         <p className="text-slate-400 text-sm mt-1">El IPERC es el eje central del sistema de gestión SST. Conéctalo con los demás módulos.</p>

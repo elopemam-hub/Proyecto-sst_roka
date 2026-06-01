@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useSelector } from 'react-redux'
+import { ROLES_CONFIG } from './utils/roles'
 
 import AppLayout from './components/layout/AppLayout'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -28,9 +29,11 @@ const IpercBancoPage          = lazy(() => import('./pages/iperc/IpercBancoPage'
 const IpercTablaPage          = lazy(() => import('./pages/iperc/IpercTablaPage'))
 
 // Fase 2 — ATS
+const AtsDashboardPage   = lazy(() => import('./pages/ats/AtsDashboardPage'))
 const AtsListPage        = lazy(() => import('./pages/ats/AtsListPage'))
 const AtsFormPage        = lazy(() => import('./pages/ats/AtsFormPage'))
 const AtsDetailPage      = lazy(() => import('./pages/ats/AtsDetailPage'))
+const AtsAlertasPage     = lazy(() => import('./pages/ats/AtsAlertasPage'))
 
 // Fase 2 — Firmas
 const FirmasPendientesPage = lazy(() => import('./pages/firmas/FirmasPendientesPage'))
@@ -40,11 +43,14 @@ const InspeccionDashboardPage = lazy(() => import('./pages/inspecciones/Inspecci
 const InspeccionListPage   = lazy(() => import('./pages/inspecciones/InspeccionListPage'))
 const InspeccionFormPage   = lazy(() => import('./pages/inspecciones/InspeccionFormPage'))
 const InspeccionDetailPage = lazy(() => import('./pages/inspecciones/InspeccionDetailPage'))
+const InspeccionAlertasPage = lazy(() => import('./pages/inspecciones/InspeccionAlertasPage'))
 
-// Inspecciones v2 — Checklist dinámico por catálogo
+// Inspecciones v2 — Checklist dinámico por catálogo + wizard general
 const InspeccionChecklistWizard = lazy(() => import('./pages/inspecciones/InspeccionChecklistWizard'))
+const InspeccionGeneralWizard   = lazy(() => import('./pages/inspecciones/InspeccionGeneralWizard'))
 const InspeccionEquiposPage     = lazy(() => import('./pages/inspecciones/InspeccionEquiposPage'))
-const InspeccionPreguntasPage   = lazy(() => import('./pages/inspecciones/InspeccionPreguntasPage'))
+const InspeccionPreguntasPage        = lazy(() => import('./pages/inspecciones/InspeccionPreguntasPage'))
+const BancoPreguntasImportExportPage = lazy(() => import('./pages/inspecciones/BancoPreguntasImportExportPage'))
 
 // Fase 3 — Accidentes
 const AccidenteListPage    = lazy(() => import('./pages/accidentes/AccidenteListPage'))
@@ -57,9 +63,10 @@ const SeguimientoFormPage   = lazy(() => import('./pages/seguimiento/Seguimiento
 const SeguimientoDetailPage = lazy(() => import('./pages/seguimiento/SeguimientoDetailPage'))
 
 // Fase 4 — Personal
-const PersonalListPage   = lazy(() => import('./pages/personal/PersonalListPage'))
-const PersonalFormPage   = lazy(() => import('./pages/personal/PersonalFormPage'))
-const PersonalDetailPage = lazy(() => import('./pages/personal/PersonalDetailPage'))
+const PersonalListPage         = lazy(() => import('./pages/personal/PersonalListPage'))
+const PersonalFormPage         = lazy(() => import('./pages/personal/PersonalFormPage'))
+const PersonalDetailPage       = lazy(() => import('./pages/personal/PersonalDetailPage'))
+const PersonalImportExportPage = lazy(() => import('./pages/personal/PersonalImportExportPage'))
 
 // Fase 4 — EPPs
 const EppDashboardPage     = lazy(() => import('./pages/epps/EppDashboardPage'))
@@ -74,19 +81,33 @@ const EppConfiguracionPage     = lazy(() => import('./pages/epps/EppConfiguracio
 const EppInventarioInicialPage = lazy(() => import('./pages/epps/EppInventarioInicialPage'))
 
 // Fase 4 — Salud
-const SaludListPage   = lazy(() => import('./pages/salud/SaludListPage'))
-const SaludFormPage   = lazy(() => import('./pages/salud/SaludFormPage'))
-const SaludDetailPage = lazy(() => import('./pages/salud/SaludDetailPage'))
+const SaludListPage          = lazy(() => import('./pages/salud/SaludListPage'))
+const SaludFormPage          = lazy(() => import('./pages/salud/SaludFormPage'))
+const SaludDetailPage        = lazy(() => import('./pages/salud/SaludDetailPage'))
+const SaludDashboardPage     = lazy(() => import('./pages/salud/SaludDashboardPage'))
+const MiPanelMedicoPage      = lazy(() => import('./pages/salud/MiPanelMedicoPage'))
+const MiFichaMedicaPage      = lazy(() => import('./pages/salud/MiFichaMedicaPage'))
+const FichaMedicaFormPage    = lazy(() => import('./pages/salud/FichaMedicaFormPage'))
+const FichasMedicasListPage  = lazy(() => import('./pages/salud/FichasMedicasListPage'))
+const SaludDocumentosPage    = lazy(() => import('./pages/salud/SaludDocumentosPage'))
+const CronogramaMedicoPage   = lazy(() => import('./pages/salud/CronogramaMedicoPage'))
+const CertificadoAptitudPage = lazy(() => import('./pages/salud/CertificadoAptitudPage'))
 
 // Fase 5 — Capacitaciones
-const CapacitacionListPage   = lazy(() => import('./pages/capacitaciones/CapacitacionListPage'))
-const CapacitacionFormPage   = lazy(() => import('./pages/capacitaciones/CapacitacionFormPage'))
-const CapacitacionDetailPage = lazy(() => import('./pages/capacitaciones/CapacitacionDetailPage'))
+const CapacitacionListPage      = lazy(() => import('./pages/capacitaciones/CapacitacionListPage'))
+const CapacitacionFormPage      = lazy(() => import('./pages/capacitaciones/CapacitacionFormPage'))
+const CapacitacionDetailPage    = lazy(() => import('./pages/capacitaciones/CapacitacionDetailPage'))
+const CapacitacionDashboardPage = lazy(() => import('./pages/capacitaciones/CapacitacionDashboardPage'))
+const CronogramaAnualPage       = lazy(() => import('./pages/capacitaciones/CronogramaAnualPage'))
+const MisCapacitacionesPage          = lazy(() => import('./pages/capacitaciones/MisCapacitacionesPage'))
+const CapacitacionImportExportPage   = lazy(() => import('./pages/capacitaciones/CapacitacionImportExportPage'))
 
 // Fase 5 — Simulacros
-const SimulacroListPage   = lazy(() => import('./pages/simulacros/SimulacroListPage'))
-const SimulacroFormPage   = lazy(() => import('./pages/simulacros/SimulacroFormPage'))
-const SimulacroDetailPage = lazy(() => import('./pages/simulacros/SimulacroDetailPage'))
+const SimulacroDashboardPage     = lazy(() => import('./pages/simulacros/SimulacroDashboardPage'))
+const SimulacroImportExportPage  = lazy(() => import('./pages/simulacros/SimulacroImportExportPage'))
+const SimulacroListPage      = lazy(() => import('./pages/simulacros/SimulacroListPage'))
+const SimulacroFormPage      = lazy(() => import('./pages/simulacros/SimulacroFormPage'))
+const SimulacroDetailPage    = lazy(() => import('./pages/simulacros/SimulacroDetailPage'))
 
 // Fase 5 — Auditorías
 const AuditoriaListPage   = lazy(() => import('./pages/auditorias/AuditoriaListPage'))
@@ -94,9 +115,10 @@ const AuditoriaFormPage   = lazy(() => import('./pages/auditorias/AuditoriaFormP
 const AuditoriaDetailPage = lazy(() => import('./pages/auditorias/AuditoriaDetailPage'))
 
 // Fase 6 — Formatos
-const FormatoListPage   = lazy(() => import('./pages/formatos/FormatoListPage'))
-const FormatoFormPage   = lazy(() => import('./pages/formatos/FormatoFormPage'))
-const FormatoDetailPage = lazy(() => import('./pages/formatos/FormatoDetailPage'))
+const FormatoListPage       = lazy(() => import('./pages/formatos/FormatoListPage'))
+const FormatoFormPage       = lazy(() => import('./pages/formatos/FormatoFormPage'))
+const FormatoDetailPage     = lazy(() => import('./pages/formatos/FormatoDetailPage'))
+const FormatoBibliotecaPage = lazy(() => import('./pages/formatos/FormatoBibliotecaPage'))
 
 // Fase 6 — Documentos
 const DocumentoListPage   = lazy(() => import('./pages/documentos/DocumentoListPage'))
@@ -109,15 +131,30 @@ const ReportesPage = lazy(() => import('./pages/reportes/ReportesPage'))
 // Fase 9 — Configuración
 const EmpresaPage  = lazy(() => import('./pages/configuracion/EmpresaPage'))
 const AreasPage    = lazy(() => import('./pages/configuracion/AreasPage'))
-const UsuariosPage = lazy(() => import('./pages/configuracion/UsuariosPage'))
+const UsuariosPage  = lazy(() => import('./pages/configuracion/UsuariosPage'))
+const PermisosPage  = lazy(() => import('./pages/configuracion/PermisosPage'))
 
 // Fase 9 — Vehículos
 const VehiculoListPage = lazy(() => import('./pages/vehiculos/VehiculoListPage'))
 const VehiculoFormPage = lazy(() => import('./pages/vehiculos/VehiculoFormPage'))
 
 // Fase 9 — Equipos
-const EquipoListPage = lazy(() => import('./pages/equipos/EquipoListPage'))
-const EquipoFormPage = lazy(() => import('./pages/equipos/EquipoFormPage'))
+const EquipoListPage        = lazy(() => import('./pages/equipos/EquipoListPage'))
+const EquipoFormPage        = lazy(() => import('./pages/equipos/EquipoFormPage'))
+const EquipoInventarioPage      = lazy(() => import('./pages/equipos/EquipoInventarioPage'))
+const EquipoEmergenciaPage      = lazy(() => import('./pages/equipos/EquipoEmergenciaPage'))
+const EquipoInventarioAreaPage  = lazy(() => import('./pages/equipos/EquipoInventarioAreaPage'))
+
+// Sustancias Peligrosas
+const SustanciaListPage              = lazy(() => import('./pages/sustancias/SustanciaListPage'))
+const SustanciaFormPage              = lazy(() => import('./pages/sustancias/SustanciaFormPage'))
+const SustanciaDetailPage            = lazy(() => import('./pages/sustancias/SustanciaDetailPage'))
+const SustanciaDashboardPage         = lazy(() => import('./pages/sustancias/SustanciaDashboardPage'))
+const SustanciaEtiquetaPage          = lazy(() => import('./pages/sustancias/SustanciaEtiquetaPage'))
+const SustanciaIncompatibilidadesPage= lazy(() => import('./pages/sustancias/SustanciaIncompatibilidadesPage'))
+const SustanciaMovimientosPage       = lazy(() => import('./pages/sustancias/SustanciaMovimientosPage'))
+const SustanciaImportPage            = lazy(() => import('./pages/sustancias/SustanciaImportPage'))
+const SustanciaInventarioPage        = lazy(() => import('./pages/sustancias/SustanciaInventarioPage'))
 
 // Fase 9 — Programa SST
 const ProgramaListPage   = lazy(() => import('./pages/programa/ProgramaListPage'))
@@ -129,6 +166,9 @@ const NotificacionesPage = lazy(() => import('./pages/notificaciones/Notificacio
 
 // Fase 9 — Auditoría de sistema
 const AuditoriaLogPage = lazy(() => import('./pages/auditoria/AuditoriaLogPage'))
+
+// Sin acceso
+const SinAccesoPage = lazy(() => import('./pages/SinAccesoPage'))
 
 // Spinner de transición de ruta
 function PageLoader() {
@@ -142,6 +182,16 @@ function PageLoader() {
 function RequireAuth({ children }) {
   const token = useSelector(s => s.auth.token)
   if (!token) return <Navigate to="/login" replace />
+  return children
+}
+
+function RequireRol({ modulos, children }) {
+  const user = useSelector(s => s.auth.user)
+  const rol = user?.rol
+  if (!rol) return <Navigate to="/login" replace />
+  const cfg = ROLES_CONFIG[rol]
+  const ok = cfg?.modulos?.includes('*') || modulos.some(m => cfg?.modulos?.includes(m))
+  if (!ok) return <Navigate to="/sin-acceso" replace />
   return children
 }
 
@@ -180,7 +230,9 @@ export default function App() {
             <Route path="iperc/:id/editar"           element={<IpercFormPage />} />
 
             {/* ATS */}
-            <Route path="ats"                  element={<AtsListPage />} />
+            <Route path="ats"                  element={<AtsDashboardPage />} />
+            <Route path="ats/gestion"          element={<AtsListPage />} />
+            <Route path="ats/alertas"          element={<AtsAlertasPage />} />
             <Route path="ats/nuevo"            element={<AtsFormPage />} />
             <Route path="ats/:id"              element={<AtsDetailPage />} />
             <Route path="ats/:id/editar"       element={<AtsFormPage />} />
@@ -191,12 +243,15 @@ export default function App() {
             {/* Inspecciones */}
             <Route path="inspecciones"                        element={<InspeccionDashboardPage />} />
             <Route path="inspecciones/lista"                  element={<InspeccionListPage />} />
+            <Route path="inspecciones/alertas"                element={<InspeccionAlertasPage />} />
             <Route path="inspecciones/nueva"                  element={<InspeccionFormPage />} />
-            <Route path="inspecciones/nueva/general"          element={<InspeccionFormPage />} />
+            <Route path="inspecciones/nueva/general"          element={<InspeccionGeneralWizard />} />
             <Route path="inspecciones/checklist/nueva"        element={<InspeccionChecklistWizard />} />
             <Route path="inspecciones/checklist/:id"          element={<InspeccionChecklistWizard />} />
-            <Route path="inspecciones/equipos"                element={<InspeccionEquiposPage />} />
-            <Route path="inspecciones/preguntas"              element={<InspeccionPreguntasPage />} />
+            {/* Redirigir rutas antiguas al nuevo hogar en Módulo Equipos */}
+            <Route path="inspecciones/equipos"            element={<Navigate to="/equipos/catalogo" replace />} />
+            <Route path="inspecciones/preguntas"          element={<Navigate to="/equipos/preguntas" replace />} />
+            <Route path="inspecciones/preguntas/importar" element={<Navigate to="/equipos/preguntas/importar" replace />} />
             <Route path="inspecciones/:id"                    element={<InspeccionDetailPage />} />
             <Route path="inspecciones/:id/editar"             element={<InspeccionFormPage />} />
 
@@ -214,6 +269,7 @@ export default function App() {
 
             {/* Personal */}
             <Route path="personal"                  element={<PersonalListPage />} />
+            <Route path="personal/importar"         element={<PersonalImportExportPage />} />
             <Route path="personal/nuevo"            element={<PersonalFormPage />} />
             <Route path="personal/:id"              element={<PersonalDetailPage />} />
             <Route path="personal/:id/editar"       element={<PersonalFormPage />} />
@@ -232,19 +288,34 @@ export default function App() {
             <Route path="epps/inventario-inicial"   element={<EppInventarioInicialPage />} />
 
             {/* Salud */}
-            <Route path="salud"                     element={<SaludListPage />} />
-            <Route path="salud/nuevo"               element={<SaludFormPage />} />
-            <Route path="salud/:id"                 element={<SaludDetailPage />} />
-            <Route path="salud/:id/editar"          element={<SaludFormPage />} />
+            {/* Salud / EMO */}
+            <Route path="salud"                            element={<SaludDashboardPage />} />
+            <Route path="salud/lista"                      element={<SaludListPage />} />
+            <Route path="salud/mi-panel"                   element={<MiPanelMedicoPage />} />
+            <Route path="salud/mi-ficha"                   element={<MiFichaMedicaPage />} />
+            <Route path="salud/ficha-medica"               element={<FichaMedicaFormPage />} />
+            <Route path="salud/fichas-medicas"             element={<FichasMedicasListPage />} />
+            <Route path="salud/documentos"                 element={<SaludDocumentosPage />} />
+            <Route path="salud/cronograma"                 element={<CronogramaMedicoPage />} />
+            <Route path="salud/certificado/:personalId"    element={<CertificadoAptitudPage />} />
+            <Route path="salud/nuevo"                      element={<SaludFormPage />} />
+            <Route path="salud/:id"                        element={<SaludDetailPage />} />
+            <Route path="salud/:id/editar"                 element={<SaludFormPage />} />
 
             {/* Capacitaciones */}
-            <Route path="capacitaciones"              element={<CapacitacionListPage />} />
-            <Route path="capacitaciones/nueva"        element={<CapacitacionFormPage />} />
-            <Route path="capacitaciones/:id"          element={<CapacitacionDetailPage />} />
-            <Route path="capacitaciones/:id/editar"   element={<CapacitacionFormPage />} />
+            <Route path="capacitaciones"                          element={<CapacitacionDashboardPage />} />
+            <Route path="capacitaciones/lista"                    element={<CapacitacionListPage />} />
+            <Route path="capacitaciones/cronograma"               element={<CronogramaAnualPage />} />
+            <Route path="capacitaciones/mis-capacitaciones"       element={<MisCapacitacionesPage />} />
+            <Route path="capacitaciones/importar"                 element={<CapacitacionImportExportPage />} />
+            <Route path="capacitaciones/nueva"                    element={<CapacitacionFormPage />} />
+            <Route path="capacitaciones/:id"                      element={<CapacitacionDetailPage />} />
+            <Route path="capacitaciones/:id/editar"               element={<CapacitacionFormPage />} />
 
             {/* Simulacros */}
-            <Route path="simulacros"                  element={<SimulacroListPage />} />
+            <Route path="simulacros"                  element={<SimulacroDashboardPage />} />
+            <Route path="simulacros/lista"            element={<SimulacroListPage />} />
+            <Route path="simulacros/importar"         element={<SimulacroImportExportPage />} />
             <Route path="simulacros/nuevo"            element={<SimulacroFormPage />} />
             <Route path="simulacros/:id"              element={<SimulacroDetailPage />} />
             <Route path="simulacros/:id/editar"       element={<SimulacroFormPage />} />
@@ -257,6 +328,7 @@ export default function App() {
 
             {/* Formatos RM 050-2013-TR */}
             <Route path="formatos"                    element={<FormatoListPage />} />
+            <Route path="formatos/biblioteca"         element={<FormatoBibliotecaPage />} />
             <Route path="formatos/nuevo"              element={<FormatoFormPage />} />
             <Route path="formatos/:id"                element={<FormatoDetailPage />} />
             <Route path="formatos/:id/editar"         element={<FormatoFormPage />} />
@@ -268,12 +340,36 @@ export default function App() {
             <Route path="documentos/:id/editar"       element={<DocumentoFormPage />} />
 
             {/* Reportes MINTRA */}
-            <Route path="reportes"                    element={<ReportesPage />} />
+            <Route path="reportes" element={
+              <RequireRol modulos={['reportes']}>
+                <ReportesPage />
+              </RequireRol>
+            } />
 
-            {/* Configuración */}
-            <Route path="configuracion/empresa"       element={<EmpresaPage />} />
-            <Route path="configuracion/areas"         element={<AreasPage />} />
-            <Route path="configuracion/usuarios"      element={<UsuariosPage />} />
+            {/* Configuración — solo administrador */}
+            <Route path="configuracion/empresa" element={
+              <RequireRol modulos={['configuracion']}>
+                <EmpresaPage />
+              </RequireRol>
+            } />
+            <Route path="configuracion/areas" element={
+              <RequireRol modulos={['configuracion']}>
+                <AreasPage />
+              </RequireRol>
+            } />
+            <Route path="configuracion/usuarios" element={
+              <RequireRol modulos={['configuracion']}>
+                <UsuariosPage />
+              </RequireRol>
+            } />
+            <Route path="configuracion/permisos" element={
+              <RequireRol modulos={['configuracion']}>
+                <PermisosPage />
+              </RequireRol>
+            } />
+
+            {/* Sin acceso */}
+            <Route path="sin-acceso" element={<SinAccesoPage />} />
 
             {/* Vehículos */}
             <Route path="vehiculos"                   element={<VehiculoListPage />} />
@@ -282,6 +378,25 @@ export default function App() {
 
             {/* Equipos */}
             <Route path="equipos"                     element={<EquipoListPage />} />
+            <Route path="equipos/inventario"          element={<EquipoInventarioPage />} />
+            <Route path="equipos/inventario-area"    element={<EquipoInventarioAreaPage />} />
+            <Route path="equipos/emergencia"          element={<EquipoEmergenciaPage />} />
+
+            {/* Sustancias Peligrosas */}
+            <Route path="sustancias"                        element={<SustanciaListPage />} />
+            <Route path="sustancias/dashboard"              element={<SustanciaDashboardPage />} />
+            <Route path="sustancias/incompatibilidades"     element={<SustanciaIncompatibilidadesPage />} />
+            <Route path="sustancias/nueva"                  element={<SustanciaFormPage />} />
+            <Route path="sustancias/:id"                    element={<SustanciaDetailPage />} />
+            <Route path="sustancias/:id/editar"             element={<SustanciaFormPage />} />
+            <Route path="sustancias/:id/etiqueta"             element={<SustanciaEtiquetaPage />} />
+            <Route path="sustancias/:id/movimientos"         element={<SustanciaMovimientosPage />} />
+            <Route path="sustancias/importar"               element={<SustanciaImportPage />} />
+            <Route path="sustancias/inventario"             element={<SustanciaInventarioPage />} />
+            {/* Catálogo de tipos y banco de preguntas — hogar definitivo en Equipos */}
+            <Route path="equipos/catalogo"            element={<InspeccionEquiposPage />} />
+            <Route path="equipos/preguntas"           element={<InspeccionPreguntasPage />} />
+            <Route path="equipos/preguntas/importar"  element={<BancoPreguntasImportExportPage />} />
             <Route path="equipos/nuevo"               element={<EquipoFormPage />} />
             <Route path="equipos/:id/editar"          element={<EquipoFormPage />} />
 

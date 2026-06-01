@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useSelector } from 'react-redux'
 import {
   Plus, Search, Filter, AlertTriangle, Shield,
-  TrendingUp, Calendar, FileText, Eye, Edit, Trash2,
-  AlertCircle, CheckCircle2, Clock
+  Calendar, FileText, Eye, Edit, Trash2,
+  AlertCircle, CheckCircle2, Clock, ArrowLeft
 } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
@@ -28,13 +29,16 @@ const ESTADOS = {
 }
 
 export default function IpercListPage() {
-  const navigate = useNavigate()
+  const navigate  = useNavigate()
+  const user      = useSelector(s => s.auth.user)
+  const esAdmin   = user?.rol === 'administrador'
   const [items,     setItems]     = useState([])
   const [matriz,    setMatriz]    = useState(null)
   const [loading,   setLoading]   = useState(true)
   const [search,    setSearch]    = useState('')
   const [estado,    setEstado]    = useState('')
   const [pagina,    setPagina]    = useState(1)
+  const [eliminando, setEliminando] = useState(null)
 
   useEffect(() => {
     cargarDatos()
@@ -50,7 +54,9 @@ export default function IpercListPage() {
       setItems(list.data || [])
       setMatriz(mat)
     } catch (err) {
-      toast.error('Error al cargar IPERC')
+      const msg = err?.response?.data?.message || err?.message || 'Error de conexión'
+      console.error('[IPERC] Error al cargar:', err?.response?.status, msg, err)
+      toast.error(`Error al cargar IPERC: ${msg}`)
     } finally {
       setLoading(false)
     }
@@ -62,12 +68,30 @@ export default function IpercListPage() {
     cargarDatos()
   }
 
+  const handleEliminar = async (e, id, codigo) => {
+    e.stopPropagation()
+    if (!confirm(`¿Eliminar el IPERC ${codigo}? Esta acción no se puede deshacer.`)) return
+    setEliminando(id)
+    try {
+      await api.delete(`/iperc/${id}`)
+      toast.success(`IPERC ${codigo} eliminado`)
+      cargarDatos()
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'No se pudo eliminar')
+    } finally {
+      setEliminando(null)
+    }
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
 
       {/* ── Encabezado ──────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
+          <button onClick={() => navigate('/iperc')} className="btn-back mb-3">
+            <ArrowLeft size={16} /> Volver a IPERC
+          </button>
           <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
             <span>Riesgos y Control</span>
             <span>/</span>
@@ -158,15 +182,15 @@ export default function IpercListPage() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-800/50 border-b border-slate-800">
+              <thead className="bg-gray-100 border-b border-gray-200">
                 <tr>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase tracking-wider">Código</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase tracking-wider">Título</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase tracking-wider">Área</th>
-                  <th className="text-center py-3 px-4 text-xs font-medium text-slate-500 uppercase tracking-wider">Riesgos</th>
-                  <th className="text-center py-3 px-4 text-xs font-medium text-slate-500 uppercase tracking-wider">Estado</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase tracking-wider">Vigencia</th>
-                  <th className="text-right py-3 px-4 text-xs font-medium text-slate-500 uppercase tracking-wider">Acciones</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Código</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Título</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Área</th>
+                  <th className="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Riesgos</th>
+                  <th className="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Estado</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Vigencia</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -178,15 +202,15 @@ export default function IpercListPage() {
                   return (
                     <tr
                       key={it.id}
-                      className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors cursor-pointer"
+                      className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
                       onClick={() => navigate(`/iperc/${it.id}`)}
                     >
                       <td className="py-3 px-4">
-                        <code className="text-xs font-mono text-roka-400">{it.codigo}</code>
+                        <code className="text-xs font-mono text-roka-600">{it.codigo}</code>
                       </td>
                       <td className="py-3 px-4">
-                        <div className="font-medium text-slate-200">{it.titulo}</div>
-                        <div className="text-xs text-slate-500">v{it.version}</div>
+                        <div className="font-medium text-gray-800">{it.titulo}</div>
+                        <div className="text-xs text-gray-400">v{it.version}</div>
                       </td>
                       <td className="py-3 px-4">
                         <span className="badge badge-gray capitalize">{it.area?.nombre}</span>
@@ -194,18 +218,18 @@ export default function IpercListPage() {
                       <td className="py-3 px-4">
                         {it.resumen_riesgos ? (
                           <div className="flex items-center justify-center gap-1.5">
-                            <span className="text-slate-300 font-semibold tabular-nums">
+                            <span className="text-gray-700 font-semibold tabular-nums">
                               {it.resumen_riesgos.total}
                             </span>
                             {it.resumen_riesgos.significativos > 0 && (
-                              <span className="inline-flex items-center gap-1 text-xs text-red-400 ml-1">
+                              <span className="inline-flex items-center gap-1 text-xs text-red-500 ml-1">
                                 <AlertTriangle size={10} />
                                 {it.resumen_riesgos.significativos}
                               </span>
                             )}
                           </div>
                         ) : (
-                          <span className="text-slate-600">—</span>
+                          <span className="text-gray-400">—</span>
                         )}
                       </td>
                       <td className="py-3 px-4 text-center">
@@ -216,23 +240,50 @@ export default function IpercListPage() {
                       </td>
                       <td className="py-3 px-4">
                         {it.fecha_vigencia ? (
-                          <div className={`text-xs ${vencido ? 'text-red-400' : 'text-slate-400'}`}>
+                          <div className={`text-xs ${vencido ? 'text-red-500' : 'text-gray-500'}`}>
                             <Calendar size={10} className="inline mr-1" />
                             {format(new Date(it.fecha_vigencia), 'dd MMM yyyy', { locale: es })}
                             {vencido && <span className="ml-1">(vencido)</span>}
                           </div>
                         ) : (
-                          <span className="text-slate-600 text-xs">Sin vigencia</span>
+                          <span className="text-gray-400 text-xs">Sin vigencia</span>
                         )}
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); navigate(`/iperc/${it.id}`) }}
-                          className="p-1.5 rounded-md text-slate-400 hover:text-roka-400 hover:bg-slate-800 transition-colors"
-                          title="Ver detalle"
-                        >
-                          <Eye size={14} />
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          {/* Ver detalle — todos los usuarios */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); navigate(`/iperc/${it.id}`) }}
+                            className="p-1.5 rounded-md text-gray-400 hover:text-roka-600 hover:bg-gray-100 transition-colors"
+                            title="Ver detalle"
+                          >
+                            <Eye size={14} />
+                          </button>
+
+                          {/* Modificar — todos los usuarios */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); navigate(`/iperc/${it.id}/editar`) }}
+                            className="p-1.5 rounded-md text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                            title="Modificar"
+                          >
+                            <Edit size={14} />
+                          </button>
+
+                          {/* Eliminar — solo administrador */}
+                          {esAdmin && (
+                            <button
+                              onClick={(e) => handleEliminar(e, it.id, it.codigo)}
+                              disabled={eliminando === it.id}
+                              className="p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40"
+                              title="Eliminar"
+                            >
+                              {eliminando === it.id
+                                ? <div className="w-3.5 h-3.5 border border-red-400 border-t-transparent rounded-full animate-spin" />
+                                : <Trash2 size={14} />
+                              }
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )

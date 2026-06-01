@@ -3,23 +3,25 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ChevronLeft, Save } from 'lucide-react'
 import api from '../../services/api'
 
-const TIPOS   = { maquinaria: 'Maquinaria', herramienta: 'Herramienta', instrumento: 'Instrumento', vehiculo: 'Vehículo', otro: 'Otro' }
+const TIPOS   = { maquinaria: 'Maquinaria', herramienta: 'Herramienta', instrumento: 'Instrumento', equipo_medicion: 'Equipo de medición', electrico: 'Eléctrico', vehiculo: 'Vehículo', extintor: '🔥 Extintor', emergencias: '🚨 Emergencias', otro: 'Otro' }
 const ESTADOS = { operativo: 'Operativo', mantenimiento: 'Mantenimiento', baja: 'Baja' }
 
 const inicial = {
   codigo: '', nombre: '', tipo: 'maquinaria', marca: '', modelo: '', serie: '',
   fecha_ultimo_mantenimiento: '', fecha_proxima_calibracion: '', fecha_proxima_revision: '',
   area_id: '', responsable_id: '', estado: 'operativo', observaciones: '',
+  equipo_catalogo_id: '',
 }
 
 export default function EquipoFormPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [form, setForm]     = useState(inicial)
-  const [areas, setAreas]   = useState([])
-  const [personal, setPersonal] = useState([])
-  const [saving, setSaving] = useState(false)
-  const [errors, setErrors] = useState({})
+  const [areas, setAreas]           = useState([])
+  const [personal, setPersonal]     = useState([])
+  const [catalogos, setCatalogos]   = useState([])
+  const [saving, setSaving]         = useState(false)
+  const [errors, setErrors]         = useState({})
 
   useEffect(() => {
     cargarCatalogos()
@@ -28,12 +30,14 @@ export default function EquipoFormPage() {
 
   const cargarCatalogos = async () => {
     try {
-      const [{ data: a }, { data: p }] = await Promise.all([
+      const [{ data: a }, { data: p }, { data: cat }] = await Promise.all([
         api.get('/areas').catch(() => ({ data: [] })),
         api.get('/personal', { params: { per_page: 200 } }).catch(() => ({ data: [] })),
+        api.get('/checklist/equipos', { params: { activos: false } }).catch(() => ({ data: [] })),
       ])
       setAreas(Array.isArray(a) ? a : (a.data || []))
       setPersonal(Array.isArray(p) ? p : (p.data || []))
+      setCatalogos(Array.isArray(cat) ? cat : (cat.data || []))
     } catch { /* silent */ }
   }
 
@@ -51,10 +55,11 @@ export default function EquipoFormPage() {
         fecha_ultimo_mantenimiento: e.fecha_ultimo_mantenimiento?.substring(0, 10) || '',
         fecha_proxima_calibracion:  e.fecha_proxima_calibracion?.substring(0, 10)  || '',
         fecha_proxima_revision:     e.fecha_proxima_revision?.substring(0, 10)     || '',
-        area_id:        e.area_id        || '',
-        responsable_id: e.responsable_id || '',
-        estado:         e.estado         || 'operativo',
-        observaciones:  e.observaciones  || '',
+        area_id:            e.area_id            || '',
+        responsable_id:     e.responsable_id     || '',
+        equipo_catalogo_id: e.equipo_catalogo_id || '',
+        estado:             e.estado             || 'operativo',
+        observaciones:      e.observaciones      || '',
       })
     } catch { /* silent */ }
   }
@@ -183,6 +188,42 @@ export default function EquipoFormPage() {
               {Object.entries(ESTADOS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </div>
+
+          {/* Vinculación con catálogo de inspecciones */}
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-gray-500 mb-1 flex items-center gap-1">
+              Tipo de checklist (catálogo de inspecciones)
+              <span className="text-gray-400 font-normal">— vincula este activo a un tipo de checklist</span>
+            </label>
+            <select value={form.equipo_catalogo_id} onChange={e => f('equipo_catalogo_id', e.target.value)}
+              className={inputClass('equipo_catalogo_id')}>
+              <option value="">Sin checklist asignado</option>
+              {(() => {
+                const grupos = {}
+                catalogos.forEach(c => {
+                  const g = c.submodulo?.nombre || 'General'
+                  if (!grupos[g]) grupos[g] = []
+                  grupos[g].push(c)
+                })
+                return Object.entries(grupos).map(([g, items]) => (
+                  <optgroup key={g} label={`Sub-módulo ${g}`}>
+                    {items.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.codigo ? `${c.codigo} — ` : ''}{c.nombre}
+                        {c.preguntas_count > 0 ? ` (${c.preguntas_count} preguntas)` : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))
+              })()}
+            </select>
+            {form.equipo_catalogo_id && (
+              <p className="text-xs text-emerald-600 mt-1">
+                ✓ Al crear una inspección "Por catálogo" de este tipo, este activo estará disponible para seleccionar.
+              </p>
+            )}
+          </div>
+
           <div className="col-span-2">
             <label className="block text-xs font-medium text-gray-500 mb-1">Observaciones</label>
             <textarea value={form.observaciones} onChange={e => f('observaciones', e.target.value)} rows={3}

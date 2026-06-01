@@ -1,0 +1,80 @@
+﻿========================================================================
+  SST ROKA â€” GUÃA DE DESPLIEGUE EN HOSTINGER
+  Generado: 01/06/2026 10:42
+========================================================================
+
+ESTRUCTURA EN EL SERVIDOR HOSTINGER:
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  /home/TUUSUARIO/
+  â”œâ”€â”€ public_html/                  â† React + API entry point
+  â”‚   â”œâ”€â”€ index.html                â† App React
+  â”‚   â”œâ”€â”€ assets/                   â† JS/CSS compilados
+  â”‚   â”œâ”€â”€ .htaccess                 â† Reglas SPA + GZIP
+  â”‚   â””â”€â”€ api/
+  â”‚       â”œâ”€â”€ index.php             â† Punto de entrada Laravel
+  â”‚       â””â”€â”€ .htaccess             â† Reglas API
+  â””â”€â”€ sst_roka_backend/             â† Laravel (fuera de public_html)
+      â”œâ”€â”€ app/
+      â”œâ”€â”€ routes/
+      â”œâ”€â”€ .env                      â† Configurar con tus datos
+      â””â”€â”€ vendor/
+
+PASOS DE DESPLIEGUE:
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+1. SUBIR ARCHIVOS (vÃ­a FTP/FileManager Hostinger):
+
+   a) Sube el contenido de 'dist_deploy/public_html/' a tu 'public_html/'
+   b) Sube el contenido de 'dist_deploy/sst_roka_backend/' a una carpeta
+      llamada 'sst_roka_backend' en la raÃ­z del servidor (NO dentro de public_html)
+
+2. CONFIGURAR .ENV EN EL SERVIDOR:
+
+   a) Renombra 'sst_roka_backend/.env.produccion-EDITAR' a '.env'
+   b) Edita el .env con tus datos de Hostinger:
+      - APP_URL=https://TUDOMINIO.COM
+      - DB_DATABASE=nombre_de_tu_bd
+      - DB_USERNAME=usuario_bd
+      - DB_PASSWORD=password_bd
+      - SANCTUM_STATEFUL_DOMAINS=TUDOMINIO.COM
+
+3. EDITAR api/index.php:
+
+   Cambia la variable laravelRoot con la ruta absoluta en Hostinger:
+   $laravelRoot = '/home/TUUSUARIO/sst_roka_backend';
+
+4. PERMISOS (vÃ­a SSH o FileManager):
+
+   chmod -R 755 sst_roka_backend/storage
+   chmod -R 755 sst_roka_backend/bootstrap/cache
+
+5. COMANDOS ARTISAN (vÃ­a SSH o Script PHP):
+
+   cd sst_roka_backend
+   php artisan key:generate          # Solo si es primera instalaciÃ³n
+   php artisan migrate --force       # Ejecutar migraciones
+   php artisan config:cache
+   php artisan route:cache
+   php artisan view:cache
+   php artisan storage:link
+
+6. BASE DE DATOS:
+
+   a) Crea la BD en el panel de Hostinger (MySQL)
+   b) Importa el backup de tu BD local (phpMyAdmin â†’ Exportar â†’ SQL)
+   c) Actualiza DB_DATABASE, DB_USERNAME, DB_PASSWORD en .env
+
+7. VERIFICAR:
+
+   âœ“ https://TUDOMINIO.COM â†’ Debe mostrar la app React
+   âœ“ https://TUDOMINIO.COM/api/ping â†’ Debe responder {"status":"ok"}
+   âœ“ Login con tus credenciales
+
+NOTAS IMPORTANTES:
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+- El dominio en cors.php ya estÃ¡ configurado con env('APP_URL')
+- Si usas SSL (HTTPS), asegÃºrate de que el .env tenga APP_URL con https://
+- El storage/app/public/hds se usa para las HDS de sustancias peligrosas
+- Ejecuta 'php artisan storage:link' para que los archivos subidos sean accesibles
+
+========================================================================

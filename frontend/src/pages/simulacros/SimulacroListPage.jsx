@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Siren, CalendarCheck, Clock, Star, TrendingUp, Search } from 'lucide-react'
+import { Plus, Siren, CalendarCheck, Clock, Star, TrendingUp, Search, ArrowLeft } from 'lucide-react'
 import api from '../../services/api'
 import { format } from 'date-fns'
 
@@ -16,7 +16,7 @@ const TIPOS = {
   derrame:           'Derrame',
   evacuacion:        'Evacuación',
   primeros_auxilios: 'Primeros Auxilios',
-  otro:              'Otro',
+  violencia:         'Violencia',
 }
 
 const TIPO_ICONOS = {
@@ -25,7 +25,7 @@ const TIPO_ICONOS = {
   derrame:           '☠️',
   evacuacion:        '🚨',
   primeros_auxilios: '🩺',
-  otro:              '📋',
+  violencia:         '🚔',
 }
 
 export default function SimulacroListPage() {
@@ -68,9 +68,14 @@ export default function SimulacroListPage() {
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Simulacros</h1>
-          <p className="text-slate-400 text-sm mt-1">Simulacros de emergencia · Art. 74 DS 005-2012-TR</p>
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate('/simulacros')} className="btn-back">
+            <ArrowLeft size={14} /> Dashboard
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-white">Lista de Simulacros</h1>
+            <p className="text-slate-400 text-sm mt-1">Simulacros de emergencia · Art. 74 DS 005-2012-TR</p>
+          </div>
         </div>
         <button onClick={() => navigate('/simulacros/nuevo')}
           className="flex items-center gap-2 bg-roka-500 hover:bg-roka-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-lg shadow-roka-500/20">

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, GraduationCap, CalendarCheck, Clock, Users, TrendingUp, Search } from 'lucide-react'
+import { Plus, GraduationCap, CalendarCheck, Clock, Users, TrendingUp, Search, ArrowLeft } from 'lucide-react'
 import api from '../../services/api'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -69,9 +69,14 @@ export default function CapacitacionListPage() {
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Capacitaciones</h1>
-          <p className="text-slate-400 text-sm mt-1">Programa de capacitación SST · Art. 35 Ley 29783</p>
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate('/capacitaciones')} className="btn-back">
+            <ArrowLeft size={14} /> Capacitaciones
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-white">Capacitaciones</h1>
+            <p className="text-slate-400 text-sm mt-1">Programa de capacitación SST · Art. 35 Ley 29783</p>
+          </div>
         </div>
         <button
           onClick={() => navigate('/capacitaciones/nueva')}

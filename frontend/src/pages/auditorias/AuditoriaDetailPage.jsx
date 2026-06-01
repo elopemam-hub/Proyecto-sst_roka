@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Edit, Plus, AlertTriangle, CheckCircle2, Clock, FileSearch, XCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import api from '../../services/api'
@@ -126,7 +126,7 @@ export default function AuditoriaDetailPage() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-4">
           <button onClick={() => navigate('/auditorias')}
-            className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors">
+            className="btn-back">
             <ArrowLeft size={20} />
           </button>
           <div>

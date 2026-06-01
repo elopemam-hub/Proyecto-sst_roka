@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+﻿import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ChevronRight, ChevronLeft, Check, Camera, X, AlertTriangle,
   ClipboardCheck, PenLine, Info, Loader2, CheckCircle2, ArrowLeft
@@ -93,12 +93,17 @@ function FirmaCanvas({ label, onFirmar, firmado }) {
 
 // ── Pregunta individual ───────────────────────────────────────
 function PreguntaItem({ pregunta, respuesta, onChange }) {
-  const fileRef      = useRef(null)
+  const fileRef         = useRef(null)
   const [nota, setNota] = useState(respuesta?.nota || '')
-  const [showNota, setShowNota] = useState(false)
-  const [foto, setFoto]  = useState(null)
+  const [foto, setFoto] = useState(null)
+  const [cantidad, setCantidad]             = useState(respuesta?.cantidad ?? '')
+  const [fechaVenc, setFechaVenc]           = useState(respuesta?.fecha_vencimiento_item || '')
 
   const resultado = respuesta?.resultado || null
+
+  const emitir = (res, nt, fotoB64, cant, fv) => {
+    onChange(pregunta.id, res, nt, fotoB64, cant, fv)
+  }
 
   const handleFoto = (e) => {
     const file = e.target.files?.[0]
@@ -106,11 +111,11 @@ function PreguntaItem({ pregunta, respuesta, onChange }) {
     const preview = URL.createObjectURL(file)
     setFoto(preview)
     const reader = new FileReader()
-    reader.onload = (ev) => onChange(pregunta.id, resultado, nota, ev.target.result)
+    reader.onload = (ev) => emitir(resultado, nota, ev.target.result, cantidad, fechaVenc)
     reader.readAsDataURL(file)
   }
 
-  const setRes = (r) => onChange(pregunta.id, r, nota, respuesta?.foto_base64)
+  const setRes = (r) => emitir(r, nota, respuesta?.foto_base64, cantidad, fechaVenc)
 
   const btnCls = (r) => {
     const activo = resultado === r
@@ -143,11 +148,19 @@ function PreguntaItem({ pregunta, respuesta, onChange }) {
 
           {/* Botones de respuesta */}
           <div className="flex flex-wrap gap-2">
+            {pregunta.tipo_respuesta === 'conf_nc' && (
+              <>
+                <button onClick={() => setRes('C')}  className={btnCls('C')}>Conforme</button>
+                <button onClick={() => setRes('N')}  className={btnCls('N')}>No conforme</button>
+                <button onClick={() => setRes('NA')} className={btnCls('NA')}>N/A</button>
+              </>
+            )}
             {pregunta.tipo_respuesta === 'conf_nc_obs' && (
               <>
-                <button onClick={() => setRes('C')} className={btnCls('C')}>Conforme</button>
-                <button onClick={() => setRes('N')} className={btnCls('N')}>No conforme</button>
-                <button onClick={() => setRes('O')} className={btnCls('O')}>Observación</button>
+                <button onClick={() => setRes('C')}  className={btnCls('C')}>Conforme</button>
+                <button onClick={() => setRes('N')}  className={btnCls('N')}>No conforme</button>
+                <button onClick={() => setRes('O')}  className={btnCls('O')}>Observación</button>
+                <button onClick={() => setRes('NA')} className={btnCls('NA')}>N/A</button>
               </>
             )}
             {pregunta.tipo_respuesta === 'si_no_na' && (
@@ -185,43 +198,80 @@ function PreguntaItem({ pregunta, respuesta, onChange }) {
             )}
           </div>
 
-          {/* Acciones: nota + foto */}
-          <div className="flex items-center gap-3">
-            {pregunta.permite_nota && (
-              <button
-                onClick={() => setShowNota(!showNota)}
-                className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
-              >
-                <PenLine size={12} /> {showNota ? 'Ocultar nota' : 'Agregar nota'}
-              </button>
-            )}
-            {pregunta.permite_foto && (
+          {/* Campos inline: Cantidad y Fecha de vencimiento */}
+          {(pregunta.permite_cantidad || pregunta.permite_fecha_vencimiento) && resultado !== 'NA' && (
+            <div className="flex flex-wrap gap-3 pt-1">
+              {pregunta.permite_cantidad && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-500 whitespace-nowrap">Cantidad encontrada:</span>
+                  <input
+                    type="number" min={0} step={1}
+                    value={cantidad}
+                    onChange={e => { setCantidad(e.target.value); emitir(resultado, nota, respuesta?.foto_base64, e.target.value, fechaVenc) }}
+                    placeholder="0"
+                    className="w-20 border border-blue-300 bg-blue-50 text-blue-800 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-blue-400 font-semibold"
+                  />
+                  {pregunta.valor_limite && (
+                    <span className="text-[10px] text-gray-400 italic">{pregunta.valor_limite}</span>
+                  )}
+                </div>
+              )}
+              {pregunta.permite_fecha_vencimiento && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-500 whitespace-nowrap">Fecha vencimiento:</span>
+                  <input
+                    type="date"
+                    value={fechaVenc}
+                    onChange={e => { setFechaVenc(e.target.value); emitir(resultado, nota, respuesta?.foto_base64, cantidad, e.target.value) }}
+                    className={`border rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400 ${
+                      fechaVenc && new Date(fechaVenc) < new Date()
+                        ? 'border-red-400 bg-red-50 text-red-700 font-bold'
+                        : 'border-amber-300 bg-amber-50 text-amber-800'
+                    }`}
+                  />
+                  {fechaVenc && new Date(fechaVenc) < new Date() && (
+                    <span className="text-[10px] text-red-500 font-bold">⚠ VENCIDO</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Observación — siempre visible si permite_nota */}
+          {pregunta.permite_nota && (
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block flex items-center gap-1">
+                <PenLine size={11} /> Observación
+              </label>
+              <textarea
+                rows={2}
+                value={nota}
+                onChange={(e) => { setNota(e.target.value); emitir(resultado, e.target.value, respuesta?.foto_base64, cantidad, fechaVenc) }}
+                placeholder="Escribe una observación..."
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-roka-400 bg-gray-50 placeholder-gray-300 resize-none"
+              />
+            </div>
+          )}
+
+          {/* Foto */}
+          {pregunta.permite_foto && (
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => fileRef.current?.click()}
                 className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
               >
-                <Camera size={12} /> Foto
+                <Camera size={12} /> Adjuntar foto
               </button>
-            )}
-            {foto && (
-              <div className="relative">
-                <img src={foto} alt="evidencia" className="w-12 h-12 object-cover rounded-lg border border-gray-200" />
-                <button onClick={() => { setFoto(null); onChange(pregunta.id, resultado, nota, null) }}
-                  className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center">
-                  <X size={10} />
-                </button>
-              </div>
-            )}
-          </div>
-
-          {showNota && (
-            <textarea
-              rows={2}
-              value={nota}
-              onChange={(e) => { setNota(e.target.value); onChange(pregunta.id, resultado, e.target.value, respuesta?.foto_base64) }}
-              placeholder="Observación o nota adicional..."
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-roka-400"
-            />
+              {foto && (
+                <div className="relative">
+                  <img src={foto} alt="evidencia" className="w-12 h-12 object-cover rounded-lg border border-gray-200" />
+                  <button onClick={() => { setFoto(null); emitir(resultado, nota, null, cantidad, fechaVenc) }}
+                    className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center">
+                    <X size={10} />
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -234,6 +284,8 @@ function PreguntaItem({ pregunta, respuesta, onChange }) {
 export default function InspeccionChecklistWizard() {
   const navigate    = useNavigate()
   const { id: inspId } = useParams()
+  const [searchParams] = useSearchParams()
+  const preselCatalogoId = searchParams.get('catalogo_id')
 
   const [paso, setPaso]               = useState(inspId ? 3 : 1)
   const [submodulos, setSubmodulos]   = useState([])
@@ -264,6 +316,19 @@ export default function InspeccionChecklistWizard() {
     api.get('/areas').then(({ data }) => setAreas(data.data || data)).catch(() => {})
     api.get('/personal').then(({ data }) => setPersonal(data.data || data)).catch(() => {})
   }, [])
+
+  // Auto-seleccionar cuando viene con ?catalogo_id= desde la tabla de equipos
+  useEffect(() => {
+    if (!preselCatalogoId || submodulos.length === 0) return
+    api.get(`/checklist/equipos/${preselCatalogoId}`).then(({ data }) => {
+      const sub = submodulos.find(s => s.id === data.submodulo_id)
+      if (sub) {
+        setSubmoduloSel(sub)
+        setEquipoSel(data)
+        setPaso(2)
+      }
+    }).catch(() => {})
+  }, [preselCatalogoId, submodulos])
 
   // Si viene con ID, cargar inspección existente
   useEffect(() => {
@@ -307,10 +372,16 @@ export default function InspeccionChecklistWizard() {
       .finally(() => setLoading(false))
   }, [equipoSel])
 
-  const handleRespuesta = useCallback((preguntaId, resultado, nota, fotoBase64) => {
+  const handleRespuesta = useCallback((preguntaId, resultado, nota, fotoBase64, cantidad, fechaVencimiento) => {
     setRespuestas(prev => ({
       ...prev,
-      [preguntaId]: { resultado, nota, foto_base64: fotoBase64 },
+      [preguntaId]: {
+        resultado,
+        nota,
+        foto_base64:           fotoBase64,
+        cantidad:              cantidad !== '' && cantidad !== null && cantidad !== undefined ? parseFloat(cantidad) : null,
+        fecha_vencimiento_item:fechaVencimiento || null,
+      },
     }))
   }, [])
 
@@ -341,10 +412,12 @@ export default function InspeccionChecklistWizard() {
   // Guardar respuestas (auto-save o al avanzar)
   const guardarRespuestas = async (inspId) => {
     const items = Object.entries(respuestas).map(([pregunta_id, r]) => ({
-      pregunta_id: parseInt(pregunta_id),
-      resultado:   r.resultado,
-      nota:        r.nota || null,
-      foto_base64: r.foto_base64 || null,
+      pregunta_id:            parseInt(pregunta_id),
+      resultado:              r.resultado,
+      nota:                   r.nota || null,
+      foto_base64:            r.foto_base64 || null,
+      cantidad:               r.cantidad ?? null,
+      fecha_vencimiento_item: r.fecha_vencimiento_item || null,
     })).filter(i => i.resultado !== null && i.resultado !== undefined)
 
     if (items.length === 0) return
@@ -383,7 +456,9 @@ export default function InspeccionChecklistWizard() {
   }
 
   // ── Métricas live ─────────────────────────────────────────
-  const totalPuntuables = preguntas.filter(p => ['conf_nc_obs','si_no_na'].includes(p.tipo_respuesta)).length
+  // NA no cuenta como puntuable — se descuenta del denominador
+  const naCount         = Object.values(respuestas).filter(r => r.resultado === 'NA').length
+  const totalPuntuables = preguntas.filter(p => ['conf_nc_obs','conf_nc','si_no_na'].includes(p.tipo_respuesta)).length - naCount
   const respondidas     = Object.values(respuestas).filter(r => r.resultado).length
   const conformes       = Object.values(respuestas).filter(r => ['C','S','A'].includes(r.resultado)).length
   const ncCount         = Object.values(respuestas).filter(r => r.resultado === 'N').length
@@ -409,7 +484,7 @@ export default function InspeccionChecklistWizard() {
       <div>
         <div className="flex items-center gap-3 mb-1">
           <button onClick={() => navigate('/inspecciones')}
-            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 hover:border-gray-300 px-3 py-2 rounded-lg transition-colors">
+            className="btn-back">
             <ArrowLeft size={14} /> Inspecciones
           </button>
           <h1 className="text-2xl font-bold text-gray-900">
@@ -464,7 +539,7 @@ export default function InspeccionChecklistWizard() {
       {paso === 2 && submoduloSel && (
         <div className="space-y-5">
           <button onClick={() => setPaso(1)}
-            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 hover:border-gray-300 px-3 py-2 rounded-lg transition-colors">
+            className="btn-back">
             <ArrowLeft size={14} /> Volver a sub-módulos (A · B · C)
           </button>
 
@@ -582,7 +657,7 @@ export default function InspeccionChecklistWizard() {
 
           <div className="flex justify-between pt-2">
             <button onClick={() => setPaso(2)}
-              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 hover:border-gray-300 px-3 py-2 rounded-lg transition-colors">
+              className="btn-back">
               <ArrowLeft size={14} /> Volver al equipo
             </button>
             <button
@@ -655,7 +730,7 @@ export default function InspeccionChecklistWizard() {
 
           <div className="flex justify-between">
             <button onClick={() => setPaso(3)}
-              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 hover:border-gray-300 px-3 py-2 rounded-lg transition-colors">
+              className="btn-back">
               <ArrowLeft size={14} /> Volver al checklist
             </button>
             <button

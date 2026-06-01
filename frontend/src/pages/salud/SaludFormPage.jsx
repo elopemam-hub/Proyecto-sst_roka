@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Save, Search, CalendarPlus, Paperclip, X, FileText } from 'lucide-react'
 import api from '../../services/api'
@@ -27,6 +27,10 @@ export default function SaludFormPage() {
     fecha_examen: new Date().toISOString().split('T')[0],
     fecha_vencimiento: '', clinica: '', medico: '',
     resultado: 'apto', restricciones: '', observaciones: '',
+    // Indicadores biométricos
+    peso: '', talla: '', presion_sistolica: '', presion_diastolica: '',
+    glucosa: '', hemoglobina: '', frecuencia_cardiaca: '',
+    agudeza_od: '', agudeza_oi: '',
   })
   const [personalSearch, setPersonalSearch] = useState('')
   const [personalList, setPersonalList]     = useState([])
@@ -51,6 +55,12 @@ export default function SaludFormPage() {
           resultado: data.resultado || 'apto',
           restricciones: data.restricciones || '',
           observaciones: data.observaciones || '',
+          peso: data.peso || '', talla: data.talla || '',
+          presion_sistolica: data.presion_sistolica || '',
+          presion_diastolica: data.presion_diastolica || '',
+          glucosa: data.glucosa || '', hemoglobina: data.hemoglobina || '',
+          frecuencia_cardiaca: data.frecuencia_cardiaca || '',
+          agudeza_od: data.agudeza_od || '', agudeza_oi: data.agudeza_oi || '',
         })
         if (data.archivo_path) setArchivoActual(data.archivo_path)
         if (data.personal) {
@@ -122,7 +132,7 @@ export default function SaludFormPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
-        <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400">
+        <button onClick={() => navigate(-1)} className="btn-back">
           <ArrowLeft size={20} />
         </button>
         <div>
@@ -226,6 +236,60 @@ export default function SaludFormPage() {
               rows={2} className="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-3 py-2 text-sm resize-none" />
           </div>
 
+        </div>
+
+        {/* Indicadores biométricos */}
+        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Indicadores Biométricos</h2>
+          <p className="text-xs text-slate-500">Datos medidos durante el examen. El IMC se calcula automáticamente.</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { field:'peso',               label:'Peso (kg)',        type:'number', step:'0.1',  placeholder:'Ej: 70.5' },
+              { field:'talla',              label:'Talla (m)',         type:'number', step:'0.01', placeholder:'Ej: 1.72' },
+              { field:'presion_sistolica',  label:'Presión sistólica', type:'number', step:'1',    placeholder:'Ej: 120' },
+              { field:'presion_diastolica', label:'Presión diastólica',type:'number', step:'1',    placeholder:'Ej: 80' },
+              { field:'glucosa',            label:'Glucosa (mg/dL)',   type:'number', step:'0.1',  placeholder:'Ej: 92' },
+              { field:'hemoglobina',        label:'Hemoglobina (g/dL)',type:'number', step:'0.1',  placeholder:'Ej: 15.2' },
+              { field:'frecuencia_cardiaca',label:'Frec. cardíaca (lpm)',type:'number',step:'1',   placeholder:'Ej: 72' },
+            ].map(({ field, label, type, step, placeholder }) => (
+              <div key={field}>
+                <label className="block text-xs text-slate-400 mb-1">{label}</label>
+                <input type={type} step={step} value={form[field]}
+                  onChange={e => set(field, e.target.value)}
+                  placeholder={placeholder}
+                  className="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-3 py-2 text-sm placeholder-slate-600" />
+              </div>
+            ))}
+            {/* IMC calculado */}
+            {form.peso && form.talla && parseFloat(form.talla) > 0 && (
+              <div className="flex items-end">
+                <div className="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2">
+                  <p className="text-xs text-slate-400">IMC calculado</p>
+                  <p className="text-sm font-bold text-emerald-400">
+                    {(parseFloat(form.peso) / Math.pow(parseFloat(form.talla), 2)).toFixed(2)}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { field:'agudeza_od', label:'Agudeza visual OD', placeholder:'Ej: 20/20' },
+              { field:'agudeza_oi', label:'Agudeza visual OI', placeholder:'Ej: 20/20' },
+            ].map(({ field, label, placeholder }) => (
+              <div key={field}>
+                <label className="block text-xs text-slate-400 mb-1">{label}</label>
+                <input type="text" value={form[field]} onChange={e => set(field, e.target.value)}
+                  placeholder={placeholder}
+                  className="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-3 py-2 text-sm placeholder-slate-600" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Datos del examen — archivo adjunto (continuación) */}
+        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Documento adjunto</h2>
           {/* Archivo adjunto */}
           <div>
             <label className="block text-xs text-slate-400 mb-1">Archivo adjunto (PDF, JPG, PNG — máx. 5MB)</label>

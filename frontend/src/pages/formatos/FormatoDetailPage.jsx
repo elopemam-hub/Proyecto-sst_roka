@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { ArrowLeft, Edit, CheckCircle, XCircle, Printer, ExternalLink } from 'lucide-react'
 import api from '../../services/api'
@@ -82,7 +82,7 @@ export default function FormatoDetailPage() {
       {/* Header */}
       <div className="flex items-start justify-between print:hidden">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/formatos')} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400">
+          <button onClick={() => navigate('/formatos')} className="btn-back">
             <ArrowLeft size={18} />
           </button>
           <div>

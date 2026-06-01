@@ -1,14 +1,22 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Plus, Search, Filter, ClipboardList, Calendar,
+  Plus, Search, ClipboardList, Calendar, ArrowLeft,
   AlertTriangle, CheckCircle2, Clock, Eye, AlertCircle,
-  HardHat, Zap
+  Zap, Trash2, Pencil
 } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
-import { format } from 'date-fns'
+import { format, parseISO, isValid } from 'date-fns'
 import { es } from 'date-fns/locale'
+
+function safeDate(val) {
+  if (!val) return '—'
+  try {
+    const d = parseISO(String(val).substring(0, 10))
+    return isValid(d) ? format(d, 'dd MMM yyyy', { locale: es }) : '—'
+  } catch { return '—' }
+}
 
 const NIVELES_RIESGO = {
   bajo:    { label: 'Bajo',    color: 'bg-emerald-500/15 text-emerald-400 ring-emerald-500/30' },
@@ -29,6 +37,7 @@ const ESTADOS = {
 export default function AtsListPage() {
   const navigate = useNavigate()
   const [items, setItems] = useState([])
+  const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [filtros, setFiltros] = useState({
     search:      '',
@@ -43,13 +52,17 @@ export default function AtsListPage() {
   const cargar = async () => {
     setLoading(true)
     try {
-      const { data } = await api.get('/ats', {
-        params: {
-          estado:       filtros.estado  || undefined,
-          nivel_riesgo: filtros.nivel_riesgo || undefined,
-        }
-      })
-      setItems(data.data || [])
+      const [listRes, statsRes] = await Promise.all([
+        api.get('/ats', {
+          params: {
+            estado:       filtros.estado       || undefined,
+            nivel_riesgo: filtros.nivel_riesgo || undefined,
+          }
+        }),
+        api.get('/ats/estadisticas'),
+      ])
+      setItems(listRes.data.data || [])
+      setStats(statsRes.data)
     } catch (err) {
       toast.error('Error al cargar ATS')
     } finally {
@@ -57,12 +70,34 @@ export default function AtsListPage() {
     }
   }
 
-  // Conteos rápidos
+  const eliminar = async (e, atsId) => {
+    e.stopPropagation()
+    if (!confirm('¿Eliminar este ATS? Solo se puede eliminar ATS en borrador o cancelado.')) return
+    try {
+      await api.delete(`/ats/${atsId}`)
+      toast.success('ATS eliminado')
+      cargar()
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error al eliminar')
+    }
+  }
+
+  // Filtro cliente: búsqueda por código/título
+  const filtered = items.filter(a => {
+    if (!filtros.search) return true
+    const q = filtros.search.toLowerCase()
+    return (
+      a.codigo?.toLowerCase().includes(q) ||
+      a.titulo_trabajo?.toLowerCase().includes(q) ||
+      a.ubicacion?.toLowerCase().includes(q)
+    )
+  })
+
   const resumen = {
-    hoy:         items.filter(a => new Date(a.fecha_ejecucion).toDateString() === new Date().toDateString()).length,
-    en_curso:    items.filter(a => a.estado === 'en_ejecucion').length,
-    pendientes:  items.filter(a => a.estado === 'pendiente_firma').length,
-    criticos:    items.filter(a => a.nivel_riesgo === 'critico').length,
+    hoy:        stats?.hoy        ?? 0,
+    en_curso:   stats?.en_curso   ?? 0,
+    pendientes: stats?.pendientes ?? 0,
+    criticos:   stats?.criticos   ?? 0,
   }
 
   return (
@@ -70,16 +105,25 @@ export default function AtsListPage() {
 
       {/* ── Header ───────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-            <span>Riesgos y Control</span>
-            <span>/</span>
-            <span>ATS</span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/ats')}
+            className="btn-back"
+            title="Volver al dashboard ATS"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+              <span>Riesgos y Control</span>
+              <span>/</span>
+              <span>ATS</span>
+            </div>
+            <h1 className="text-2xl font-bold text-slate-100">Análisis de Trabajo Seguro</h1>
+            <p className="text-slate-400 text-sm mt-0.5">
+              Análisis previos a la ejecución de tareas con riesgos
+            </p>
           </div>
-          <h1 className="text-2xl font-bold text-slate-100">Análisis de Trabajo Seguro</h1>
-          <p className="text-slate-400 text-sm mt-0.5">
-            Análisis previos a la ejecución de tareas con riesgos
-          </p>
         </div>
 
         <button
@@ -170,14 +214,18 @@ export default function AtsListPage() {
             <div className="inline-block w-6 h-6 border-2 border-roka-500 border-t-transparent rounded-full animate-spin" />
             <p className="text-slate-500 text-sm mt-3">Cargando ATS...</p>
           </div>
-        ) : items.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="p-12 text-center">
             <ClipboardList size={40} className="text-slate-700 mx-auto mb-3" />
-            <p className="text-slate-300 font-medium">No hay ATS registrados</p>
-            <p className="text-slate-500 text-sm mt-1 mb-4">Crea un ATS antes de ejecutar un trabajo con riesgos</p>
-            <button onClick={() => navigate('/ats/nuevo')} className="btn-primary">
-              Crear primer ATS
-            </button>
+            <p className="text-slate-300 font-medium">
+              {items.length === 0 ? 'No hay ATS registrados' : 'Sin resultados para la búsqueda'}
+            </p>
+            {items.length === 0 && (
+              <>
+                <p className="text-slate-500 text-sm mt-1 mb-4">Crea un ATS antes de ejecutar un trabajo con riesgos</p>
+                <button onClick={() => navigate('/ats/nuevo')} className="btn-primary">Crear primer ATS</button>
+              </>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -194,10 +242,10 @@ export default function AtsListPage() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((ats) => {
-                  const nivel = NIVELES_RIESGO[ats.nivel_riesgo]
-                  const estadoCfg = ESTADOS[ats.estado]
-                  const EstadoIcon = estadoCfg?.icon ?? ClipboardList
+                {filtered.map((ats) => {
+                  const nivel     = NIVELES_RIESGO[ats.nivel_riesgo] || NIVELES_RIESGO.medio
+                  const estadoCfg = ESTADOS[ats.estado] || { label: ats.estado, color: 'badge-gray', icon: ClipboardList }
+                  const EstadoIcon = estadoCfg.icon
 
                   return (
                     <tr
@@ -213,7 +261,7 @@ export default function AtsListPage() {
                         <div className="text-xs text-slate-500 truncate max-w-xs">{ats.ubicacion}</div>
                       </td>
                       <td className="py-3 px-4">
-                        <span className="badge badge-gray">{ats.area?.nombre}</span>
+                        <span className="badge badge-gray">{ats.area?.nombre || '—'}</span>
                       </td>
                       <td className="py-3 px-4 text-center">
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ring-1 ring-inset ${nivel.color}`}>
@@ -222,9 +270,10 @@ export default function AtsListPage() {
                         </span>
                       </td>
                       <td className="py-3 px-4 text-xs text-slate-400">
-                        <div>{format(new Date(ats.fecha_ejecucion), 'dd MMM yyyy', { locale: es })}</div>
-                        <div className="text-slate-500">{ats.hora_inicio?.substring(0, 5)}
-                          {ats.hora_fin && ` - ${ats.hora_fin.substring(0, 5)}`}
+                        <div>{safeDate(ats.fecha_ejecucion)}</div>
+                        <div className="text-slate-500">
+                          {ats.hora_inicio?.substring(0, 5)}
+                          {ats.hora_fin ? ` — ${ats.hora_fin.substring(0, 5)}` : ''}
                         </div>
                       </td>
                       <td className="py-3 px-4 text-center">
@@ -234,12 +283,33 @@ export default function AtsListPage() {
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); navigate(`/ats/${ats.id}`) }}
-                          className="p-1.5 rounded-md text-slate-400 hover:text-roka-400 hover:bg-slate-800 transition-colors"
-                        >
-                          <Eye size={14} />
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); navigate(`/ats/${ats.id}`) }}
+                            className="p-1.5 rounded-md text-gray-500 hover:text-roka-600 hover:bg-roka-50 border border-transparent hover:border-roka-200 transition-colors"
+                            title="Ver detalle"
+                          >
+                            <Eye size={14} />
+                          </button>
+                          {['borrador', 'pendiente_firma'].includes(ats.estado) && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); navigate(`/ats/${ats.id}/editar`) }}
+                              className="p-1.5 rounded-md text-gray-500 hover:text-amber-600 hover:bg-amber-50 border border-transparent hover:border-amber-200 transition-colors"
+                              title="Editar"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          )}
+                          {['borrador', 'cancelado'].includes(ats.estado) && (
+                            <button
+                              onClick={(e) => eliminar(e, ats.id)}
+                              className="p-1.5 rounded-md text-gray-500 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors"
+                              title="Eliminar"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )

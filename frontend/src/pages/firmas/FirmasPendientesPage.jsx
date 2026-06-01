@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Pen, Clock, AlertCircle, CheckCircle2, FileText,
-  User, Calendar, ChevronRight, Inbox
+  User, Calendar, ChevronRight, Inbox, ArrowLeft
 } from 'lucide-react'
 import api from '../../services/api'
 import { format, formatDistanceToNow } from 'date-fns'
@@ -54,16 +54,21 @@ export default function FirmasPendientesPage() {
     <div className="space-y-6 animate-fade-in max-w-4xl">
 
       {/* ── Header ───────────────────────────────────────────────── */}
-      <div>
-        <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-          <span>Firmas</span>
-          <span>/</span>
-          <span>Pendientes</span>
+      <div className="flex items-center gap-3">
+        <button onClick={() => navigate(-1)} className="btn-back">
+          <ArrowLeft size={18} />
+        </button>
+        <div>
+          <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+            <span>Firmas</span>
+            <span>/</span>
+            <span>Pendientes</span>
+          </div>
+          <h1 className="text-2xl font-bold text-slate-100">Firmas pendientes</h1>
+          <p className="text-slate-400 text-sm mt-0.5">
+            Documentos que requieren tu firma digital
+          </p>
         </div>
-        <h1 className="text-2xl font-bold text-slate-100">Firmas pendientes</h1>
-        <p className="text-slate-400 text-sm mt-0.5">
-          Documentos que requieren tu firma digital
-        </p>
       </div>
 
       {/* ── Resumen ──────────────────────────────────────────────── */}

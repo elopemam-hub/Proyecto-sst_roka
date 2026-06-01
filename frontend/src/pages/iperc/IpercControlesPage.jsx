@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Settings, Eye, ChevronLeft } from 'lucide-react'
+import { Settings, Eye, ArrowLeft } from 'lucide-react'
 import api from '../../services/api'
 import { format, parseISO } from 'date-fns'
 
@@ -55,9 +55,9 @@ export default function IpercControlesPage() {
       <div>
         <button
           onClick={() => navigate('/iperc')}
-          className="inline-flex items-center gap-1.5 text-xs text-slate-200 hover:text-white bg-slate-600/80 hover:bg-slate-600 px-2.5 py-1.5 rounded-lg border border-slate-600/50 transition-colors mb-3"
+          className="btn-back mb-3"
         >
-          <ChevronLeft size={13} /> Volver al módulo IPERC
+          <ArrowLeft size={16} /> Volver a IPERC
         </button>
         <h1 className="text-2xl font-bold text-white">Controles</h1>
         <p className="text-slate-400 text-sm mt-1">Jerarquía de controles por peligro identificado · ISO 45001 §8.1.2</p>

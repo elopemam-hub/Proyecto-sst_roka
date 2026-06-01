@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+﻿import { useState, useEffect } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   Plus, Trash2, Save, ArrowLeft, AlertTriangle,
   Shield, HardHat, ChevronDown, ChevronUp, Info
@@ -41,10 +41,14 @@ function clasificarRiesgo(ip, is) {
 }
 
 export default function IpercFormPage() {
-  const navigate = useNavigate()
-  const [loading, setLoading] = useState(false)
-  const [areas,   setAreas]   = useState([])
-  const [sedes,   setSedes]   = useState([])
+  const navigate    = useNavigate()
+  const { id }      = useParams()
+  const editMode    = !!id
+
+  const [loading,     setLoading]     = useState(false)
+  const [loadingInit, setLoadingInit] = useState(editMode)
+  const [areas,       setAreas]       = useState([])
+  const [codigoLabel, setCodigoLabel] = useState('')
 
   const [form, setForm] = useState({
     sede_id:           '',
@@ -61,13 +65,65 @@ export default function IpercFormPage() {
     cargarMaestros()
   }, [])
 
+  useEffect(() => {
+    if (editMode) cargarIperc()
+  }, [id])
+
   const cargarMaestros = async () => {
     try {
-      const [areasRes] = await Promise.all([
-        api.get('/areas'),
-      ])
+      const areasRes = await api.get('/areas')
       setAreas(areasRes.data.data || areasRes.data || [])
     } catch (_) {}
+  }
+
+  const cargarIperc = async () => {
+    setLoadingInit(true)
+    try {
+      const { data } = await api.get(`/iperc/${id}`)
+      setCodigoLabel(data.codigo || '')
+      setForm({
+        sede_id:           data.sede_id  ? String(data.sede_id)  : '',
+        area_id:           data.area_id  ? String(data.area_id)  : '',
+        titulo:            data.titulo            ?? '',
+        alcance:           data.alcance           ?? '',
+        metodologia:       data.metodologia       ?? 'IPERC_LINEA_BASE',
+        fecha_elaboracion: data.fecha_elaboracion
+          ? String(data.fecha_elaboracion).substring(0, 10)
+          : new Date().toISOString().split('T')[0],
+        fecha_vigencia: data.fecha_vigencia
+          ? String(data.fecha_vigencia).substring(0, 10)
+          : '',
+        procesos: (data.procesos ?? []).map(proc => ({
+          proceso:        proc.proceso        ?? '',
+          actividad:      proc.actividad      ?? '',
+          tarea:          proc.tarea          ?? '',
+          tipo_actividad: proc.tipo_actividad ?? 'rutinaria',
+          expandido:      true,
+          peligros: (proc.peligros ?? []).map(pel => ({
+            tipo_peligro:            pel.tipo_peligro            ?? 'fisico',
+            descripcion_peligro:     pel.descripcion_peligro     ?? '',
+            riesgo:                  pel.riesgo                  ?? '',
+            consecuencia:            pel.consecuencia            ?? '',
+            prob_personas_expuestas: pel.prob_personas_expuestas ?? 1,
+            prob_procedimientos:     pel.prob_procedimientos     ?? 1,
+            prob_capacitacion:       pel.prob_capacitacion       ?? 1,
+            prob_exposicion:         pel.prob_exposicion         ?? 1,
+            indice_severidad:        pel.indice_severidad        ?? 1,
+            ip_residual:             pel.ip_residual != null ? String(pel.ip_residual) : '',
+            is_residual:             pel.is_residual != null ? String(pel.is_residual) : '',
+            controles: (pel.controles ?? []).map(c => ({
+              tipo_control: c.tipo_control ?? 'administrativo',
+              descripcion:  c.descripcion  ?? '',
+            })),
+          })),
+        })),
+      })
+    } catch (err) {
+      toast.error('No se pudo cargar el IPERC para editar')
+      navigate('/iperc')
+    } finally {
+      setLoadingInit(false)
+    }
   }
 
   // ── Manejo de procesos ──────────────────────────────────────────
@@ -113,6 +169,8 @@ export default function IpercFormPage() {
       prob_capacitacion:       1,
       prob_exposicion:         1,
       indice_severidad:        1,
+      ip_residual:             '',
+      is_residual:             '',
       controles:               [],
     })
     setForm({ ...form, procesos })
@@ -162,7 +220,6 @@ export default function IpercFormPage() {
 
     setLoading(true)
     try {
-      // Obtener sede del área
       const area = areas.find(a => a.id === Number(form.area_id))
       const payload = {
         ...form,
@@ -176,18 +233,37 @@ export default function IpercFormPage() {
             prob_capacitacion:        Number(pel.prob_capacitacion),
             prob_exposicion:          Number(pel.prob_exposicion),
             indice_severidad:         Number(pel.indice_severidad),
+            ip_residual:              pel.ip_residual ? Number(pel.ip_residual) : null,
+            is_residual:              pel.is_residual ? Number(pel.is_residual) : null,
           })),
         })),
       }
 
-      const { data } = await api.post('/iperc', payload)
-      toast.success(`IPERC ${data.codigo} creado correctamente`)
-      navigate(`/iperc/${data.id}`)
+      if (editMode) {
+        const { data } = await api.put(`/iperc/${id}`, payload)
+        toast.success(`IPERC ${data.codigo} actualizado correctamente`)
+        navigate(`/iperc/${data.id}`)
+      } else {
+        const { data } = await api.post('/iperc', payload)
+        toast.success(`IPERC ${data.codigo} creado correctamente`)
+        navigate(`/iperc/${data.id}`)
+      }
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Error al crear IPERC')
+      toast.error(err.response?.data?.message || (editMode ? 'Error al actualizar IPERC' : 'Error al crear IPERC'))
     } finally {
       setLoading(false)
     }
+  }
+
+  if (loadingInit) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center">
+          <div className="inline-block w-6 h-6 border-2 border-roka-500 border-t-transparent rounded-full animate-spin mb-3" />
+          <p className="text-slate-500 text-sm">Cargando IPERC...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -198,12 +274,14 @@ export default function IpercFormPage() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/iperc')}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors"
+            className="btn-back"
           >
             <ArrowLeft size={18} />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-slate-100">Nuevo IPERC</h1>
+            <h1 className="text-2xl font-bold text-slate-100">
+              {editMode ? `Editar IPERC${codigoLabel ? ` — ${codigoLabel}` : ''}` : 'Nuevo IPERC'}
+            </h1>
             <p className="text-slate-400 text-sm">Matriz de identificación de peligros y evaluación de riesgos</p>
           </div>
         </div>
@@ -348,7 +426,7 @@ export default function IpercFormPage() {
         </button>
         <button onClick={handleGuardar} className="btn-primary flex items-center gap-2" disabled={loading}>
           <Save size={14} />
-          {loading ? 'Guardando...' : 'Guardar IPERC'}
+          {loading ? 'Guardando...' : editMode ? 'Guardar cambios' : 'Guardar IPERC'}
         </button>
       </div>
     </div>
@@ -557,6 +635,69 @@ function ProcesoCard({
                       />
                     </div>
                   ))}
+                </div>
+
+                {/* Riesgo residual post-controles */}
+                <div className="border-t border-slate-700/50 pt-3">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                    Riesgo residual (post-controles) — opcional
+                  </p>
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">IP Residual</label>
+                      <select
+                        value={pel.ip_residual}
+                        onChange={(e) => onActualizarPeligro(idx, pelIdx, 'ip_residual', e.target.value)}
+                        className="input text-xs w-28"
+                      >
+                        <option value="">— sin eval.</option>
+                        <option value="1">1 – Baja</option>
+                        <option value="2">2 – Media</option>
+                        <option value="3">3 – Alta</option>
+                        <option value="4">4 – Muy alta</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">IS Residual</label>
+                      <select
+                        value={pel.is_residual}
+                        onChange={(e) => onActualizarPeligro(idx, pelIdx, 'is_residual', e.target.value)}
+                        className="input text-xs w-36"
+                      >
+                        <option value="">— sin eval.</option>
+                        <option value="1">1 – Sin incapacidad</option>
+                        <option value="2">2 – Incap. temporal</option>
+                        <option value="3">3 – Incap. permanente</option>
+                        <option value="4">4 – Fatalidad</option>
+                      </select>
+                    </div>
+                    {pel.ip_residual && pel.is_residual && (() => {
+                      const nivelRes = Number(pel.ip_residual) * Number(pel.is_residual)
+                      const clasifRes = clasificarRiesgo(Number(pel.ip_residual), Number(pel.is_residual))
+                      return (
+                        <div className="flex items-center gap-3">
+                          <div>
+                            <p className="text-xs text-slate-400 mb-1">NR Residual</p>
+                            <p className="text-slate-200 font-bold tabular-nums">{nivelRes}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-400 mb-1">Clasificación</p>
+                            <span
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ring-1 ring-inset"
+                              style={{
+                                background: `${clasifRes.color}20`,
+                                color: clasifRes.color,
+                                boxShadow: `inset 0 0 0 1px ${clasifRes.color}40`,
+                              }}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full" style={{ background: clasifRes.color }} />
+                              {clasifRes.label}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
                 </div>
 
                 <div className="flex justify-end">

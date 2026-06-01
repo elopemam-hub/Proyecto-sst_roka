@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Shield, FileText, Calendar, User,
@@ -74,7 +74,7 @@ export default function IpercDetailPage() {
         <div className="flex items-start gap-3">
           <button
             onClick={() => navigate('/iperc')}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors mt-1"
+            className="btn-back"
           >
             <ArrowLeft size={18} />
           </button>
@@ -309,7 +309,7 @@ export default function IpercDetailPage() {
       {/* Modal de firma */}
       {showFirma && (
         <FirmaModal
-          documentoTipo="App\\Models\\Iperc"
+          documentoTipo={'App\\Models\\Iperc'}
           documentoId={iperc.id}
           titulo={`${iperc.codigo} — ${iperc.titulo}`}
           accion="aprueba"

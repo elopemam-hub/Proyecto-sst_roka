@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Zap, FileText, ChevronDown, Search, Filter } from 'lucide-react'
+import { Plus, Zap, FileText, ChevronDown, Search, Filter, FolderOpen } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
 
@@ -98,6 +98,10 @@ export default function FormatoListPage() {
           <p className="text-slate-400 text-sm mt-1">Registros obligatorios exigidos por la Ley 29783</p>
         </div>
         <div className="flex gap-2">
+          <button onClick={() => navigate('/formatos/biblioteca')}
+            className="flex items-center gap-2 border border-slate-600 text-slate-300 hover:bg-slate-700 px-3 py-2 rounded-lg text-sm transition-colors">
+            <FolderOpen size={15} /> Biblioteca
+          </button>
           {/* Botón Generar automático */}
           <div className="relative" ref={generarRef}>
             <button

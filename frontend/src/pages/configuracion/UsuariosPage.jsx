@@ -1,25 +1,44 @@
 import { useState, useEffect } from 'react'
-import { UserCog, Plus, Edit2, KeyRound, ToggleLeft, ToggleRight, X } from 'lucide-react'
+import { Plus, Edit2, KeyRound, ToggleLeft, ToggleRight, X, Info, ChevronDown } from 'lucide-react'
 import api from '../../services/api'
+import { ROLES_CONFIG } from '../../utils/roles'
 
-const ROLES = {
-  administrador:  { label: 'Administrador',   color: 'bg-purple-50 text-purple-700' },
-  supervisor_sst: { label: 'Supervisor SST',  color: 'bg-blue-50 text-blue-700' },
-  tecnico_sst:    { label: 'Técnico SST',     color: 'bg-roka-50 text-roka-700' },
-  operativo:      { label: 'Operativo',       color: 'bg-emerald-50 text-emerald-700' },
-  vigilante:      { label: 'Vigilante',       color: 'bg-amber-50 text-amber-700' },
-  solo_lectura:   { label: 'Solo lectura',    color: 'bg-gray-100 text-gray-600' },
+const ROLES = Object.fromEntries(
+  Object.entries(ROLES_CONFIG).map(([k, v]) => [k, { label: v.label, color: v.color }])
+)
+
+const MODULO_LABEL = {
+  dashboard: 'Dashboard', inspecciones: 'Inspecciones', iperc: 'IPERC', ats: 'ATS',
+  accidentes: 'Accidentes', capacitaciones: 'Capacitaciones', epps: 'EPPs',
+  salud: 'Salud/EMO', seguimiento: 'Seguimiento', reportes: 'Reportes MINTRA',
+  formatos: 'Formatos', documentos: 'Documentos', personal: 'Gestión Humana',
+  simulacros: 'Simulacros', auditorias: 'Auditorías', vehiculos: 'Vehículos',
+  equipos: 'Equipos', programa: 'Programa SST', firmas: 'Firmas digitales',
+  configuracion: 'Configuración del sistema',
 }
 
 export default function UsuariosPage() {
-  const [usuarios, setUsuarios] = useState([])
-  const [areas, setAreas]       = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [modal, setModal]       = useState(false)
-  const [editId, setEditId]     = useState(null)
-  const [form, setForm]         = useState({ nombres: '', apellidos: '', email: '', rol: 'operativo', area_id: '', activo: true })
+  const [usuarios, setUsuarios]     = useState([])
+  const [areas, setAreas]           = useState([])
+  const [personalList, setPersonal] = useState([])
+  const [personalSearch, setPS]     = useState('')
+  const [loading, setLoading]       = useState(true)
+  const [modal, setModal]           = useState(false)
+  const [editId, setEditId]         = useState(null)
+  const [form, setForm]             = useState({ nombres: '', apellidos: '', email: '', rol: 'operativo', area_id: '', personal_id: '', activo: true })
 
   useEffect(() => { cargar() }, [])
+
+  // Buscar personal cuando el admin escribe en el campo
+  useEffect(() => {
+    if (personalSearch.length >= 2) {
+      api.get('/personal', { params: { search: personalSearch, per_page: 10 } })
+        .then(r => setPersonal(r.data.data || r.data))
+        .catch(() => {})
+    } else {
+      setPersonal([])
+    }
+  }, [personalSearch])
 
   const cargar = async () => {
     setLoading(true)
@@ -35,11 +54,13 @@ export default function UsuariosPage() {
 
   const abrirModal = (u = null) => {
     setEditId(u?.id || null)
+    setPS(u?.personal ? `${u.personal.nombres} ${u.personal.apellidos}` : '')
+    setPersonal([])
     setForm(u ? {
       nombres: u.nombres || '', apellidos: u.apellidos || '',
       email: u.email || '', rol: u.rol || 'operativo',
-      area_id: u.area_id || '', activo: u.activo ?? true,
-    } : { nombres: '', apellidos: '', email: '', password: '', rol: 'operativo', area_id: '', activo: true })
+      area_id: u.area_id || '', personal_id: u.personal_id || '', activo: u.activo ?? true,
+    } : { nombres: '', apellidos: '', email: '', password: '', rol: 'operativo', area_id: '', personal_id: '', activo: true })
     setModal(true)
   }
 
@@ -178,12 +199,30 @@ export default function UsuariosPage() {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-roka-500" />
                 </div>
               )}
-              <div>
+              <div className="col-span-2">
                 <label className="block text-xs font-medium text-gray-500 mb-1">Rol *</label>
                 <select value={form.rol || ''} onChange={e => f('rol', e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-roka-500">
                   {Object.entries(ROLES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                 </select>
+                {form.rol && ROLES_CONFIG[form.rol] && (
+                  <div className={`mt-2 p-3 rounded-lg border text-xs ${ROLES_CONFIG[form.rol].color}`}>
+                    <p className="font-semibold mb-1">{ROLES_CONFIG[form.rol].label}</p>
+                    <p className="text-xs opacity-80 mb-2">{ROLES_CONFIG[form.rol].descripcion}</p>
+                    <p className="font-medium mb-1">Módulos con acceso:</p>
+                    {ROLES_CONFIG[form.rol].modulos.includes('*') ? (
+                      <span className="font-bold">Acceso completo a todo el sistema</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {ROLES_CONFIG[form.rol].modulos.map(m => (
+                          <span key={m} className="bg-white/60 border border-current/20 px-2 py-0.5 rounded-full text-[10px] font-medium">
+                            {MODULO_LABEL[m] || m}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Área</label>
@@ -192,6 +231,35 @@ export default function UsuariosPage() {
                   <option value="">Sin área</option>
                   {areas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
                 </select>
+              </div>
+
+              {/* Trabajador vinculado — permite acceder a Mi ficha médica */}
+              <div className="col-span-2 relative">
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  Trabajador vinculado
+                  <span className="ml-1 text-gray-400 font-normal">(necesario para Mi ficha médica / Mi panel)</span>
+                </label>
+                <input
+                  value={personalSearch}
+                  onChange={e => { setPS(e.target.value); if (!e.target.value) f('personal_id', '') }}
+                  placeholder="Buscar por nombre o DNI..."
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-roka-500"
+                />
+                {personalList.length > 0 && (
+                  <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                    {personalList.map(p => (
+                      <button key={p.id} type="button"
+                        onClick={() => { f('personal_id', p.id); setPS(`${p.nombres} ${p.apellidos}`); setPersonal([]) }}
+                        className="w-full text-left px-4 py-2.5 hover:bg-gray-50 text-sm border-b border-gray-100 last:border-0">
+                        <span className="font-medium text-gray-800">{p.nombres} {p.apellidos}</span>
+                        <span className="text-gray-400 ml-2 text-xs font-mono">{p.dni}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {form.personal_id && (
+                  <p className="text-xs text-emerald-600 mt-1">✓ Vinculado — ID trabajador: {form.personal_id}</p>
+                )}
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5">

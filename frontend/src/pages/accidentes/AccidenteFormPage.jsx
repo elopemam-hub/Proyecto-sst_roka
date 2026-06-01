@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Save, AlertTriangle } from 'lucide-react'
 import api from '../../services/api'
@@ -96,7 +96,7 @@ export default function AccidenteFormPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
-        <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400">
+        <button onClick={() => navigate(-1)} className="btn-back">
           <ArrowLeft size={20} />
         </button>
         <div>

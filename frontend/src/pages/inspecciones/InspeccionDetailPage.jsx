@@ -1,13 +1,15 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Edit, CheckCircle, AlertTriangle, Clock,
-  ClipboardCheck, Plus, Lock, Download, Camera, X
+  ClipboardCheck, Plus, Lock, Download, Camera, X,
+  Send, Pen, Shield,
 } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import FirmaModal from '../../components/firmas/FirmaModal'
 
 const ESTADOS = {
   programada:    { label: 'Programada',    color: 'text-blue-700',    bg: 'bg-blue-50 border-blue-200' },
@@ -225,12 +227,15 @@ function ModalEjecucion({ insp, onClose, onEjecutado }) {
 
   const handleEjecutar = async () => {
     const itemsData = Object.entries(resultados)
-      .map(([itemId, r]) => ({
-        id: Number(itemId),
-        resultado: r.resultado,
-        puntaje_obtenido: r.resultado === 'conforme' ? 1 : 0,
-        observaciones: r.observaciones,
-      }))
+      .map(([itemId, r]) => {
+        const item = insp.items?.find(i => i.id === Number(itemId))
+        return {
+          id: Number(itemId),
+          resultado: r.resultado,
+          puntaje_obtenido: r.resultado === 'conforme' ? (item?.puntaje_maximo ?? 1) : 0,
+          observaciones: r.observaciones,
+        }
+      })
       .filter(i => i.resultado)
 
     if (!itemsData.length) { toast.error('Registra al menos un resultado'); return }
@@ -261,7 +266,18 @@ function ModalEjecucion({ insp, onClose, onEjecutado }) {
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
         <div className="p-6 space-y-3">
-          {insp.items?.map(item => (
+          {!insp.items?.length ? (
+            <div className="text-center py-8 space-y-3">
+              <AlertTriangle size={32} className="text-amber-400 mx-auto" />
+              <p className="text-gray-700 font-medium">Esta inspección no tiene ítems definidos</p>
+              <p className="text-sm text-gray-500">Debes editar la inspección y agregar el checklist antes de ejecutarla.</p>
+              <button
+                onClick={() => { onClose(); window.location.href = `/inspecciones/${insp.id}/editar` }}
+                className="inline-flex items-center gap-2 bg-roka-500 hover:bg-roka-600 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                Ir a Editar inspección
+              </button>
+            </div>
+          ) : insp.items.map(item => (
             <div key={item.id} className="bg-gray-50 rounded-lg p-4 space-y-2 border border-gray-200">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-sm text-gray-800">{item.descripcion}</p>
@@ -322,6 +338,8 @@ export default function InspeccionDetailPage() {
   const [loading, setLoading]             = useState(true)
   const [showEjecucion, setShowEjecucion] = useState(false)
   const [showHallazgo, setShowHallazgo]   = useState(false)
+  const [showFirma, setShowFirma]         = useState(false)
+  const [enviandoFirma, setEnviandoFirma] = useState(false)
 
   useEffect(() => { cargar() }, [id])
   useEffect(() => {
@@ -355,6 +373,31 @@ export default function InspeccionDetailPage() {
     }))
   }
 
+  const handleEnviarAFirma = async () => {
+    if (!confirm('¿Enviar esta inspección al flujo de firmas?')) return
+    setEnviandoFirma(true)
+    try {
+      await api.post(`/inspecciones/${id}/enviar-a-firma`)
+      toast.success('Inspección enviada al flujo de firmas')
+      cargar()
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error al enviar')
+    } finally { setEnviandoFirma(false) }
+  }
+
+  const handleCambiarEstadoHallazgo = async (hallazgoId, nuevoEstado) => {
+    try {
+      const { data: updated } = await api.put(`/inspecciones/${id}/hallazgos/${hallazgoId}`, { estado: nuevoEstado })
+      setInsp(prev => ({
+        ...prev,
+        hallazgos: prev.hallazgos.map(h => h.id === hallazgoId ? { ...h, estado: updated.estado } : h),
+      }))
+      toast.success('Estado de hallazgo actualizado')
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error al actualizar hallazgo')
+    }
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center h-64">
       <div className="w-8 h-8 border-2 border-roka-500 border-t-transparent rounded-full animate-spin" />
@@ -376,7 +419,7 @@ export default function InspeccionDetailPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/inspecciones')} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500">
+          <button onClick={() => navigate('/inspecciones')} className="btn-back">
             <ArrowLeft size={20} />
           </button>
           <div>
@@ -420,6 +463,19 @@ export default function InspeccionDetailPage() {
             <button onClick={handleCerrar}
               className="flex items-center gap-2 text-sm px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg">
               <Lock size={15} /> Cerrar
+            </button>
+          )}
+          {!['cerrada', 'anulada'].includes(insp.estado) && (
+            <button onClick={handleEnviarAFirma} disabled={enviandoFirma || insp.requiere_firma}
+              className={`flex items-center gap-2 text-sm px-3 py-2 disabled:opacity-50 text-white rounded-lg ${insp.requiere_firma ? 'bg-slate-400 cursor-default' : 'bg-slate-700 hover:bg-slate-600'}`}>
+              <Send size={15} />
+              {enviandoFirma ? 'Enviando...' : insp.requiere_firma ? 'Firma solicitada' : 'Enviar a firma'}
+            </button>
+          )}
+          {(insp.requiere_firma || ['ejecutada', 'con_hallazgos', 'cerrada'].includes(insp.estado)) && (
+            <button onClick={() => setShowFirma(true)}
+              className="flex items-center gap-2 text-sm px-3 py-2 bg-roka-500 hover:bg-roka-600 text-white rounded-lg">
+              <Pen size={15} /> Firmar
             </button>
           )}
         </div>
@@ -565,9 +621,25 @@ export default function InspeccionDetailPage() {
                     {h.fecha_limite_correccion ? format(new Date(h.fecha_limite_correccion), 'dd/MM/yyyy') : '—'}
                   </td>
                   <td className="px-4 py-3 text-xs">
-                    <span className={h.estado === 'subsanado' || h.estado === 'verificado' ? 'text-emerald-600' : 'text-amber-600'}>
-                      {h.estado}
-                    </span>
+                    <select
+                      value={h.estado}
+                      onChange={e => handleCambiarEstadoHallazgo(h.id, e.target.value)}
+                      className={`text-xs rounded-lg px-2 py-1 border font-medium focus:outline-none focus:ring-1 focus:ring-roka-500 cursor-pointer ${
+                        h.estado === 'subsanado' || h.estado === 'verificado'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : h.estado === 'en_proceso'
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                          : h.estado === 'vencido'
+                          ? 'bg-red-50 text-red-700 border-red-200'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}
+                    >
+                      <option value="pendiente">Pendiente</option>
+                      <option value="en_proceso">En proceso</option>
+                      <option value="subsanado">Subsanado</option>
+                      <option value="verificado">Verificado</option>
+                      <option value="vencido">Vencido</option>
+                    </select>
                   </td>
                   <td className="px-4 py-3">
                     {(h.foto_url || h.evidencia_antes_path) ? (
@@ -586,6 +658,40 @@ export default function InspeccionDetailPage() {
         )}
       </div>
 
+      {/* Firmas digitales */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-200 flex items-center gap-2">
+          <Shield size={16} className="text-roka-500" />
+          <h2 className="font-semibold text-gray-800">
+            Firmas digitales
+            <span className="ml-1.5 text-sm font-normal text-gray-400">({insp.firmas?.length || 0})</span>
+          </h2>
+        </div>
+        {!insp.firmas?.length ? (
+          <div className="text-center py-8 text-gray-400 text-sm">Sin firmas registradas</div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {insp.firmas.map(f => (
+              <div key={f.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">{f.firmante_nombre}</p>
+                  <p className="text-xs text-gray-400 capitalize">{f.firmante_rol?.replace(/_/g, ' ')}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full capitalize">
+                    {f.accion_firma}
+                  </span>
+                  <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1 justify-end">
+                    <Clock size={10} />
+                    {format(new Date(f.firmado_en), 'dd MMM yyyy HH:mm', { locale: es })}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {showEjecucion && (
         <ModalEjecucion
           insp={insp}
@@ -599,6 +705,16 @@ export default function InspeccionDetailPage() {
           personal={personal}
           onClose={() => setShowHallazgo(false)}
           onCreado={handleHallazgoCreado}
+        />
+      )}
+      {showFirma && (
+        <FirmaModal
+          documentoTipo={'App\\Models\\Inspeccion'}
+          documentoId={insp.id}
+          titulo={`${insp.codigo} — ${insp.titulo}`}
+          accion="aprueba"
+          onClose={() => setShowFirma(false)}
+          onSuccess={() => { setShowFirma(false); cargar() }}
         />
       )}
     </div>

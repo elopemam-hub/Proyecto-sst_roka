@@ -1,8 +1,8 @@
-import { useEffect, useState, useRef } from 'react'
+﻿import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Database, Plus, Search, Edit, Trash2, ToggleLeft, ToggleRight,
-  Download, ChevronDown, ChevronLeft, X, Save, Loader2, BookOpen
+  Download, ChevronDown, ArrowLeft, X, Save, Loader2, BookOpen
 } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
@@ -150,9 +150,9 @@ export default function IpercBancoPage() {
         <div>
         <button
           onClick={() => navigate('/iperc')}
-          className="inline-flex items-center gap-1.5 text-xs text-slate-200 hover:text-white bg-slate-600/80 hover:bg-slate-600 px-2.5 py-1.5 rounded-lg border border-slate-600/50 transition-colors mb-3"
+          className="btn-back mb-3"
         >
-          <ChevronLeft size={13} /> Volver al módulo IPERC
+          <ArrowLeft size={16} /> Volver a IPERC
         </button>
           <h1 className="text-2xl font-bold text-white">Banco de Datos IPERC</h1>
           <p className="text-slate-400 text-sm mt-1">Catálogo de referencia reutilizable para elaboración de matrices</p>

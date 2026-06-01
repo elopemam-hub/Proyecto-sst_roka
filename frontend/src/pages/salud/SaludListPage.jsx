@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, HeartPulse, AlertTriangle, Clock, ShieldAlert, Pencil, Trash2 } from 'lucide-react'
+import { Plus, HeartPulse, AlertTriangle, Clock, ShieldAlert, Pencil, Trash2, ArrowLeft } from 'lucide-react'
 import api from '../../services/api'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -107,9 +107,14 @@ export default function SaludListPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Salud / EMO</h1>
-          <p className="text-slate-400 text-sm mt-1">Exámenes médicos ocupacionales · Ley 29783 Art. 49</p>
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate('/salud')} className="btn-back">
+            <ArrowLeft size={14} /> Salud
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-white">Salud / EMO</h1>
+            <p className="text-slate-400 text-sm mt-1">Exámenes médicos ocupacionales · Ley 29783 Art. 49</p>
+          </div>
         </div>
         <button
           onClick={() => navigate('/salud/nuevo')}

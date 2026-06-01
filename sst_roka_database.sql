@@ -7,13 +7,6 @@
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
--- Crear y seleccionar base de datos
-CREATE DATABASE IF NOT EXISTS sst_roka
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-
-USE sst_roka;
-
 -- ============================================================
 -- 1. EMPRESAS
 -- ============================================================

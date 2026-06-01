@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, ArrowLeft, Trash2, Save, PackagePlus } from 'lucide-react'
 import api from '../../services/api'
@@ -87,11 +87,11 @@ export default function EppInventarioInicialPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => navigate('/epps')}
-            className="flex items-center gap-1.5 text-sm border border-gray-300 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors">
+            className="btn-back">
             <ArrowLeft size={14} /> EPPs
           </button>
           <button onClick={() => navigate('/epps/inventario')}
-            className="flex items-center gap-1.5 text-sm border border-gray-300 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors">
+            className="btn-back">
             Ver inventario completo →
           </button>
           <button onClick={guardar} disabled={saving}

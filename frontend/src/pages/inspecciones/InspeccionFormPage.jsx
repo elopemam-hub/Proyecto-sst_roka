@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+﻿import { useState, useEffect } from 'react'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { ArrowLeft, Plus, Trash2, Save, AlertCircle, BookOpen, ClipboardList, FileText } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
@@ -80,12 +80,13 @@ const inputCls = 'w-full border border-gray-300 text-gray-700 rounded-lg px-3 py
 const labelCls = 'block text-xs text-gray-500 mb-1'
 
 export default function InspeccionFormPage() {
-  const navigate  = useNavigate()
-  const { id }    = useParams()
-  const esEdicion = Boolean(id)
+  const navigate   = useNavigate()
+  const { id }     = useParams()
+  const location   = useLocation()
+  const esEdicion  = Boolean(id)
+  const esGeneral  = location.pathname.endsWith('/general')
 
-  // Selector de modo sólo en creación
-  if (!esEdicion) {
+  if (!esEdicion && !esGeneral) {
     return <SelectorModo navigate={navigate} />
   }
 
@@ -96,7 +97,7 @@ function SelectorModo({ navigate }) {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
-        <button onClick={() => navigate('/inspecciones')} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4">
+        <button onClick={() => navigate('/inspecciones')} className="btn-back">
           <ArrowLeft size={14} /> Volver
         </button>
         <h1 className="text-2xl font-bold text-gray-900">Nueva inspección</h1>
@@ -113,7 +114,7 @@ function SelectorModo({ navigate }) {
           </div>
           <h3 className="font-semibold text-gray-900 text-lg">Por catálogo</h3>
           <p className="text-sm text-gray-500 mt-1 leading-relaxed">
-            Checklist dinámico con 38 equipos y 150+ preguntas predefinidas. Sub-módulos A·B·C.
+            Checklist dinámico con equipos y preguntas predefinidas por catálogo. Sub-módulos A·B·C.
           </p>
           <div className="flex flex-wrap gap-1 mt-3">
             {['Equipos','Infraestructura','Emergencia'].map(t => (
@@ -245,7 +246,7 @@ function FormularioGeneral({ navigate, id, esEdicion }) {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
-        <button onClick={() => navigate(-1)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500">
+        <button onClick={() => navigate(-1)} className="btn-back">
           <ArrowLeft size={20} />
         </button>
         <div>

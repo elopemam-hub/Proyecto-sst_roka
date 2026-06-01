@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Save, ArrowLeft } from 'lucide-react'
 import api from '../../services/api'
@@ -89,7 +89,7 @@ export default function SimulacroFormPage() {
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       <div className="flex items-center gap-4">
         <button onClick={() => navigate('/simulacros')}
-          className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors">
+          className="btn-back">
           <ArrowLeft size={20} />
         </button>
         <div>
@@ -111,7 +111,7 @@ export default function SimulacroFormPage() {
               <option value="derrame">☠️ Derrame</option>
               <option value="evacuacion">🚨 Evacuación</option>
               <option value="primeros_auxilios">🩺 Primeros Auxilios</option>
-              <option value="otro">📋 Otro</option>
+              <option value="violencia">🚔 Violencia</option>
             </select>
           </div>
           <div className="md:col-span-2">

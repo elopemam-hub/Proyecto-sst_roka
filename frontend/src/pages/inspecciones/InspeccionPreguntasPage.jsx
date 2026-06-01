@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Pencil, Power, BookOpen, ChevronDown, ArrowLeft, Trash2 } from 'lucide-react'
+import { Plus, Pencil, Power, BookOpen, ChevronDown, ArrowLeft, Trash2, FileSpreadsheet } from 'lucide-react'
 import api from '../../services/api'
 
 const TIPO_LABEL = {
@@ -99,19 +99,26 @@ export default function InspeccionPreguntasPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/inspecciones')}
-            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 hover:border-gray-300 px-3 py-2 rounded-lg transition-colors">
-            <ArrowLeft size={14} /> Inspecciones
+          <button onClick={() => navigate('/equipos/catalogo')}
+            className="btn-back">
+            <ArrowLeft size={14} /> Catálogo de equipos
           </button>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Banco de Preguntas</h1>
-            <p className="text-gray-500 text-sm mt-1">Checklist por equipo del catálogo</p>
+            <p className="text-gray-500 text-sm mt-1">Checklist de preguntas por tipo de equipo</p>
           </div>
         </div>
-        <button onClick={abrirNuevo} disabled={!equipoSel}
-          className="flex items-center gap-2 bg-roka-500 hover:bg-roka-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40 transition-colors">
-          <Plus size={16} /> Nueva pregunta
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => navigate(`/equipos/preguntas/importar${equipoSel ? `?equipo_id=${equipoSel.id}` : ''}`)}
+            className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm transition-colors">
+            <FileSpreadsheet size={15} /> Importar / Exportar
+          </button>
+          <button onClick={abrirNuevo} disabled={!equipoSel}
+            className="flex items-center gap-2 bg-roka-500 hover:bg-roka-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40 transition-colors">
+            <Plus size={16} /> Nueva pregunta
+          </button>
+        </div>
       </div>
 
       {/* Selector equipo */}

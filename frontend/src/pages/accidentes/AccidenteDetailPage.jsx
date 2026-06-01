@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Edit, AlertTriangle, CheckCircle, FileText, Plus
@@ -83,7 +83,7 @@ export default function AccidenteDetailPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/accidentes')} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400">
+          <button onClick={() => navigate('/accidentes')} className="btn-back">
             <ArrowLeft size={20} />
           </button>
           <div>

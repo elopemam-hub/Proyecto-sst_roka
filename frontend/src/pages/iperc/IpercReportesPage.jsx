@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BarChart3, Download, FileText, AlertTriangle, Settings, TrendingDown, ChevronLeft } from 'lucide-react'
+import { BarChart3, Download, FileText, AlertTriangle, Settings, TrendingDown, ArrowLeft } from 'lucide-react'
 import api from '../../services/api'
 
 const CLASIF_COLOR = {
@@ -66,9 +66,9 @@ export default function IpercReportesPage() {
         <div>
         <button
           onClick={() => navigate('/iperc')}
-          className="inline-flex items-center gap-1.5 text-xs text-slate-200 hover:text-white bg-slate-600/80 hover:bg-slate-600 px-2.5 py-1.5 rounded-lg border border-slate-600/50 transition-colors mb-3"
+          className="btn-back mb-3"
         >
-          <ChevronLeft size={13} /> Volver al módulo IPERC
+          <ArrowLeft size={16} /> Volver a IPERC
         </button>
           <h1 className="text-2xl font-bold text-white">Reportes IPERC</h1>
           <p className="text-slate-400 text-sm mt-1">Estadísticas y resúmenes del sistema de gestión de riesgos</p>
