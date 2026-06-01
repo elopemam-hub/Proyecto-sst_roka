@@ -12,13 +12,14 @@ return [
         'http://127.0.0.1:3000',
         'http://127.0.0.1:5173',
         // Producción — Hostinger (se lee también desde APP_URL en .env)
-        env('APP_URL', 'https://TUDOMINIO.COM'),
-        env('FRONTEND_URL', 'https://TUDOMINIO.COM'),
+        env('APP_URL', 'https://sst.roka50safety.online'),
+        env('FRONTEND_URL', 'https://sst.roka50safety.online'),
+        'https://sst.roka50safety.online',
+        'https://roka50safety.online',
     ],
 
     'allowed_origins_patterns' => [
-        // Permite todos los subdominios del dominio principal en producción
-        '#^https://(.+\.)?TUDOMINIO\.COM$#',
+        '#^https://(.+\.)?roka50safety\.online$#',
     ],
 
     'allowed_headers' => ['*'],

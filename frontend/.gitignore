@@ -1,0 +1,4 @@
+node_modules/
+.env.local
+.env.development.local
+# dist/ se incluye en Git para deploy en Hostinger (no puede hacer npm build)

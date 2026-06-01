@@ -1,0 +1,46 @@
+# ── Sistema operativo ────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDEs ─────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Node / Frontend (desarrollo) ─────────────────────────────
+frontend/node_modules/
+# frontend/dist/ → NO ignorar: se commitea para deploy en Hostinger
+
+# ── Laravel (secretos y archivos generados) ──────────────────
+laravel-app/.env
+laravel-app/.env.*
+laravel-app/vendor/
+laravel-app/storage/logs/*.log
+laravel-app/storage/framework/cache/data/*
+laravel-app/storage/framework/sessions/*
+laravel-app/storage/framework/views/*
+laravel-app/bootstrap/cache/*.php
+laravel-app/public/storage
+laravel-app/public/hot
+laravel-app/node_modules/
+
+# ── Deploy temporal ───────────────────────────────────────────
+deploy/hostinger/dist_deploy/
+PARA_SUBIR/*.zip
+
+# ── Composer local ────────────────────────────────────────────
+composer.phar
+composer-setup.php
+
+# ── Docker y scripts de inicio Windows ───────────────────────
+docker-compose.yml
+iniciar_*.bat
+iniciar_*.ps1
+iniciar_*.vbs
+{backend,frontend}
+
+# ── Carpeta duplicada ─────────────────────────────────────────
+backend/
+deploy/hostinger/env_produccion
