@@ -52,10 +52,22 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
+          // React core + dependencias que DEBEN cargar juntas (evita circular chunks)
+          if (
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-dom/') ||
+            id.includes('node_modules/scheduler/') ||
+            id.includes('node_modules/use-sync-external-store/')
+          ) {
             return 'vendor-react'
           }
-          if (id.includes('@reduxjs/toolkit') || id.includes('react-redux') || id.includes('react-router')) {
+          // State management (depende de vendor-react)
+          if (
+            id.includes('@reduxjs/toolkit') ||
+            id.includes('react-redux') ||
+            id.includes('react-router') ||
+            id.includes('react-hot-toast')
+          ) {
             return 'vendor-state'
           }
           if (id.includes('recharts') || id.includes('d3-')) {
