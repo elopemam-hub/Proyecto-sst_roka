@@ -26,6 +26,12 @@ use App\Http\Controllers\Api\DocumentoController;
 use App\Http\Controllers\Api\ReporteController;
 use App\Http\Controllers\Api\VehiculoController;
 use App\Http\Controllers\Api\EquipoController;
+use App\Http\Controllers\Api\EquipoTipoController;
+use App\Http\Controllers\Api\InspeccionProgramadaController;
+use App\Http\Controllers\Api\InspeccionSubmoduloController;
+use App\Http\Controllers\Api\EquipoQrController;
+use App\Http\Controllers\Api\EquipoPdfController;
+use App\Http\Controllers\Api\EquipoCertificadoController;
 use App\Http\Controllers\Api\SustanciaController;
 use App\Http\Controllers\Api\PermisoController;
 use App\Http\Controllers\Api\ProgramaSstController;
@@ -57,6 +63,12 @@ Route::prefix('auth')->middleware('throttle:10,1')->group(function () {
     Route::post('/login',  [AuthController::class, 'login']);
 });
 
+// QR público (resolver código de equipo sin autenticación)
+Route::get('/qr/{codigo}', [EquipoQrController::class, 'resolverCodigo']);
+Route::post('/qr/registrar-escaneo', [EquipoQrController::class, 'registrarEscaneo']);
+Route::get('/equipos/{id}/ultimas-inspecciones', [EquipoQrController::class, 'ultimasInspecciones']);
+Route::get('/equipos/{id}/etiqueta', [EquipoPdfController::class, 'etiquetaPublica']);
+
 // ─── Rutas protegidas (requieren token) ───────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
 
@@ -87,15 +99,18 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::apiResource('sedes',     SedeController::class);
-    Route::apiResource('personal',  PersonalController::class);
     Route::apiResource('areas',     AreaController::class);
+    Route::post('areas/{id}/fusionar', [AreaController::class, 'fusionar']);
     Route::apiResource('cargos',    CargoController::class);
 
-    // Rutas adicionales de personal
+    // Rutas específicas de personal ANTES del apiResource para evitar conflicto de wildcard
     Route::prefix('personal')->group(function () {
         Route::get('/estadisticas',       [PersonalController::class, 'estadisticas']);
+        Route::get('/alertas',            [PersonalController::class, 'alertas']);
+        Route::post('/importar',          [PersonalController::class, 'importar']);
         Route::get('/{id}/historial-sst', [PersonalController::class, 'historialSst']);
     });
+    Route::apiResource('personal', PersonalController::class);
 
     // ─── IPERC ─────────────────────────────────────────────────────────────
     Route::prefix('iperc')->group(function () {
@@ -133,15 +148,27 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ─── INSPECCIONES ──────────────────────────────────────────────────────
     Route::prefix('inspecciones')->group(function () {
+        // Rutas específicas sin wildcard PRIMERO para evitar conflicto con apiResource {id}
         Route::get('/dashboard',              [InspeccionController::class, 'dashboard']);
         Route::get('/estadisticas',           [InspeccionController::class, 'estadisticas']);
         Route::get('/alertas',                [InspeccionController::class, 'alertas']);
+        Route::get('/diarias-tabla',          [InspeccionController::class, 'tablaDiaria']);
+        Route::get('/mensuales-tabla',        [InspeccionController::class, 'tablaMensual']);
+        Route::get('/programa-mensual',       [InspeccionController::class, 'programaMensual']);
+        Route::post('/generar-programa',      [InspeccionController::class, 'generarPrograma']);
+        Route::get('/programadas-checklist',  [InspeccionController::class, 'programadasChecklist']);
+        Route::post('/programar-checklist',   [InspeccionController::class, 'programarChecklist']);
+        Route::get('/pendientes-firma',       [InspeccionController::class, 'pendientesFirma']);
+
+        // Rutas con parámetro {id} - DESPUÉS de las rutas fijas
         Route::post('/{id}/ejecutar',         [InspeccionController::class, 'ejecutar']);
         Route::post('/{id}/hallazgos',        [InspeccionController::class, 'registrarHallazgo']);
         Route::put('/{id}/hallazgos/{hallazgoId}', [InspeccionController::class, 'actualizarHallazgo']);
         Route::post('/{id}/cerrar',           [InspeccionController::class, 'cerrar']);
+        Route::post('/{id}/rechazar',         [InspeccionController::class, 'rechazar']);
         Route::post('/{id}/enviar-a-firma',   [InspeccionController::class, 'enviarAFirma']);
         Route::get('/{id}/reporte',           [InspeccionController::class, 'reporte']);
+
         // Checklist dinámico por inspección
         Route::get('/{id}/checklist/respuestas',           [ChecklistController::class, 'respuestas']);
         Route::post('/{id}/checklist/respuestas',          [ChecklistController::class, 'guardarRespuestas']);
@@ -151,17 +178,33 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{id}/checklist/acciones',            [ChecklistController::class, 'crearAccion']);
         Route::put('/{id}/checklist/acciones/{accionId}',  [ChecklistController::class, 'actualizarAccion']);
         Route::post('/{id}/checklist/generar-acciones-nc', [ChecklistController::class, 'generarAccionesNC']);
+
+        // apiResource al FINAL - genera: GET /, POST /, GET /{id}, PUT /{id}, DELETE /{id}
+        Route::get('/',           [InspeccionController::class, 'index']);
+        Route::post('/',          [InspeccionController::class, 'store']);
+        Route::get('/{id}',       [InspeccionController::class, 'show']);
+        Route::put('/{id}',       [InspeccionController::class, 'update']);
+        Route::delete('/{id}',    [InspeccionController::class, 'destroy']);
     });
-    Route::apiResource('inspecciones', InspeccionController::class);
+
 
     // ─── CHECKLIST CATÁLOGO (equipos + preguntas) ─────────────────────────
+    // ─── SUB-MÓDULOS (Fase 3 — CRUD dinámico) ──────────────────────────────
+    Route::prefix('submodulos')->group(function () {
+        Route::get('/',       [InspeccionSubmoduloController::class, 'index']);
+        Route::post('/',      [InspeccionSubmoduloController::class, 'store']);
+        Route::put('/{id}',   [InspeccionSubmoduloController::class, 'update']);
+        Route::delete('/{id}',[InspeccionSubmoduloController::class, 'destroy']);
+    });
+
     Route::prefix('checklist')->group(function () {
         Route::get('/submodulos',              [ChecklistController::class, 'submodulos']);
         Route::get('/equipos',                 [ChecklistController::class, 'equipos']);
         Route::post('/equipos',                [ChecklistController::class, 'equipoStore']);
         Route::get('/equipos/{id}',            [ChecklistController::class, 'equipoShow']);
         Route::put('/equipos/{id}',            [ChecklistController::class, 'equipoUpdate']);
-        Route::patch('/equipos/{id}/toggle',   [ChecklistController::class, 'equipoToggle']);
+        Route::patch('/equipos/{id}/toggle',    [ChecklistController::class, 'equipoToggle']);
+        Route::post('/equipos/{id}/duplicar',  [ChecklistController::class, 'equipoDuplicar']);
         Route::delete('/equipos/{id}',         [ChecklistController::class, 'equipoDestroy']);
         Route::get('/preguntas/{equipoId}',    [ChecklistController::class, 'preguntas']);
         Route::post('/preguntas',              [ChecklistController::class, 'preguntaStore']);
@@ -169,6 +212,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/preguntas/{id}/toggle', [ChecklistController::class, 'preguntaToggle']);
         Route::delete('/preguntas/{id}',       [ChecklistController::class, 'preguntaDestroy']);
         Route::get('/estadisticas',                      [ChecklistController::class, 'estadisticasChecklist']);
+        Route::post('/recalcular-todas',                 [ChecklistController::class, 'recalcularTodas']);
         Route::get('/inventario-resumen',                [ChecklistController::class, 'inventarioResumen']);
         Route::get('/equipos/{id}/inventario',           [ChecklistController::class, 'inventarioPorCatalogo']);
     });
@@ -190,6 +234,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ─── EPPs ──────────────────────────────────────────────────────────────
     Route::prefix('epps')->group(function () {
+        Route::get('/alertas',                   [EppController::class, 'alertas']);
+        Route::post('/ingresos',                 [EppController::class, 'registrarIngreso']);
+        Route::get('/movimientos',               [EppController::class, 'movimientos']);
+        Route::get('/tallas/matriz',             [EppController::class, 'matrizTallas']);
+        Route::get('/tallas/personal/{personalId}', [EppController::class, 'tallasPersonal']);
+        Route::post('/tallas',                   [EppController::class, 'storeTalla']);
+        Route::delete('/tallas/{id}',            [EppController::class, 'deleteTalla']);
+        Route::get('/tallas/sugerencia',         [EppController::class, 'sugerirTalla']);
         Route::get('/dashboard',                 [EppController::class, 'dashboard']);
         Route::get('/trazabilidad',              [EppController::class, 'trazabilidad']);
         Route::get('/categorias',                [EppController::class, 'categorias']);
@@ -197,6 +249,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/categorias/{id}',           [EppController::class, 'updateCategoria']);
         Route::delete('/categorias/{id}',        [EppController::class, 'destroyCategoria']);
         Route::get('/estadisticas',              [EppController::class, 'estadisticas']);
+        Route::post('/importar',                 [EppController::class, 'importar']);
+        Route::post('/eliminar-multiple',        [EppController::class, 'eliminarMultiple']);
+        Route::delete('/eliminar-todo',          [EppController::class, 'eliminarTodo']);
+        Route::get('/entregas/todas',            [EppController::class, 'todasEntregas']);
         Route::post('/entregas',                 [EppController::class, 'registrarEntrega']);
         Route::post('/entregas/{id}/devolucion', [EppController::class, 'registrarDevolucion']);
         Route::get('/proveedores',               [EppController::class, 'proveedores']);
@@ -245,11 +301,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/estadisticas',               [CapacitacionController::class, 'estadisticas']);
         Route::get('/cronograma',                 [CapacitacionController::class, 'cronograma']);
         Route::get('/mis-capacitaciones',         [CapacitacionController::class, 'misCapacitaciones']);
+        Route::get('/matriz-trabajadores',        [CapacitacionController::class, 'matrizTrabajadores']);
+        Route::get('/matriz-competencias',        [CapacitacionController::class, 'matrizCompetencias']);
+        Route::get('/notas-trabajadores',         [CapacitacionController::class, 'notasTrabajadores']);
         Route::post('/{id}/asistencia',           [CapacitacionController::class, 'registrarAsistencia']);
         Route::post('/{id}/ejecutar',             [CapacitacionController::class, 'ejecutar']);
         Route::post('/{id}/evaluacion',           [CapacitacionController::class, 'guardarEvaluacion']);
         Route::post('/{id}/evaluacion/responder', [CapacitacionController::class, 'responderEvaluacion']);
     });
+    Route::get('/personal/{id}/capacitaciones',   [CapacitacionController::class, 'capacitacionesTrabajador']);
     Route::apiResource('capacitaciones', CapacitacionController::class);
 
     // ─── SIMULACROS (Fase 5) ────────────────────────────────────────────
@@ -309,9 +369,44 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/vehiculos/estadisticas', [VehiculoController::class, 'estadisticas']);
     Route::apiResource('vehiculos', VehiculoController::class);
 
+    // ─── TIPOS DE EQUIPO (Fase 1 refactor) ────────────────────────────────
+    Route::prefix('equipos-tipos')->group(function () {
+        Route::get('/',       [EquipoTipoController::class, 'index']);
+        Route::post('/',      [EquipoTipoController::class, 'store']);
+        Route::put('/{id}',   [EquipoTipoController::class, 'update']);
+        Route::delete('/{id}',[EquipoTipoController::class, 'destroy']);
+    });
+
     // ─── EQUIPOS (Fase 9) ──────────────────────────────────────────────────
     Route::get('/equipos/estadisticas', [EquipoController::class, 'estadisticas']);
+    Route::get('/equipos/{id}/qr-data', [EquipoQrController::class, 'qrData']);
+    Route::get('/equipos/{id}/qr-estadisticas', [EquipoQrController::class, 'estadisticasQr']);
+    Route::post('/equipos/batch-qr-data', [EquipoQrController::class, 'batchQrData']);
+    // Route::get('/equipos/{id}/etiqueta', [EquipoPdfController::class, 'etiquetaHtml']); // Movida a ruta pública
+    Route::post('/equipos/etiquetas-batch', [EquipoPdfController::class, 'etiquetasBatchHtml']);
+    Route::get('/equipos/todas-etiquetas', [EquipoPdfController::class, 'todasEtiquetasHtml']);
     Route::apiResource('equipos', EquipoController::class);
+
+    // ─── INSPECCIONES PROGRAMADAS (Fase 2 scheduler) ──────────────────────
+    Route::prefix('inspecciones-programadas')->group(function () {
+        Route::get('/dashboard',  [InspeccionProgramadaController::class, 'dashboard']);
+        Route::post('/generar',   [InspeccionProgramadaController::class, 'generar']);
+        Route::delete('/limpiar', [InspeccionProgramadaController::class, 'limpiar']);
+        Route::get('/',           [InspeccionProgramadaController::class, 'index']);
+        Route::put('/{id}/realizar', [InspeccionProgramadaController::class, 'realizar']);
+        Route::put('/{id}/omitir',   [InspeccionProgramadaController::class, 'omitir']);
+        Route::delete('/{id}',       [InspeccionProgramadaController::class, 'destroy']);
+    });
+
+    // ─── CERTIFICADOS DE OPERATIVIDAD DE EQUIPOS ───────────────────────────
+    Route::prefix('equipos-certificados')->group(function () {
+        Route::get('/alertas', [EquipoCertificadoController::class, 'alertas']);
+        Route::get('/areas', [EquipoCertificadoController::class, 'areas']);
+        Route::get('/', [EquipoCertificadoController::class, 'index']);
+        Route::post('/', [EquipoCertificadoController::class, 'store']);
+        Route::put('/{id}', [EquipoCertificadoController::class, 'update']);
+        Route::delete('/{id}', [EquipoCertificadoController::class, 'destroy']);
+    });
 
     // ─── PROGRAMA SST ANUAL (Fase 9) ───────────────────────────────────────
     Route::prefix('programa')->group(function () {
