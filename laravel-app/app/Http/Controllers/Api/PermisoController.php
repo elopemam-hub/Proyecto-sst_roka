@@ -29,7 +29,7 @@ class PermisoController extends Controller
 
     public function actualizarRol(Request $request, string $rol): JsonResponse
     {
-        $roles = ['administrador','supervisor_sst','tecnico_sst','operativo','vigilante','solo_lectura'];
+        $roles = ['administrador','supervisor_sst','tecnico_sst','operativo','trabajador_tercero','vigilante','solo_lectura'];
         if (!in_array($rol, $roles)) return response()->json(['message' => 'Rol inválido'], 422);
 
         $request->validate([

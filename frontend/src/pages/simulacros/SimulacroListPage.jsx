@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Siren, CalendarCheck, Clock, Star, TrendingUp, Search, ArrowLeft } from 'lucide-react'
+import { Plus, Siren, CalendarCheck, Clock, Star, TrendingUp, Search, ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react'
 import api from '../../services/api'
 import { format } from 'date-fns'
 
@@ -38,13 +38,14 @@ export default function SimulacroListPage() {
   const [filtroSearch, setFiltroSearch] = useState('')
   const [pagina, setPagina]   = useState(1)
   const [meta, setMeta]       = useState(null)
+  const [anio, setAnio]       = useState(new Date().getFullYear())
 
-  useEffect(() => { cargarStats() }, [])
-  useEffect(() => { cargar() }, [filtroEstado, filtroTipo, pagina])
+  useEffect(() => { cargarStats(anio) }, [anio])
+  useEffect(() => { cargar() }, [filtroEstado, filtroTipo, pagina, anio])
 
-  const cargarStats = async () => {
+  const cargarStats = async (a) => {
     try {
-      const { data } = await api.get('/simulacros/estadisticas')
+      const { data } = await api.get('/simulacros/estadisticas', { params: { anio: a || anio } })
       setStats(data)
     } catch { /* silent */ }
   }
@@ -52,7 +53,7 @@ export default function SimulacroListPage() {
   const cargar = async () => {
     setLoading(true)
     try {
-      const params = { page: pagina, per_page: 15 }
+      const params = { page: pagina, per_page: 15, anio }
       if (filtroEstado) params.estado = filtroEstado
       if (filtroTipo)   params.tipo   = filtroTipo
       if (filtroSearch) params.search = filtroSearch
@@ -77,10 +78,27 @@ export default function SimulacroListPage() {
             <p className="text-slate-400 text-sm mt-1">Simulacros de emergencia · Art. 74 DS 005-2012-TR</p>
           </div>
         </div>
-        <button onClick={() => navigate('/simulacros/nuevo')}
-          className="flex items-center gap-2 bg-roka-500 hover:bg-roka-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-lg shadow-roka-500/20">
-          <Plus size={16} /> Nuevo Simulacro
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Selector de año */}
+          <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-xl px-1 py-1">
+            <button
+              onClick={() => { setAnio(a => a - 1); setPagina(1) }}
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors">
+              <ChevronLeft size={16} />
+            </button>
+            <span className="text-white font-bold text-sm w-12 text-center select-none">{anio}</span>
+            <button
+              onClick={() => { setAnio(a => a + 1); setPagina(1) }}
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors">
+              <ChevronRight size={16} />
+            </button>
+          </div>
+
+          <button onClick={() => navigate('/simulacros/nuevo')}
+            className="flex items-center gap-2 bg-roka-500 hover:bg-roka-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-lg shadow-roka-500/20">
+            <Plus size={16} /> Nuevo Simulacro
+          </button>
+        </div>
       </div>
 
       {/* KPIs */}

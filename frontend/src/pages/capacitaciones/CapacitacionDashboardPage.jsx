@@ -199,7 +199,7 @@ export default function CapacitacionDashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f3f4f6" />
                 <XAxis
                   type="number"
-                  tick={{ fontSize: 11, fill: '#9ca3af' }}
+                  tick={{ fontSize: 11, fill: '#4b5563', fontWeight: 500 }}
                   tickLine={false}
                   axisLine={false}
                   allowDecimals={false}
@@ -208,13 +208,22 @@ export default function CapacitacionDashboardPage() {
                   type="category"
                   dataKey="bloque"
                   width={175}
-                  tick={{ fontSize: 11, fill: '#374151' }}
+                  tick={{ fontSize: 12, fill: '#111827', fontWeight: 600 }}
                   tickLine={false}
                   axisLine={false}
                 />
                 <Tooltip
                   cursor={{ fill: '#f9fafb' }}
-                  contentStyle={{ borderRadius: 10, border: '1px solid #e5e7eb', fontSize: 12 }}
+                  contentStyle={{
+                    borderRadius: 10,
+                    border: '1px solid #d1d5db',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    backgroundColor: '#ffffff',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                  }}
+                  labelStyle={{ color: '#111827', fontWeight: 700, marginBottom: 4 }}
+                  itemStyle={{ color: '#374151', fontWeight: 600 }}
                 />
                 <Bar dataKey="Ejecutadas" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} maxBarSize={22}>
                   <LabelList dataKey="Ejecutadas" position="insideRight"
@@ -232,9 +241,9 @@ export default function CapacitacionDashboardPage() {
           )}
           {/* Leyenda */}
           {(stats?.por_bloque || []).length > 0 && (
-            <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
-              <span className="flex items-center gap-1.5"><span className="w-3 h-2 bg-emerald-500 rounded-sm inline-block"/>Ejecutadas</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-2 bg-gray-200 rounded-sm inline-block"/>Pendientes</span>
+            <div className="flex items-center gap-4 mt-3 text-sm text-gray-800 font-medium">
+              <span className="flex items-center gap-2"><span className="w-4 h-3 bg-emerald-500 rounded-sm inline-block"/>Ejecutadas</span>
+              <span className="flex items-center gap-2"><span className="w-4 h-3 bg-gray-300 rounded-sm inline-block"/>Pendientes</span>
             </div>
           )}
         </div>

@@ -49,7 +49,7 @@ class UsuarioController extends Controller
             'apellidos'   => 'required|string|max:150',
             'email'       => 'required|email|unique:usuarios,email',
             'password'    => 'required|string|min:8',
-            'rol'         => 'required|in:administrador,supervisor_sst,tecnico_sst,operativo,vigilante,solo_lectura',
+            'rol'         => 'required|in:administrador,supervisor_sst,tecnico_sst,operativo,trabajador_tercero,vigilante,solo_lectura',
             'area_id'     => 'nullable|exists:areas,id',
             'activo'      => 'boolean',
         ]);
@@ -83,7 +83,7 @@ class UsuarioController extends Controller
             'nombre'      => 'sometimes|string|max:150',
             'email'       => "sometimes|email|unique:usuarios,email,{$id}",
             'password'    => 'sometimes|string|min:8',
-            'rol'         => 'sometimes|in:administrador,supervisor_sst,tecnico_sst,operativo,vigilante,solo_lectura',
+            'rol'         => 'sometimes|in:administrador,supervisor_sst,tecnico_sst,operativo,trabajador_tercero,vigilante,solo_lectura',
             'area_id'     => 'nullable|exists:areas,id',
             'activo'      => 'boolean',
         ]);

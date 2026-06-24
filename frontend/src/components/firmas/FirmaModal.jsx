@@ -82,9 +82,9 @@ export default function FirmaModal({
               <ShieldCheck size={18} className="text-roka-400" />
             </div>
             <div>
-              <h2 className="font-semibold text-slate-100">Firma digital</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Acción: <span className="text-roka-400 font-medium">{accionesLabel[accion]}</span>
+              <h2 className="font-bold text-lg !text-white" style={{color: '#FFFFFF'}}>Firmar inspección</h2>
+              <p className="text-sm !text-gray-200 mt-1" style={{color: '#E5E7EB'}}>
+                Acción: <span className="!text-emerald-300 font-semibold" style={{color: '#6EE7B7'}}>{accionesLabel[accion]}</span>
               </p>
             </div>
           </div>
@@ -101,11 +101,11 @@ export default function FirmaModal({
         {paso === 'confirmacion' && (
           <div className="p-5 space-y-4">
             {/* Documento a firmar */}
-            <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
-              <p className="text-xs text-slate-500 uppercase tracking-wider mb-1 font-medium">
+            <div className="bg-gray-50 border border-gray-300 rounded-xl p-4">
+              <p className="text-xs text-gray-700 uppercase tracking-wider mb-1 font-semibold">
                 Documento a firmar
               </p>
-              <p className="text-slate-200 font-medium">{titulo}</p>
+              <p className="text-gray-900 font-semibold text-sm">{titulo}</p>
             </div>
 
             {/* Aviso legal */}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, ClipboardCheck, AlertTriangle, CheckCircle, Clock, Download, XCircle, ClipboardList, Wrench, BookOpen } from 'lucide-react'
+import { Plus, Search, ClipboardCheck, AlertTriangle, CheckCircle, Clock, Download, XCircle, ClipboardList, Wrench, BookOpen, RotateCcw, Calendar, Zap, ChevronLeft, ChevronRight, ArrowLeft } from 'lucide-react'
 import api from '../../services/api'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -49,20 +49,34 @@ export default function InspeccionListPage() {
   const [pagina, setPagina]             = useState(1)
   const [meta, setMeta]                 = useState(null)
   const [stats, setStats]               = useState(null)
+  const [anio, setAnio]                 = useState('')
 
-  useEffect(() => { cargar() }, [search, tab, filtroTipo, pagina])
+  useEffect(() => { setPagina(1) }, [search, tab, filtroTipo, anio])
+  useEffect(() => { cargar() }, [search, tab, filtroTipo, pagina, anio])
   useEffect(() => { cargarStats() }, [])
 
   const cargar = async () => {
     setLoading(true)
     try {
       const params = { page: pagina, per_page: 20 }
-      if (search)    params.search = search
-      if (tab)       params.estado = tab
-      if (filtroTipo) params.tipo  = filtroTipo
+      if (search)     params.search = search
+      if (tab)        params.estado = tab
+      if (filtroTipo) params.tipo   = filtroTipo
+      if (anio)       params.anio   = anio
       const { data } = await api.get('/inspecciones', { params })
       setInspecciones(data.data || [])
-      setMeta(data.meta || null)
+      // Laravel devuelve paginación en el nivel raíz, no en data.meta
+      if (data.last_page) {
+        setMeta({
+          current_page: data.current_page,
+          last_page:    data.last_page,
+          total:        data.total,
+          from:         data.from,
+          to:           data.to,
+        })
+      } else {
+        setMeta(null)
+      }
     } catch { /* silent */ } finally { setLoading(false) }
   }
 
@@ -92,37 +106,29 @@ export default function InspeccionListPage() {
         <div className="flex items-center gap-2 flex-wrap">
           {/* Accesos directos del sub-módulo */}
           <button
+            onClick={() => navigate('/inspecciones/diarias')}
+            className="flex items-center gap-1.5 text-sm border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 px-3 py-2 rounded-lg transition-colors font-medium"
+          >
+            <Zap size={14} /> Checklist Diario
+          </button>
+          <button
             onClick={() => navigate('/inspecciones/checklist/nueva')}
             className="flex items-center gap-1.5 text-sm border border-gray-300 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
           >
-            <ClipboardList size={14} /> Checklist
+            <ClipboardList size={14} /> Checklist Mensual
           </button>
           <button
-            onClick={() => navigate('/inspecciones/equipos')}
-            className="flex items-center gap-1.5 text-sm border border-gray-300 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+            onClick={() => navigate('/inspecciones/programar')}
+            className="flex items-center gap-1.5 text-sm border border-roka-300 text-roka-600 bg-roka-50 hover:bg-roka-100 px-3 py-2 rounded-lg transition-colors font-medium"
           >
-            <Wrench size={14} /> Catálogo Equipos
-          </button>
-          <button
-            onClick={() => navigate('/inspecciones/preguntas')}
-            className="flex items-center gap-1.5 text-sm border border-gray-300 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <BookOpen size={14} /> Banco Preguntas
-          </button>
-
-          <div className="w-px h-6 bg-gray-200 mx-1" />
-
-          <button
-            onClick={() => exportarCSV(inspecciones)}
-            className="flex items-center gap-1.5 text-sm border border-gray-300 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <Download size={14} /> Exportar CSV
+            <Calendar size={14} /> Programar
           </button>
           <button
             onClick={() => navigate('/inspecciones')}
-            className="flex items-center gap-1.5 text-sm border border-gray-300 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+            className="flex items-center gap-2 text-sm border border-gray-300 text-gray-600 hover:text-gray-900 hover:border-gray-400 px-3 py-2 rounded-lg hover:bg-gray-50 transition-all font-medium"
           >
-            ← Dashboard
+            <ArrowLeft size={16} className="flex-shrink-0" />
+            Dashboard
           </button>
           <button
             onClick={() => navigate('/inspecciones/nueva')}
@@ -135,13 +141,14 @@ export default function InspeccionListPage() {
 
       {/* KPIs */}
       {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           {[
-            { label: 'Programadas',    valor: stats.por_estado?.programada?.[0]?.total ?? 0,    icon: Clock,          color: 'text-blue-600',    bg: 'bg-blue-50' },
-            { label: 'Con hallazgos',  valor: stats.por_estado?.con_hallazgos?.[0]?.total ?? 0, icon: AlertTriangle,   color: 'text-orange-600',  bg: 'bg-orange-50' },
-            { label: 'Cerradas',       valor: stats.por_estado?.cerrada?.[0]?.total ?? 0,       icon: CheckCircle,     color: 'text-emerald-600', bg: 'bg-emerald-50' },
-            { label: '% Cumplimiento', valor: `${stats.porcentaje_cumplimiento_promedio ?? 0}%`, icon: ClipboardCheck,  color: 'text-roka-600',    bg: 'bg-roka-50' },
-          ].map(({ label, valor, icon: Icon, color, bg }) => (
+            { label: 'Total',          valor: stats.total ?? 0,                                   icon: ClipboardList,  color: 'text-gray-700',    bg: 'bg-gray-100' },
+            { label: 'Programadas',    valor: stats.por_estado?.programada?.[0]?.total ?? 0,      icon: Clock,          color: 'text-blue-600',    bg: 'bg-blue-50' },
+            { label: 'Con hallazgos',  valor: stats.por_estado?.con_hallazgos?.[0]?.total ?? 0,   icon: AlertTriangle,  color: 'text-orange-600',  bg: 'bg-orange-50' },
+            { label: 'Cerradas',       valor: stats.por_estado?.cerrada?.[0]?.total ?? 0,         icon: CheckCircle,    color: 'text-emerald-600', bg: 'bg-emerald-50' },
+            { label: '% Ejecución', valor: `${stats.porcentaje_cumplimiento_promedio ?? 0}%`,  icon: ClipboardCheck, color: 'text-roka-600',    bg: 'bg-roka-50', sub: `${stats.ejecutadas ?? 0}/${stats.total ?? 0} ejecutadas` },
+          ].map(({ label, valor, icon: Icon, color, bg, sub }) => (
             <div key={label} className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
               <div className="flex items-center gap-3">
                 <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center`}>
@@ -150,6 +157,7 @@ export default function InspeccionListPage() {
                 <div>
                   <p className={`text-2xl font-bold ${color}`}>{valor}</p>
                   <p className="text-xs text-gray-500">{label}</p>
+                  {sub && <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>}
                 </div>
               </div>
             </div>
@@ -185,6 +193,23 @@ export default function InspeccionListPage() {
             <option value="">Todos los tipos</option>
             {Object.entries(TIPOS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
+
+          {/* Filtro por año */}
+          <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
+            <button onClick={() => setAnio(a => a ? String(Number(a)-1) : String(new Date().getFullYear()-1))}
+              className="p-1 text-gray-400 hover:text-gray-700 rounded transition-colors">
+              <ChevronLeft size={15}/>
+            </button>
+            <select value={anio} onChange={e => setAnio(e.target.value)}
+              className="bg-transparent text-sm font-semibold text-gray-700 outline-none cursor-pointer min-w-[60px] text-center">
+              <option value="">Todos</option>
+              {[2024,2025,2026,2027].map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <button onClick={() => setAnio(a => a ? String(Number(a)+1) : String(new Date().getFullYear()+1))}
+              className="p-1 text-gray-400 hover:text-gray-700 rounded transition-colors">
+              <ChevronRight size={15}/>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -217,11 +242,15 @@ export default function InspeccionListPage() {
                   {ins.planificada_para ? format(new Date(ins.planificada_para), 'dd MMM yyyy', { locale: es }) : '—'}
                 </td>
                 <td className="px-4 py-3">
-                  {ins.porcentaje_cumplimiento > 0 ? (
+                  {ins.porcentaje_cumplimiento != null ? (
                     <span className={`font-semibold ${cumplimientoColor(ins.porcentaje_cumplimiento)}`}>
-                      {ins.porcentaje_cumplimiento}%
+                      {Number(ins.porcentaje_cumplimiento).toFixed(1)}%
                     </span>
-                  ) : <span className="text-gray-300">—</span>}
+                  ) : ['ejecutada','con_hallazgos','cerrada'].includes(ins.estado) ? (
+                    <span className="text-xs text-amber-500 font-medium">Pendiente</span>
+                  ) : (
+                    <span className="text-gray-300">—</span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   {ins.hallazgos_count > 0 ? (
@@ -238,21 +267,39 @@ export default function InspeccionListPage() {
           </tbody>
         </table>
 
-        {meta && meta.last_page > 1 && (
-          <div className="border-t border-gray-100 px-4 py-3 flex items-center justify-between text-sm">
-            <span className="text-gray-400">
-              Mostrando {meta.from}–{meta.to} de {meta.total}
+        {/* Paginación — siempre visible cuando hay datos */}
+        {meta && (
+          <div className="border-t border-gray-100 px-4 py-3 flex items-center justify-between text-sm bg-gray-50">
+            <span className="text-gray-500 text-xs">
+              Mostrando <strong>{meta.from}–{meta.to}</strong> de <strong>{meta.total}</strong> inspecciones
+              {meta.last_page > 1 && ` · Página ${meta.current_page} de ${meta.last_page}`}
             </span>
-            <div className="flex gap-2">
-              <button disabled={pagina === 1} onClick={() => setPagina(p => p - 1)}
-                className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 disabled:opacity-40 hover:bg-gray-50 text-xs">
-                Anterior
-              </button>
-              <button disabled={pagina === meta.last_page} onClick={() => setPagina(p => p + 1)}
-                className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 disabled:opacity-40 hover:bg-gray-50 text-xs">
-                Siguiente
-              </button>
-            </div>
+            {meta.last_page > 1 && (
+              <div className="flex items-center gap-1">
+                <button disabled={pagina <= 1} onClick={() => setPagina(1)}
+                  className="px-2 py-1 rounded border border-gray-300 text-gray-600 disabled:opacity-40 hover:bg-white text-xs">«</button>
+                <button disabled={pagina <= 1} onClick={() => setPagina(p => p - 1)}
+                  className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 disabled:opacity-40 hover:bg-white text-xs flex items-center gap-1">
+                  <ChevronLeft size={13}/> Anterior
+                </button>
+                {/* Números de página */}
+                {Array.from({ length: Math.min(meta.last_page, 5) }, (_, i) => {
+                  const p = Math.max(1, Math.min(meta.last_page - 4, pagina - 2)) + i
+                  return p <= meta.last_page ? (
+                    <button key={p} onClick={() => setPagina(p)}
+                      className={`w-8 h-8 rounded-lg text-xs font-medium border transition-colors ${
+                        p === pagina ? 'bg-roka-500 text-white border-roka-500' : 'border-gray-300 text-gray-600 hover:bg-white'
+                      }`}>{p}</button>
+                  ) : null
+                })}
+                <button disabled={pagina >= meta.last_page} onClick={() => setPagina(p => p + 1)}
+                  className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 disabled:opacity-40 hover:bg-white text-xs flex items-center gap-1">
+                  Siguiente <ChevronRight size={13}/>
+                </button>
+                <button disabled={pagina >= meta.last_page} onClick={() => setPagina(meta.last_page)}
+                  className="px-2 py-1 rounded border border-gray-300 text-gray-600 disabled:opacity-40 hover:bg-white text-xs">»</button>
+              </div>
+            )}
           </div>
         )}
       </div>

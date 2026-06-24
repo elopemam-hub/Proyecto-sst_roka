@@ -11,9 +11,10 @@ const ROLES = [
   { key:'administrador',  label:'Administrador',   color:'bg-purple-100 text-purple-700 border-purple-300' },
   { key:'supervisor_sst', label:'Supervisor SST',  color:'bg-blue-100 text-blue-700 border-blue-300' },
   { key:'tecnico_sst',    label:'Técnico SST',     color:'bg-teal-100 text-teal-700 border-teal-300' },
-  { key:'operativo',      label:'Operativo',       color:'bg-amber-100 text-amber-700 border-amber-300' },
-  { key:'vigilante',      label:'Vigilante',       color:'bg-orange-100 text-orange-700 border-orange-300' },
-  { key:'solo_lectura',   label:'Solo lectura',    color:'bg-gray-100 text-gray-600 border-gray-300' },
+  { key:'operativo',          label:'Operativo',          color:'bg-amber-100 text-amber-700 border-amber-300' },
+  { key:'trabajador_tercero', label:'Trabajador Tercero', color:'bg-cyan-100 text-cyan-700 border-cyan-300' },
+  { key:'vigilante',          label:'Vigilante',          color:'bg-orange-100 text-orange-700 border-orange-300' },
+  { key:'solo_lectura',       label:'Solo lectura',       color:'bg-gray-100 text-gray-600 border-gray-300' },
 ]
 
 const ACCIONES = [

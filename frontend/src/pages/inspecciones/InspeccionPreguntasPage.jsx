@@ -14,7 +14,7 @@ const TIPO_LABEL = {
 const EMPTY = {
   equipo_id: '', texto: '', tipo_respuesta: 'conf_nc_obs',
   es_obligatoria: true, permite_foto: true, permite_nota: true,
-  ayuda: '', valor_limite: '', orden: 0,
+  ayuda: '', valor_limite: '', orden: 0, frecuencia: 'ambas',
 }
 
 export default function InspeccionPreguntasPage() {
@@ -51,9 +51,16 @@ export default function InspeccionPreguntasPage() {
 
   const abrirEditar = (p) => {
     setForm({
-      equipo_id: p.equipo_id, texto: p.texto, tipo_respuesta: p.tipo_respuesta,
-      es_obligatoria: p.es_obligatoria, permite_foto: p.permite_foto,
-      permite_nota: p.permite_nota, ayuda: p.ayuda || '', valor_limite: p.valor_limite || '', orden: p.orden,
+      equipo_id: p.equipo_id,
+      texto: p.texto,
+      tipo_respuesta: p.tipo_respuesta || 'conf_nc_obs',
+      es_obligatoria: p.es_obligatoria !== undefined ? p.es_obligatoria : true,
+      permite_foto: p.permite_foto !== undefined ? p.permite_foto : true,
+      permite_nota: p.permite_nota !== undefined ? p.permite_nota : true,
+      ayuda: p.ayuda || '',
+      valor_limite: p.valor_limite || '',
+      orden: p.orden || 0,
+      frecuencia: p.frecuencia || 'ambas',
     })
     setEditId(p.id)
     setModal(true)
@@ -61,12 +68,28 @@ export default function InspeccionPreguntasPage() {
 
   const guardar = async () => {
     if (!form.texto || !form.equipo_id) return
+
+    // Asegurar que tipo_respuesta tenga un valor válido
+    if (!form.tipo_respuesta) {
+      alert('Debe seleccionar un tipo de respuesta válido')
+      return
+    }
+
     setSaving(true)
     try {
+      // Preparar payload con valores limpios
+      const payload = {
+        ...form,
+        es_obligatoria: Boolean(form.es_obligatoria),
+        permite_foto: Boolean(form.permite_foto),
+        permite_nota: Boolean(form.permite_nota),
+        frecuencia: form.frecuencia || 'ambas'
+      }
+
       if (editId) {
-        await api.put(`/checklist/preguntas/${editId}`, form)
+        await api.put(`/checklist/preguntas/${editId}`, payload)
       } else {
-        await api.post('/checklist/preguntas', form)
+        await api.post('/checklist/preguntas', payload)
       }
       if (equipoSel) {
         const { data } = await api.get(`/checklist/preguntas/${equipoSel.id}`)
@@ -74,7 +97,11 @@ export default function InspeccionPreguntasPage() {
       }
       setModal(false)
     } catch (err) {
-      alert(err.response?.data?.message || 'Error al guardar')
+      const errorMsg = err.response?.data?.message || err.response?.data?.errors || 'Error al guardar'
+      const errorText = typeof errorMsg === 'object'
+        ? Object.values(errorMsg).flat().join(', ')
+        : errorMsg
+      alert(errorText)
     } finally { setSaving(false) }
   }
 
@@ -261,6 +288,18 @@ export default function InspeccionPreguntasPage() {
                 <input type="number" value={form.orden} onChange={e => setForm(f => ({ ...f, orden: +e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-roka-400" />
               </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1 block">Frecuencia de inspección</label>
+              <select value={form.frecuencia} onChange={e => setForm(f => ({ ...f, frecuencia: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-roka-400">
+                <option value="diaria">Solo inspección diaria</option>
+                <option value="semanal">Solo inspección semanal</option>
+                <option value="mensual">Solo inspección mensual</option>
+                <option value="ambas">Diaria y mensual (ambas)</option>
+              </select>
+              <p className="text-xs text-gray-400 mt-1">Define cuándo se debe responder esta pregunta</p>
             </div>
 
             <div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { Plus, Edit2, KeyRound, ToggleLeft, ToggleRight, X, Info, ChevronDown } from 'lucide-react'
 import api from '../../services/api'
 import { ROLES_CONFIG } from '../../utils/roles'
@@ -45,7 +45,7 @@ export default function UsuariosPage() {
     try {
       const [{ data: u }, { data: a }] = await Promise.all([
         api.get('/usuarios'),
-        api.get('/areas').catch(() => ({ data: [] })),
+        api.get('/areas', { params: { per_page: 1000 } }).catch(() => ({ data: [] })),
       ])
       setUsuarios(Array.isArray(u) ? u : (u.data || []))
       setAreas(Array.isArray(a) ? a : (a.data || []))

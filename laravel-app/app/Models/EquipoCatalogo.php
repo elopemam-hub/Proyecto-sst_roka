@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class EquipoCatalogo extends Model
 {
@@ -43,5 +44,15 @@ class EquipoCatalogo extends Model
     public function getPreguntasActivasCountAttribute(): int
     {
         return $this->preguntasActivas()->count();
+    }
+
+    public function certificadoOperatividad(): HasOne
+    {
+        return $this->hasOne(EquipoCertificadoOperatividad::class, 'equipo_catalogo_id');
+    }
+
+    public function equiposInventario(): HasMany
+    {
+        return $this->hasMany(Equipo::class, 'equipo_catalogo_id');
     }
 }

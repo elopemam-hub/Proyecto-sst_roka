@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ChevronLeft, Save } from 'lucide-react'
 import api from '../../services/api'
@@ -29,7 +29,7 @@ export default function VehiculoFormPage() {
   const cargarCatalogos = async () => {
     try {
       const [{ data: a }, { data: p }] = await Promise.all([
-        api.get('/areas').catch(() => ({ data: [] })),
+        api.get('/areas', { params: { per_page: 1000 } }).catch(() => ({ data: [] })),
         api.get('/personal', { params: { per_page: 200 } }).catch(() => ({ data: [] })),
       ])
       setAreas(Array.isArray(a) ? a : (a.data || []))

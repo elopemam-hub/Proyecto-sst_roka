@@ -1,12 +1,145 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useSelector } from 'react-redux'
 import {
   Plus, Search, Users, UserCheck, Car,
-  FileX, FileWarning, CreditCard, Clock, Timer, FileSpreadsheet,
+  FileX, FileWarning, CreditCard, Clock, Timer, FileSpreadsheet, Trash2,
+  AlertTriangle, AlertCircle, ChevronDown, ChevronUp, Bell,
 } from 'lucide-react'
 import api from '../../services/api'
-import { format } from 'date-fns'
+import toast from 'react-hot-toast'
+import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
+
+// ── Cuadro de alertas ────────────────────────────────────────────────────────
+const TIPO_CFG = {
+  dni_vencido:        { label: 'DNI Vencido',              color: 'text-red-400',    bg: 'bg-red-500/10',    border: 'border-red-500/20',    icon: FileX },
+  dni_por_vencer:     { label: 'DNI Por vencer',           color: 'text-amber-400',  bg: 'bg-amber-500/10',  border: 'border-amber-500/20',  icon: CreditCard },
+  licencia_vencida:   { label: 'Licencia vencida',         color: 'text-red-400',    bg: 'bg-red-500/10',    border: 'border-red-500/20',    icon: Car },
+  licencia_por_vencer:{ label: 'Licencia próx. a vencer',  color: 'text-amber-400',  bg: 'bg-amber-500/10',  border: 'border-amber-500/20',  icon: Car },
+}
+
+function CuadroAlertas({ navigate }) {
+  const [data, setData]       = useState(null)
+  const [abierto, setAbierto] = useState(true)
+  const [filtro, setFiltro]   = useState('todos')
+
+  useEffect(() => {
+    api.get('/personal/alertas').then(({ data }) => setData(data)).catch(() => {})
+  }, [])
+
+  if (!data || data.total === 0) return null
+
+  const alertasFiltradas = filtro === 'todos'
+    ? data.alertas
+    : data.alertas.filter(a => a.nivel === filtro || a.tipo === filtro)
+
+  return (
+    <div className="bg-slate-800 rounded-xl border border-amber-500/30 overflow-hidden">
+      {/* Header */}
+      <button
+        onClick={() => setAbierto(!abierto)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-700/50 transition-colors">
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Bell size={18} className="text-amber-400" />
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+              {data.total}
+            </span>
+          </div>
+          <span className="text-sm font-semibold text-white">Alertas de vencimiento</span>
+          <div className="flex gap-2">
+            {data.criticos > 0 && (
+              <span className="text-[10px] bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full font-medium">
+                {data.criticos} crítico{data.criticos !== 1 ? 's' : ''}
+              </span>
+            )}
+            {data.advertencias > 0 && (
+              <span className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full font-medium">
+                {data.advertencias} advertencia{data.advertencias !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+        </div>
+        {abierto ? <ChevronUp size={16} className="text-slate-400"/> : <ChevronDown size={16} className="text-slate-400"/>}
+      </button>
+
+      {abierto && (
+        <div className="border-t border-slate-700">
+          {/* Filtros */}
+          <div className="flex gap-2 px-4 py-2 border-b border-slate-700 flex-wrap">
+            {[
+              { key: 'todos',             label: `Todos (${data.total})` },
+              { key: 'critico',           label: `Críticos (${data.criticos})` },
+              { key: 'advertencia',       label: `Advertencias (${data.advertencias})` },
+              { key: 'dni_vencido',       label: 'DNI Vencido' },
+              { key: 'licencia_vencida',  label: 'Lic. Vencida' },
+            ].map(f => (
+              <button key={f.key} onClick={() => setFiltro(f.key)}
+                className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                  filtro === f.key
+                    ? 'bg-roka-500 text-white border-roka-500'
+                    : 'border-slate-600 text-slate-400 hover:border-slate-500'
+                }`}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Tabla de alertas */}
+          <div className="max-h-64 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-slate-800 border-b border-slate-700">
+                <tr>
+                  {['Trabajador','Área','Alerta','Fecha','Días',''].map(h => (
+                    <th key={h} className="text-left px-4 py-2 text-[10px] font-semibold text-slate-500 uppercase">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-700/50">
+                {alertasFiltradas.map((a, i) => {
+                  const cfg  = TIPO_CFG[a.tipo]
+                  const Icon = cfg?.icon || AlertCircle
+                  const esVencido = a.nivel === 'critico'
+                  return (
+                    <tr key={i} className={`hover:bg-slate-700/30 ${esVencido ? 'bg-red-500/5' : ''}`}>
+                      <td className="px-4 py-2.5">
+                        <p className="font-medium text-slate-200">{a.nombres} {a.apellidos}</p>
+                        <p className="text-slate-500 text-[10px]">{a.cargo || '—'}</p>
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-400">{a.area || '—'}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium ${cfg?.bg} ${cfg?.color} ${cfg?.border}`}>
+                          <Icon size={10}/> {a.descripcion}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-400 font-mono">
+                        {a.fecha ? format(parseISO(a.fecha), 'dd/MM/yyyy') : '—'}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {esVencido ? (
+                          <span className="text-red-400 font-bold">Vencido</span>
+                        ) : (
+                          <span className="text-amber-400 font-semibold">{Math.round(a.dias)}d</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <button onClick={() => navigate(`/personal/${a.id}/editar`)}
+                          className="text-roka-400 hover:text-roka-300 font-medium">
+                          Actualizar
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const ESTADOS = {
   activo:     { label: 'Activo',     color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
@@ -27,21 +160,24 @@ function diasVencimiento(fecha) {
 
 export default function PersonalListPage() {
   const navigate = useNavigate()
+  const user     = useSelector(s => s.auth.user)
+  const esAdmin  = user?.rol === 'administrador'
   const [personal, setPersonal]         = useState([])
   const [loading, setLoading]           = useState(true)
   const [search, setSearch]             = useState('')
   const [filtroArea, setFiltroArea]     = useState('')
   const [filtroEstado, setFiltroEstado] = useState('')
+  const [filtroTipo, setFiltroTipo]     = useState('')
   const [areas, setAreas]               = useState([])
   const [pagina, setPagina]             = useState(1)
   const [meta, setMeta]                 = useState(null)
   const [stats, setStats]               = useState(null)
 
   useEffect(() => { cargarAreas(); cargarStats() }, [])
-  useEffect(() => { cargar() }, [search, filtroArea, filtroEstado, pagina])
+  useEffect(() => { cargar() }, [search, filtroArea, filtroEstado, filtroTipo, pagina])
 
   const cargarAreas = async () => {
-    try { const { data } = await api.get('/areas'); setAreas(data.data || data) } catch {}
+    try { const { data } = await api.get('/areas', { params: { per_page: 1000 } }); setAreas(data.data || data) } catch {}
   }
 
   const cargarStats = async () => {
@@ -55,11 +191,23 @@ export default function PersonalListPage() {
       if (search)       params.search  = search
       if (filtroArea)   params.area_id = filtroArea
       if (filtroEstado) params.estado  = filtroEstado
+      if (filtroTipo)   params.tipo_trabajador = filtroTipo
       const { data } = await api.get('/personal', { params })
       const lista = data.data || data
       setPersonal(lista)
       setMeta(data.meta || null)
     } catch {} finally { setLoading(false) }
+  }
+
+  const eliminar = async (p) => {
+    if (!window.confirm(`¿Eliminar a "${p.nombres} ${p.apellidos}"? Esta acción no se puede deshacer.`)) return
+    try {
+      await api.delete(`/personal/${p.id}`)
+      toast.success('Personal eliminado')
+      cargar()
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Error al eliminar')
+    }
   }
 
   const iniciales = (p) => {
@@ -69,7 +217,7 @@ export default function PersonalListPage() {
   }
 
   const COLS = [
-    'Personal', 'DNI', 'Cargo', 'Área', 'F. Ingreso', 'Contrato',
+    'Personal', 'DNI', 'Tipo', 'Cargo', 'Área', 'F. Ingreso', 'Contrato',
     'Teléfono', 'Licencia', 'Estado', 'Acciones',
   ]
 
@@ -92,6 +240,9 @@ export default function PersonalListPage() {
           </button>
         </div>
       </div>
+
+      {/* Cuadro de alertas */}
+      <CuadroAlertas navigate={navigate} />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -187,6 +338,12 @@ export default function PersonalListPage() {
           <option value="">Todos los estados</option>
           {Object.entries(ESTADOS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
+        <select value={filtroTipo} onChange={e => { setFiltroTipo(e.target.value); setPagina(1) }}
+          className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2">
+          <option value="">Todos los tipos</option>
+          <option value="interno">Personal Interno</option>
+          <option value="tercero">Terceros / Proveedores</option>
+        </select>
       </div>
 
       {/* Tabla */}
@@ -231,6 +388,35 @@ export default function PersonalListPage() {
                       if (d <= 30) return <p className="text-[10px] text-amber-400">⚠ Vence en {d}d</p>
                       return null
                     })()}
+                  </td>
+
+                  {/* Tipo de Trabajador */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {p.tipo_trabajador === 'tercero' ? (
+                      <div className="flex flex-col gap-1">
+                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 inline-flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                          </svg>
+                          Tercero
+                        </span>
+                        {p.empresa_tercera && (
+                          <span className="text-[10px] text-slate-400 truncate max-w-[120px]" title={p.empresa_tercera}>
+                            {p.empresa_tercera}
+                          </span>
+                        )}
+                        {p.vigencia_hasta && (() => {
+                          const d = diasVencimiento(p.vigencia_hasta)
+                          if (d < 0)   return <span className="text-[10px] text-red-400 font-medium">⚠ Vencido</span>
+                          if (d <= 30) return <span className="text-[10px] text-amber-400 font-medium">⚠ Vence en {d}d</span>
+                          return <span className="text-[10px] text-emerald-400">✓ Vigente</span>
+                        })()}
+                      </div>
+                    ) : (
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        Interno
+                      </span>
+                    )}
                   </td>
 
                   {/* Cargo */}
@@ -300,7 +486,7 @@ export default function PersonalListPage() {
 
                   {/* Acciones */}
                   <td className="px-4 py-3">
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
                       <button onClick={() => navigate(`/personal/${p.id}`)}
                         className="text-xs text-roka-400 hover:text-roka-300 px-2 py-1 rounded hover:bg-slate-700">
                         Ver
@@ -309,6 +495,13 @@ export default function PersonalListPage() {
                         className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-slate-700">
                         Editar
                       </button>
+                      {esAdmin && (
+                        <button onClick={() => eliminar(p)}
+                          title="Eliminar personal"
+                          className="text-xs text-red-400 hover:text-red-300 p-1 rounded hover:bg-red-900/30 transition-colors">
+                          <Trash2 size={13} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

@@ -145,8 +145,8 @@ function GanttCapacitaciones({ meses, anio, onVerDetalle, onNueva }) {
   })
 
   const ROW_H   = 'auto'
-  const LABEL_W = 300
-  const TEMA_W  = 180
+  const LABEL_W = 380
+  const TEMA_W  = 220
 
   if (todasLasCaps.length === 0) return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center py-16 text-gray-400">
@@ -197,11 +197,11 @@ function GanttCapacitaciones({ meses, anio, onVerDetalle, onNueva }) {
       )}
 
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto max-h-[calc(100vh-280px)] overflow-y-auto">
         <div style={{ minWidth: 900 }}>
 
           {/* Cabecera meses */}
-          <div className="flex border-b border-gray-200 bg-gray-50 sticky top-0 z-10">
+          <div className="flex border-b border-gray-200 bg-gray-50 sticky top-0 z-20 shadow-sm">
             <div style={{ width: LABEL_W, minWidth: LABEL_W }}
               className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide border-r border-gray-200 flex-shrink-0">
               Capacitación
@@ -266,17 +266,17 @@ function GanttCapacitaciones({ meses, anio, onVerDetalle, onNueva }) {
 
                       {/* Título */}
                       <div style={{ width: LABEL_W, minWidth: LABEL_W }}
-                        className="flex items-start gap-2 px-3 py-2 border-r border-gray-100 flex-shrink-0 cursor-pointer"
+                        className="flex items-start gap-2 px-3 py-2 border-r border-gray-100 flex-shrink-0 cursor-pointer hover:bg-gray-100/50 transition-colors"
                         onClick={() => onVerDetalle(cap.id)}>
                         <Icon size={12} className={`flex-shrink-0 mt-0.5 ${s.color}`} />
-                        <p className="text-xs text-gray-700 leading-snug break-words">{cap.titulo}</p>
+                        <p className="text-xs text-gray-900 font-medium leading-snug break-words">{cap.titulo}</p>
                       </div>
 
                       {/* Tema */}
                       <div style={{ width: TEMA_W, minWidth: TEMA_W }}
                         className="px-3 py-2 border-r border-gray-100 flex-shrink-0 flex items-start">
-                        <p className="text-[11px] text-gray-400 italic leading-snug break-words">
-                          {cap.tema || <span className="text-gray-200">—</span>}
+                        <p className="text-[11px] text-gray-600 italic leading-snug break-words">
+                          {cap.tema || <span className="text-gray-300">—</span>}
                         </p>
                       </div>
 
@@ -295,8 +295,7 @@ function GanttCapacitaciones({ meses, anio, onVerDetalle, onNueva }) {
                             transform:       'translateY(-50%)',
                             minWidth:        32,
                           }}
-                          onClick={() => onVerDetalle(cap.id)}
-                          title={`${cap.titulo} — ${format(new Date(cap.fecha_programada), 'd MMM yyyy', { locale: es })} · ${cap.duracion_horas}h`}>
+                          onClick={() => onVerDetalle(cap.id)}>
 
                           {/* Texto dentro de la barra */}
                           {barWidth > 5 && (
@@ -306,9 +305,22 @@ function GanttCapacitaciones({ meses, anio, onVerDetalle, onNueva }) {
                           )}
 
                           {/* Tooltip */}
-                          <div className="absolute -top-8 left-0 bg-gray-900 text-white text-[10px] font-medium px-2 py-1 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30 shadow-lg">
-                            {format(new Date(cap.fecha_programada), 'd MMM', { locale: es })} · {cap.duracion_horas}h
-                            {cap.estado === 'ejecutada' && ' ✓'}
+                          <div className="absolute -top-20 left-0 bg-gray-900 text-white px-3 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-40 shadow-2xl whitespace-nowrap">
+                            <div className="text-xs font-semibold mb-1">{cap.titulo}</div>
+                            {cap.tema && (
+                              <div className="text-[10px] text-gray-300 italic mb-1">{cap.tema}</div>
+                            )}
+                            <div className="text-[10px] text-gray-300 mb-1">
+                              📅 {format(new Date(cap.fecha_programada), "d 'de' MMM yyyy", { locale: es })}
+                            </div>
+                            <div className="text-[10px] text-gray-300 mb-1.5">
+                              ⏱️ Duración: {cap.duracion_horas} {cap.duracion_horas === 1 ? 'hora' : 'horas'}
+                            </div>
+                            <div className="text-[10px]">
+                              <span className={`px-2 py-0.5 rounded ${cap.estado === 'ejecutada' ? 'bg-emerald-500 text-white' : cap.estado === 'programada' ? 'bg-blue-500 text-white' : cap.estado === 'cancelada' ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'} font-medium`}>
+                                {cap.estado === 'ejecutada' ? '✓ Ejecutada' : cap.estado === 'programada' ? '⏳ Programada' : cap.estado === 'cancelada' ? '✗ Cancelada' : '🔄 Reprogramada'}
+                              </span>
+                            </div>
                           </div>
                         </div>
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, FolderArchive, Search } from 'lucide-react'
 import api from '../../services/api'
@@ -72,7 +72,7 @@ export default function DocumentoListPage() {
 
   const cargarAreas = async () => {
     try {
-      const { data } = await api.get('/areas')
+      const { data } = await api.get('/areas', { params: { per_page: 1000 } })
       setAreas(data.data || data || [])
     } catch { /* silent */ }
   }

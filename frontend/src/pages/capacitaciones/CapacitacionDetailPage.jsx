@@ -151,7 +151,7 @@ function ModalEvaluacion({ capacitacionId, evaluacionExistente, onClose, onGuard
           <h3 className="font-bold text-gray-900">Configurar Evaluación</h3>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+        <div className="flex-1 overflow-y-auto p-4 space-y-5">
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <label className="block text-xs text-gray-500 mb-1">Título</label>
@@ -275,11 +275,11 @@ export default function CapacitacionDetailPage() {
   const aprobados = cap.asistentes?.filter(a => a.aprobado).length || 0
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-4">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/capacitaciones')} className="btn-back"><ArrowLeft size={20} /></button>
+          <button onClick={() => navigate('/capacitaciones/lista')} className="btn-back"><ArrowLeft size={20} /></button>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-bold text-gray-900">{cap.titulo}</h1>
@@ -334,8 +334,8 @@ export default function CapacitacionDetailPage() {
 
       {/* Tab: Información */}
       {tab === 'info' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
             <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Detalles</h3>
             {[
               { label:'Fecha programada', value: cap.fecha_programada ? format(new Date(cap.fecha_programada), 'd MMMM yyyy', { locale: es }) : '—' },
@@ -350,7 +350,7 @@ export default function CapacitacionDetailPage() {
               </div>
             ))}
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 space-y-4">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
             <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Logística</h3>
             {[
               { label:'Expositor', value: cap.expositor || '—', sub: cap.expositor_cargo },
@@ -485,7 +485,7 @@ export default function CapacitacionDetailPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h3 className="font-semibold text-gray-800">{cap.evaluacion.titulo}</h3>

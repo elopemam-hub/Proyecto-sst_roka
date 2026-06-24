@@ -7,6 +7,7 @@ use App\Models\Capacitacion;
 use App\Models\CapacitacionAsistente;
 use App\Models\CapacitacionEvaluacion;
 use App\Models\CapacitacionEvaluacionRespuesta;
+use App\Models\Personal;
 use App\Services\AuditoriaService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -460,5 +461,339 @@ class CapacitacionController extends Controller
             'total'      => count($preguntas),
             'nota_minima'=> $evaluacion->nota_minima_aprobacion,
         ]);
+    }
+
+    /** GET /api/capacitaciones/matriz-trabajadores */
+    public function matrizTrabajadores(Request $request): JsonResponse
+    {
+        try {
+            $empresaId = $request->user()->empresa_id;
+
+            // Obtener todos los trabajadores de la empresa
+            $trabajadores = \App\Models\Personal::where('empresa_id', $empresaId)
+                ->with(['area:id,nombre', 'cargo:id,nombre'])
+                ->where('estado', 'activo')
+                ->get();
+
+            $resultado = [];
+
+            foreach ($trabajadores as $trabajador) {
+                // Obtener asistencias del trabajador
+                $asistencias = CapacitacionAsistente::whereHas('capacitacion', function($q) use ($empresaId) {
+                        $q->where('empresa_id', $empresaId);
+                    })
+                    ->where('personal_id', $trabajador->id)
+                    ->with('capacitacion:id,tema,bloque,fecha_programada,fecha_ejecutada,duracion_horas,estado')
+                    ->get();
+
+                $totalCapacitaciones = $asistencias->count();
+                $asistenciasCount = $asistencias->where('asistio', true)->count();
+                $horasAcumuladas = $asistencias->where('asistio', true)->sum(function($a) {
+                    return $a->capacitacion->duracion_horas ?? 0;
+                });
+
+            $ultimaCapacitacion = $asistencias->sortByDesc(function($a) {
+                return $a->capacitacion->fecha_ejecutada ?? $a->capacitacion->fecha_programada;
+            })->first();
+
+            $diasSinCapacitacion = null;
+            $estado = 'sin_capacitacion';
+
+            if ($ultimaCapacitacion) {
+                $fecha = $ultimaCapacitacion->capacitacion->fecha_ejecutada
+                    ?? $ultimaCapacitacion->capacitacion->fecha_programada;
+                $diasSinCapacitacion = now()->diffInDays($fecha);
+
+                if ($diasSinCapacitacion <= 30) {
+                    $estado = 'al_dia';
+                } elseif ($diasSinCapacitacion <= 60) {
+                    $estado = 'atencion';
+                } else {
+                    $estado = 'critico';
+                }
+            }
+
+            $resultado[] = [
+                'personal_id' => $trabajador->id,
+                'dni' => $trabajador->dni,
+                'nombre_completo' => trim($trabajador->nombres . ' ' . $trabajador->apellidos),
+                'cargo' => $trabajador->cargo->nombre ?? '-',
+                'area' => $trabajador->area->nombre ?? '-',
+                'total_capacitaciones' => $totalCapacitaciones,
+                'horas_acumuladas' => $horasAcumuladas,
+                'porcentaje_asistencia' => $totalCapacitaciones > 0
+                    ? round(($asistenciasCount / $totalCapacitaciones) * 100)
+                    : 0,
+                'ultima_capacitacion' => $ultimaCapacitacion
+                    ? ($ultimaCapacitacion->capacitacion->fecha_ejecutada ?? $ultimaCapacitacion->capacitacion->fecha_programada)
+                    : null,
+                'dias_sin_capacitacion' => $diasSinCapacitacion,
+                'estado' => $estado,
+            ];
+        }
+
+        // Ordenar por estado (crítico primero) y luego por nombre
+        usort($resultado, function($a, $b) {
+            $estadoOrden = ['critico' => 1, 'atencion' => 2, 'al_dia' => 3, 'sin_capacitacion' => 4];
+            $ordenA = $estadoOrden[$a['estado']] ?? 5;
+            $ordenB = $estadoOrden[$b['estado']] ?? 5;
+
+            if ($ordenA !== $ordenB) {
+                return $ordenA <=> $ordenB;
+            }
+
+            return strcmp($a['nombre_completo'], $b['nombre_completo']);
+        });
+
+        // Estadísticas generales
+        $stats = [
+            'total_trabajadores' => count($resultado),
+            'al_dia' => count(array_filter($resultado, fn($t) => $t['estado'] === 'al_dia')),
+            'atencion' => count(array_filter($resultado, fn($t) => $t['estado'] === 'atencion')),
+            'critico' => count(array_filter($resultado, fn($t) => $t['estado'] === 'critico')),
+            'sin_capacitacion' => count(array_filter($resultado, fn($t) => $t['estado'] === 'sin_capacitacion')),
+        ];
+
+            return response()->json([
+                'trabajadores' => $resultado,
+                'stats' => $stats,
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error en matrizTrabajadores: ' . $e->getMessage());
+            return response()->json([
+                'trabajadores' => [],
+                'stats' => [
+                    'total_trabajadores' => 0,
+                    'al_dia' => 0,
+                    'atencion' => 0,
+                    'critico' => 0,
+                    'sin_capacitacion' => 0,
+                ],
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /** GET /api/personal/{id}/capacitaciones */
+    public function capacitacionesTrabajador(int $personalId, Request $request): JsonResponse
+    {
+        $empresaId = $request->user()->empresa_id;
+
+        // Obtener trabajador
+        $personal = \App\Models\Personal::where('id', $personalId)
+            ->where('empresa_id', $empresaId)
+            ->with(['area:id,nombre', 'cargo:id,nombre'])
+            ->firstOrFail();
+
+        // Obtener todas las capacitaciones del trabajador
+        $asistencias = CapacitacionAsistente::whereHas('capacitacion', function($q) use ($empresaId) {
+                $q->where('empresa_id', $empresaId);
+            })
+            ->where('personal_id', $personalId)
+            ->with('capacitacion:id,tema,bloque,tipo,fecha_programada,fecha_ejecutada,duracion_horas,estado,expositor')
+            ->orderByDesc('id')
+            ->get();
+
+        // Preparar lista de capacitaciones
+        $capacitaciones = $asistencias->map(function($asistencia) {
+            $cap = $asistencia->capacitacion;
+            return [
+                'id' => $cap->id,
+                'tema' => $cap->tema,
+                'bloque' => $cap->bloque,
+                'tipo' => $cap->tipo,
+                'fecha' => $cap->fecha_ejecutada ?? $cap->fecha_programada,
+                'duracion_horas' => $cap->duracion_horas,
+                'expositor' => $cap->expositor,
+                'asistio' => $asistencia->asistio,
+                'nota' => $asistencia->nota_evaluacion,
+                'aprobado' => $asistencia->aprobado,
+            ];
+        });
+
+        // Calcular resumen
+        $totalCapacitaciones = $asistencias->count();
+        $asistenciasCount = $asistencias->where('asistio', true)->count();
+        $horasAcumuladas = $asistencias->where('asistio', true)->sum(function($a) {
+            return $a->capacitacion->duracion_horas ?? 0;
+        });
+
+        $resumen = [
+            'total' => $totalCapacitaciones,
+            'horas' => $horasAcumuladas,
+            'asistencia' => $totalCapacitaciones > 0
+                ? round(($asistenciasCount / $totalCapacitaciones) * 100)
+                : 0,
+        ];
+
+        // Evolución mensual (últimos 6 meses)
+        $hace6Meses = now()->subMonths(6)->startOfMonth();
+        $evolucionMensual = [];
+
+        for ($i = 5; $i >= 0; $i--) {
+            $mes = now()->subMonths($i)->format('Y-m');
+            $mesLabel = now()->subMonths($i)->format('M Y');
+
+            $horasMes = $asistencias->filter(function($a) use ($i) {
+                $fechaCap = $a->capacitacion->fecha_ejecutada ?? $a->capacitacion->fecha_programada;
+                $mesCapacitacion = \Carbon\Carbon::parse($fechaCap)->format('Y-m');
+                $mesComparar = now()->subMonths($i)->format('Y-m');
+                return $mesCapacitacion === $mesComparar && $a->asistio;
+            })->sum(function($a) {
+                return $a->capacitacion->duracion_horas ?? 0;
+            });
+
+            $evolucionMensual[] = [
+                'mes' => $mes,
+                'mes_label' => $mesLabel,
+                'horas' => $horasMes,
+            ];
+        }
+
+        return response()->json([
+            'personal' => [
+                'id' => $personal->id,
+                'dni' => $personal->dni,
+                'nombre_completo' => trim($personal->nombres . ' ' . $personal->apellidos),
+                'cargo' => $personal->cargo->nombre ?? '-',
+                'area' => $personal->area->nombre ?? '-',
+                'foto' => $personal->foto_path ? asset('storage/' . $personal->foto_path) : null,
+            ],
+            'resumen' => $resumen,
+            'capacitaciones' => $capacitaciones,
+            'evolucion_mensual' => $evolucionMensual,
+        ]);
+    }
+
+    /** GET /api/capacitaciones/matriz-competencias */
+    public function matrizCompetencias(Request $request): JsonResponse
+    {
+        try {
+            $empresaId = $request->user()->empresa_id;
+
+            // Obtener capacitaciones más comunes (top temas ejecutados)
+            $temasComunes = Capacitacion::where('empresa_id', $empresaId)
+                ->where('estado', 'ejecutada')
+                ->whereNotNull('tema')
+                ->where('tema', '!=', '')
+                ->select('tema', \DB::raw('COUNT(*) as total'))
+                ->groupBy('tema')
+                ->orderByDesc('total')
+                ->limit(10)
+                ->get()
+                ->pluck('tema')
+                ->toArray();
+
+            // Obtener trabajadores activos
+            $trabajadores = \App\Models\Personal::where('empresa_id', $empresaId)
+                ->where('estado', 'activo')
+                ->with(['cargo:id,nombre', 'area:id,nombre'])
+                ->orderBy('apellidos')
+                ->get();
+
+            // Construir matriz
+            $matriz = [];
+            foreach ($trabajadores as $trabajador) {
+                $fila = [
+                    'personal_id' => $trabajador->id,
+                    'dni' => $trabajador->dni,
+                    'nombre_completo' => trim($trabajador->nombres . ' ' . $trabajador->apellidos),
+                    'cargo' => $trabajador->cargo->nombre ?? '-',
+                    'area' => $trabajador->area->nombre ?? '-',
+                    'competencias' => [],
+                ];
+
+                // Para cada tema común, verificar si el trabajador lo tiene
+                foreach ($temasComunes as $tema) {
+                    $tieneCapacitacion = CapacitacionAsistente::whereHas('capacitacion', function($q) use ($empresaId, $tema) {
+                            $q->where('empresa_id', $empresaId)
+                              ->where('tema', $tema)
+                              ->where('estado', 'ejecutada');
+                        })
+                        ->where('personal_id', $trabajador->id)
+                        ->where('asistio', true)
+                        ->exists();
+
+                    $fila['competencias'][$tema] = $tieneCapacitacion;
+                }
+
+                // Calcular % de cumplimiento
+                $total = count($temasComunes);
+                $completadas = count(array_filter($fila['competencias']));
+                $fila['porcentaje_cumplimiento'] = $total > 0 ? round(($completadas / $total) * 100) : 0;
+
+                $matriz[] = $fila;
+            }
+
+            return response()->json([
+                'temas' => $temasComunes,
+                'matriz' => $matriz,
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error en matrizCompetencias: ' . $e->getMessage());
+            return response()->json([
+                'temas' => [],
+                'matriz' => [],
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /** GET /api/capacitaciones/notas-trabajadores */
+    public function notasTrabajadores(Request $request): JsonResponse
+    {
+        try {
+            $empresaId = $request->user()->empresa_id;
+
+            $trabajadores = Personal::where('empresa_id', $empresaId)
+                ->where('estado', 'activo')
+                ->with(['area:id,nombre', 'cargo:id,nombre'])
+                ->get()
+                ->map(function ($personal) {
+                    // Obtener todas las asistencias con nota
+                    $asistencias = CapacitacionAsistente::where('personal_id', $personal->id)
+                        ->whereNotNull('nota_evaluacion')
+                        ->get();
+
+                    $totalEvaluaciones = $asistencias->count();
+                    $aprobadas = $asistencias->where('aprobado', true)->count();
+                    $desaprobadas = $totalEvaluaciones - $aprobadas;
+
+                    $promedio = $totalEvaluaciones > 0
+                        ? $asistencias->avg('nota_evaluacion')
+                        : null;
+
+                    $notaMaxima = $totalEvaluaciones > 0
+                        ? $asistencias->max('nota_evaluacion')
+                        : null;
+
+                    $notaMinima = $totalEvaluaciones > 0
+                        ? $asistencias->min('nota_evaluacion')
+                        : null;
+
+                    return [
+                        'personal_id'       => $personal->id,
+                        'dni'               => $personal->dni,
+                        'nombre_completo'   => "{$personal->apellidos} {$personal->nombres}",
+                        'cargo'             => $personal->cargo?->nombre ?? 'Sin cargo',
+                        'area'              => $personal->area?->nombre ?? 'Sin área',
+                        'total_evaluaciones'=> $totalEvaluaciones,
+                        'aprobadas'         => $aprobadas,
+                        'desaprobadas'      => $desaprobadas,
+                        'promedio'          => $promedio,
+                        'nota_maxima'       => $notaMaxima,
+                        'nota_minima'       => $notaMinima,
+                    ];
+                })
+                ->sortByDesc('total_evaluaciones')
+                ->values();
+
+            return response()->json($trabajadores);
+        } catch (\Exception $e) {
+            \Log::error('Error en notasTrabajadores: ' . $e->getMessage());
+            return response()->json([
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }

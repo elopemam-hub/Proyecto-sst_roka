@@ -10,7 +10,8 @@ import {
   BarChart3, FileSignature, ChevronRight, ChevronDown,
   LogOut, Bell, RefreshCw, Building2, LayoutGrid,
   UserCog, Truck, Wrench, CalendarRange, BellRing, ScrollText,
-  PanelLeftClose, PanelLeftOpen, FlaskConical, ShieldCheck,
+  PanelLeftClose, PanelLeftOpen, FlaskConical, ShieldCheck, Zap,
+  BookOpen,
 } from 'lucide-react'
 import { logout } from '../../store/slices/authSlice'
 import api from '../../services/api'
@@ -52,9 +53,11 @@ const menu = [
   { to: '/ats',                     label: 'ATS',              icon: ClipboardList,   group: 'operativo', modulo: 'ats' },
   { to: '/ats/gestion',             label: 'ATS · Gestión',    icon: ClipboardList,   group: 'operativo', hidden: true },
   { to: '/ats/alertas',             label: 'ATS · Alertas',    icon: ClipboardList,   group: 'operativo', hidden: true },
-  { to: '/inspecciones',         label: 'Inspecciones',           icon: Search,        group: 'operativo', modulo: 'inspecciones' },
-  { to: '/inspecciones/lista',   label: 'Lista inspecciones',     icon: ClipboardList, group: 'operativo', hidden: true },
-  { to: '/inspecciones/alertas', label: 'Inspecciones · Alertas', icon: ClipboardList, group: 'operativo', hidden: true },
+  { to: '/inspecciones',         label: 'Inspecciones',        icon: Search,        group: 'operativo', modulo: 'inspecciones' },
+  { to: '/inspecciones/lista',   label: 'Lista inspecciones',  icon: ClipboardList, group: 'operativo', hidden: true },
+  { to: '/inspecciones/alertas', label: 'Alertas',             icon: ClipboardList, group: 'operativo', hidden: true },
+  { to: '/inspecciones/tabla-diaria',  label: 'Checklist Diario',  icon: Zap,           group: 'operativo', hidden: true },
+  { to: '/inspecciones/tabla-mensual', label: 'Checklist Mensual', icon: ClipboardList, group: 'operativo', hidden: true },
   { to: '/accidentes',              label: 'Accidentes',       icon: AlertCircle,     group: 'operativo', modulo: 'accidentes' },
   { to: '/seguimiento',             label: 'Seguimiento',      icon: TrendingUp,      group: 'operativo' },
   { to: '/personal',                label: 'Gestión Humana',   icon: Users,           group: 'gestion',   modulo: 'personal' },
@@ -62,7 +65,6 @@ const menu = [
   { to: '/epps/inventario',         label: 'Inventario EPPs',  icon: HardHat,         group: 'gestion', hidden: true },
   { to: '/epps/proveedores',        label: 'Proveedores EPP',  icon: HardHat,         group: 'gestion', hidden: true },
   { to: '/epps/mantenimiento',      label: 'Mantenimiento EPP',icon: HardHat,         group: 'gestion', hidden: true },
-  { to: '/epps/capacitacion',       label: 'Capacitación EPP', icon: HardHat,         group: 'gestion', hidden: true },
   { to: '/epps/reportes',           label: 'Reportes EPPs',    icon: HardHat,         group: 'gestion', hidden: true },
   { to: '/epps/configuracion',      label: 'Configuración EPPs',icon: HardHat,        group: 'gestion', hidden: true },
   { to: '/salud',                   label: 'Salud / EMO',        icon: HeartPulse, group: 'gestion', modulo: 'salud' },

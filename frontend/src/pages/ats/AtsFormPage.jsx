@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   Save, ArrowLeft, Plus, Trash2, AlertTriangle,
@@ -96,7 +96,7 @@ export default function AtsFormPage() {
   const cargarMaestros = async () => {
     try {
       const [ar, pe, ep, ip] = await Promise.all([
-        api.get('/areas'),
+        api.get('/areas', { params: { per_page: 1000 } }),
         api.get('/personal'),
         api.get('/epps/categorias'),
         api.get('/iperc', { params: { estado: 'aprobado', per_page: 100 } }),

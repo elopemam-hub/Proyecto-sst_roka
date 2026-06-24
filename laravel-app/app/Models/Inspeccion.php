@@ -23,8 +23,9 @@ class Inspeccion extends Model
         'puntaje_total', 'puntaje_obtenido', 'porcentaje_cumplimiento',
         'observaciones_generales', 'requiere_firma',
         // Modo catálogo (checklist dinámico)
-        'submodulo_id', 'equipo_catalogo_id', 'turno',
+        'submodulo_id', 'equipo_catalogo_id', 'equipo_id', 'turno',
         'items_conformes', 'items_nc', 'items_obs',
+        'foto_inicio_path',
     ];
 
     protected $casts = [
@@ -73,6 +74,11 @@ class Inspeccion extends Model
         return $this->belongsTo(EquipoCatalogo::class, 'equipo_catalogo_id');
     }
 
+    public function equipo(): BelongsTo
+    {
+        return $this->belongsTo(Equipo::class, 'equipo_id');
+    }
+
     public function respuestas(): HasMany
     {
         return $this->hasMany(InspeccionRespuesta::class);
@@ -92,10 +98,22 @@ class Inspeccion extends Model
     {
         $prefijo = strtoupper(substr($tipo, 0, 3));
         $anio    = now()->year;
-        $ultimo  = self::where('empresa_id', $empresaId)
+
+        // Buscar el último código existente y extraer el número
+        $ultimoCodigo = self::where('empresa_id', $empresaId)
             ->where('codigo', 'like', "INS-{$anio}-{$prefijo}-%")
-            ->count() + 1;
-        return sprintf('INS-%d-%s-%03d', $anio, $prefijo, $ultimo);
+            ->orderByRaw('CAST(SUBSTRING(codigo, -3) AS UNSIGNED) DESC')
+            ->value('codigo');
+
+        // Si existe un código previo, extraer el número y sumar 1
+        if ($ultimoCodigo) {
+            $ultimoNumero = (int) substr($ultimoCodigo, -3);
+            $siguiente = $ultimoNumero + 1;
+        } else {
+            $siguiente = 1;
+        }
+
+        return sprintf('INS-%d-%s-%03d', $anio, $prefijo, $siguiente);
     }
 
     public function calcularPuntaje(): void

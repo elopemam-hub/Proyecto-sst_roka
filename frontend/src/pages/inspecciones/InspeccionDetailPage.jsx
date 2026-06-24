@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, Edit, CheckCircle, AlertTriangle, Clock,
+  ArrowLeft, Edit, CheckCircle, AlertTriangle, Clock, Calendar,
   ClipboardCheck, Plus, Lock, Download, Camera, X,
   Send, Pen, Shield,
 } from 'lucide-react'
@@ -9,6 +9,7 @@ import api from '../../services/api'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import * as XLSX from 'xlsx'
 import FirmaModal from '../../components/firmas/FirmaModal'
 
 const ESTADOS = {
@@ -26,22 +27,92 @@ const CRITICIDAD = {
   critico:  { label: 'Crítico',  color: 'bg-red-50 text-red-700 border-red-200' },
 }
 
-function exportarHallazgos(insp) {
-  if (!insp?.hallazgos?.length) { toast.error('Sin hallazgos para exportar'); return }
-  const cols = ['N°', 'Descripción', 'Tipo', 'Criticidad', 'Responsable', 'Fecha límite', 'Estado']
-  const lines = insp.hallazgos.map(h => [
-    h.numero_hallazgo, h.descripcion, h.tipo?.replace(/_/g, ' '),
-    h.criticidad,
-    h.responsable ? `${h.responsable.nombres} ${h.responsable.apellidos}` : '',
-    h.fecha_limite_correccion || '',
-    h.estado,
-  ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
-  const blob = new Blob([cols.join(',') + '\n' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = `hallazgos_${insp.codigo}.csv`
-  a.click()
-  URL.revokeObjectURL(a.href)
+const RESULT_LABEL = {
+  C: 'Conforme', S: 'Sí', A: 'Aprobado',
+  N: 'No conforme', O: 'Observación', NA: 'No aplica',
+}
+
+function exportarInspeccion(insp) {
+  const wb = XLSX.utils.book_new()
+
+  // ── Hoja 1: Resumen ──────────────────────────────────────────
+  const resumen = [
+    ['SST ROKA — Informe de Inspección'],
+    [],
+    ['Código',       insp.codigo],
+    ['Título',       insp.titulo],
+    ['Tipo',         insp.tipo],
+    ['Estado',       insp.estado],
+    ['Área',         insp.area?.nombre || '—'],
+    ['Inspector',    insp.inspector ? `${insp.inspector.nombres} ${insp.inspector.apellidos}` : '—'],
+    ['Fecha planif.',insp.planificada_para || '—'],
+    ['Ejecutada',    insp.ejecutada_en || 'Pendiente'],
+    [],
+    ['RESULTADO'],
+    ['% Cumplimiento',       `${Number(insp.porcentaje_cumplimiento || 0).toFixed(1)}%`],
+    ['Puntaje',              `${insp.puntaje_obtenido ?? 0} / ${insp.puntaje_total ?? 0}`],
+    ['Ítems conformes',      insp.items_conformes ?? 0],
+    ['No conformes',         insp.items_nc ?? 0],
+    ['Observaciones',        insp.items_obs ?? 0],
+    ['Total hallazgos',      insp.hallazgos?.length ?? 0],
+  ]
+  const wsResumen = XLSX.utils.aoa_to_sheet(resumen)
+  wsResumen['!cols'] = [{ wch: 22 }, { wch: 40 }]
+  XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen')
+
+  // ── Hoja 2: Checklist (si aplica) ───────────────────────────
+  if (insp.respuestas_checklist?.length > 0) {
+    const header = ['N°', 'Pregunta', 'Resultado', 'Nota / Observación', 'Cantidad', 'Fecha vencimiento']
+    const rows = insp.respuestas_checklist
+      .sort((a, b) => (a.orden || 0) - (b.orden || 0))
+      .map((r, i) => [
+        i + 1,
+        r.texto || '',
+        RESULT_LABEL[r.resultado] || r.resultado || 'Sin responder',
+        r.nota || '',
+        r.cantidad || '',
+        r.fecha_vencimiento_item || '',
+      ])
+    const wsChecklist = XLSX.utils.aoa_to_sheet([header, ...rows])
+    wsChecklist['!cols'] = [{ wch: 5 }, { wch: 55 }, { wch: 15 }, { wch: 35 }, { wch: 12 }, { wch: 18 }]
+    XLSX.utils.book_append_sheet(wb, wsChecklist, 'Checklist')
+  }
+
+  // ── Hoja 3: Ítems generales (si aplica) ─────────────────────
+  if (insp.items?.length > 0) {
+    const header = ['N°', 'Categoría', 'Descripción', 'Resultado', 'Crítico', 'Observaciones']
+    const rows = insp.items.map((it, i) => [
+      i + 1,
+      it.categoria || '',
+      it.descripcion || '',
+      it.resultado || 'Pendiente',
+      it.es_critico ? 'Sí' : 'No',
+      it.observaciones || '',
+    ])
+    const wsItems = XLSX.utils.aoa_to_sheet([header, ...rows])
+    wsItems['!cols'] = [{ wch: 5 }, { wch: 20 }, { wch: 45 }, { wch: 15 }, { wch: 10 }, { wch: 35 }]
+    XLSX.utils.book_append_sheet(wb, wsItems, 'Ítems')
+  }
+
+  // ── Hoja 4: Hallazgos (si hay) ───────────────────────────────
+  if (insp.hallazgos?.length > 0) {
+    const header = ['N°', 'Descripción', 'Tipo', 'Criticidad', 'Responsable', 'Fecha límite', 'Estado']
+    const rows = insp.hallazgos.map(h => [
+      h.numero_hallazgo,
+      h.descripcion,
+      h.tipo?.replace(/_/g, ' ') || '',
+      h.criticidad || '',
+      h.responsable ? `${h.responsable.nombres} ${h.responsable.apellidos}` : '',
+      h.fecha_limite_correccion || '',
+      h.estado || '',
+    ])
+    const wsHallazgos = XLSX.utils.aoa_to_sheet([header, ...rows])
+    wsHallazgos['!cols'] = [{ wch: 5 }, { wch: 40 }, { wch: 18 }, { wch: 12 }, { wch: 25 }, { wch: 14 }, { wch: 14 }]
+    XLSX.utils.book_append_sheet(wb, wsHallazgos, 'Hallazgos')
+  }
+
+  XLSX.writeFile(wb, `Inspeccion_${insp.codigo}_${new Date().toISOString().slice(0,10)}.xlsx`)
+  toast.success('Informe exportado correctamente')
 }
 
 function CumplimientoPorCategoria({ items }) {
@@ -334,6 +405,24 @@ export default function InspeccionDetailPage() {
   const navigate = useNavigate()
   const { id }   = useParams()
   const [insp, setInsp]                   = useState(null)
+
+  // Determinar ruta de retorno según la frecuencia de inspección
+  const getRutaRetorno = () => {
+    if (!insp) return '/inspecciones'
+
+    // Si tiene equipo_catalogo_id, usar la frecuencia del catálogo
+    if (insp.equipo_catalogo_id && insp.frecuencia_inspeccion) {
+      if (insp.frecuencia_inspeccion === 'diaria') {
+        return '/inspecciones/diarias'
+      }
+      if (insp.frecuencia_inspeccion === 'mensual') {
+        return '/inspecciones/mensual'
+      }
+    }
+
+    // Default: inspecciones generales
+    return '/inspecciones'
+  }
   const [personal, setPersonal]           = useState([])
   const [loading, setLoading]             = useState(true)
   const [showEjecucion, setShowEjecucion] = useState(false)
@@ -353,6 +442,20 @@ export default function InspeccionDetailPage() {
     try {
       const { data } = await api.get(`/inspecciones/${id}`)
       setInsp(data)
+
+      // Auto-recalcular si es checklist con respuestas pero % guardado desactualizado
+      if (data.equipo_catalogo_id && data.respuestas_checklist?.length > 0) {
+        const resp       = data.respuestas_checklist
+        const puntuables = resp.filter(r => r.resultado && r.resultado !== 'NA')
+        const conformes  = puntuables.filter(r => ['C','S','A'].includes(r.resultado)).length
+        const pctReal    = puntuables.length > 0 ? Math.round(conformes / puntuables.length * 100) : 0
+        const pctGuardado = Number(data.porcentaje_cumplimiento || 0)
+
+        // Si difieren, recalcular silenciosamente en BD
+        if (Math.abs(pctReal - pctGuardado) > 0.5) {
+          api.post('/checklist/recalcular-todas', { inspeccion_id: id }).catch(() => {})
+        }
+      }
     } catch { toast.error('Error al cargar inspección') } finally { setLoading(false) }
   }
 
@@ -414,12 +517,32 @@ export default function InspeccionDetailPage() {
     return conteo
   })()
 
+  // Para inspecciones de checklist, calcular % real desde las respuestas (ignora el valor guardado en BD)
+  const pctChecklist = (() => {
+    const resp = insp.respuestas_checklist
+    if (!resp?.length) return insp.porcentaje_cumplimiento != null ? Number(insp.porcentaje_cumplimiento) : null
+    const puntuables = resp.filter(r => r.resultado && r.resultado !== 'NA')
+    const conformes  = puntuables.filter(r => ['C','S','A'].includes(r.resultado)).length
+    return puntuables.length > 0 ? Math.round(conformes / puntuables.length * 100) : 0
+  })()
+
+  const resumenChecklist = (() => {
+    const resp = insp.respuestas_checklist || []
+    return {
+      conformes:  resp.filter(r => ['C','S','A'].includes(r.resultado)).length,
+      nc:         resp.filter(r => r.resultado === 'N').length,
+      obs:        resp.filter(r => r.resultado === 'O').length,
+      na:         resp.filter(r => r.resultado === 'NA').length,
+      pendientes: resp.filter(r => !r.resultado).length,
+    }
+  })()
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/inspecciones')} className="btn-back">
+          <button onClick={() => navigate(getRutaRetorno())} className="btn-back">
             <ArrowLeft size={20} />
           </button>
           <div>
@@ -437,8 +560,8 @@ export default function InspeccionDetailPage() {
           </div>
         </div>
         <div className="flex gap-2 flex-wrap justify-end">
-          <button onClick={() => exportarHallazgos(insp)}
-            className="flex items-center gap-1.5 text-xs border border-gray-300 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50">
+          <button onClick={() => exportarInspeccion(insp)}
+            className="flex items-center gap-1.5 text-xs border border-gray-300 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors">
             <Download size={13} /> Exportar
           </button>
           {insp.estado !== 'cerrada' && insp.estado !== 'anulada' && (
@@ -448,10 +571,20 @@ export default function InspeccionDetailPage() {
             </button>
           )}
           {['programada', 'en_ejecucion'].includes(insp.estado) && (
-            <button onClick={() => setShowEjecucion(true)}
-              className="flex items-center gap-2 text-sm px-3 py-2 bg-roka-500 hover:bg-roka-600 text-white rounded-lg">
-              <ClipboardCheck size={15} /> Ejecutar
-            </button>
+            insp.equipo_catalogo_id ? (
+              // Inspección de CHECKLIST → abre el wizard del checklist
+              <button
+                onClick={() => navigate(`/inspecciones/checklist/${id}`)}
+                className="flex items-center gap-2 text-sm px-3 py-2 bg-roka-500 hover:bg-roka-600 text-white rounded-lg font-medium">
+                <ClipboardCheck size={15} /> Ejecutar checklist
+              </button>
+            ) : (
+              // Inspección GENERAL → modal de ejecución
+              <button onClick={() => setShowEjecucion(true)}
+                className="flex items-center gap-2 text-sm px-3 py-2 bg-roka-500 hover:bg-roka-600 text-white rounded-lg">
+                <ClipboardCheck size={15} /> Ejecutar
+              </button>
+            )
           )}
           {['ejecutada', 'con_hallazgos', 'en_ejecucion'].includes(insp.estado) && (
             <button onClick={() => setShowHallazgo(true)}
@@ -472,37 +605,79 @@ export default function InspeccionDetailPage() {
               {enviandoFirma ? 'Enviando...' : insp.requiere_firma ? 'Firma solicitada' : 'Enviar a firma'}
             </button>
           )}
-          {(insp.requiere_firma || ['ejecutada', 'con_hallazgos', 'cerrada'].includes(insp.estado)) && (
-            <button onClick={() => setShowFirma(true)}
-              className="flex items-center gap-2 text-sm px-3 py-2 bg-roka-500 hover:bg-roka-600 text-white rounded-lg">
-              <Pen size={15} /> Firmar
+          {/* Ver checklist ejecutado (solo lectura) para inspecciones cerradas */}
+          {insp.equipo_catalogo_id && ['ejecutada','con_hallazgos','cerrada'].includes(insp.estado) && (
+            <button
+              onClick={() => navigate(`/inspecciones/checklist/${id}`)}
+              className="flex items-center gap-2 text-sm px-3 py-2 bg-white border border-roka-300 text-roka-600 hover:bg-roka-50 rounded-lg">
+              <ClipboardCheck size={15} /> Ver checklist
             </button>
           )}
+          {/* Reprogramar — disponible para cualquier estado en inspecciones checklist */}
+          {insp.equipo_catalogo_id && (
+            <button
+              onClick={() => navigate(`/inspecciones/programar`)}
+              className="flex items-center gap-2 text-sm px-3 py-2 bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 rounded-lg">
+              <Calendar size={15} /> Reprogramar
+            </button>
+          )}
+          {(() => {
+            // Ocultar "Firmar" si ya tiene ambas firmas registradas
+            const roles = (insp.firmas || []).map(f => f.firmante_rol || f.rol_firma)
+            const tieneInspector   = roles.some(r => r === 'inspector')
+            const tieneResponsable = roles.some(r => r === 'responsable_area')
+            const yaFirmadaCompleta = tieneInspector && tieneResponsable
+            const mostrar = (insp.requiere_firma || ['ejecutada','con_hallazgos','cerrada'].includes(insp.estado))
+                            && !yaFirmadaCompleta
+            return mostrar ? (
+              <button onClick={() => setShowFirma(true)}
+                className="flex items-center gap-2 text-sm px-3 py-2 bg-roka-500 hover:bg-roka-600 text-white rounded-lg">
+                <Pen size={15} /> Firmar
+              </button>
+            ) : null
+          })()}
         </div>
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: 'Cumplimiento',  value: `${insp.porcentaje_cumplimiento || 0}%`,
-            color: (insp.porcentaje_cumplimiento || 0) >= 90 ? 'text-emerald-600' : (insp.porcentaje_cumplimiento || 0) >= 70 ? 'text-amber-600' : 'text-red-500' },
-          { label: 'Ítems',         value: insp.items?.length || 0,          color: 'text-gray-700' },
-          { label: 'Hallazgos',     value: insp.hallazgos?.length || 0,      color: 'text-orange-600' },
-          { label: 'Críticos',      value: insp.total_hallazgos_criticos || 0, color: 'text-red-600' },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm text-center">
-            <p className={`text-2xl font-bold ${color}`}>{value}</p>
-            <p className="text-xs text-gray-500 mt-1">{label}</p>
+      {(() => {
+        const esChecklist   = !!insp.equipo_catalogo_id
+        const totalItems    = esChecklist
+          ? (insp.respuestas_checklist?.length || insp.puntaje_total || 0)
+          : (insp.items?.length || 0)
+        // Usar cálculo en tiempo real para checklist, valor guardado para inspecciones generales
+        const pct           = esChecklist && pctChecklist != null
+          ? pctChecklist
+          : (insp.porcentaje_cumplimiento != null ? Number(insp.porcentaje_cumplimiento) : 0)
+        const pctColor      = pct >= 90 ? 'text-emerald-600' : pct >= 70 ? 'text-amber-600' : 'text-red-500'
+        return (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: 'Cumplimiento', value: `${pct.toFixed(1)}%`, color: pctColor },
+              { label: 'Ítems',        value: totalItems,            color: 'text-gray-700' },
+              { label: 'Hallazgos',    value: insp.hallazgos?.length || 0, color: 'text-orange-600' },
+              { label: 'Críticos',     value: insp.total_hallazgos_criticos || 0, color: 'text-red-600' },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm text-center">
+                <p className={`text-2xl font-bold ${color}`}>{value}</p>
+                <p className="text-xs text-gray-500 mt-1">{label}</p>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        )
+      })()}
 
       {/* Info general */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+        <Info label="Equipo"            value={insp.equipo ? `${insp.equipo.codigo} - ${insp.equipo.nombre}` : insp.equipo_catalogo_nombre || '—'} />
+        <Info label="Área"              value={insp.area?.nombre || '—'} />
+        <Info label="Turno"             value={insp.turno ? insp.turno.charAt(0).toUpperCase() + insp.turno.slice(1) : '—'} />
         <Info label="Inspector"         value={insp.inspector ? `${insp.inspector.nombres} ${insp.inspector.apellidos}` : '—'} />
         <Info label="Supervisor"        value={insp.supervisor ? `${insp.supervisor.nombres} ${insp.supervisor.apellidos}` : '—'} />
         <Info label="Fecha planificada" value={insp.planificada_para ? format(new Date(insp.planificada_para), 'dd MMM yyyy', { locale: es }) : '—'} />
-        <Info label="Ejecutada"         value={insp.ejecutada_en ? format(new Date(insp.ejecutada_en), "dd MMM yyyy HH:mm", { locale: es }) : 'Pendiente'} />
+        <Info label="Fecha ejecutada"   value={insp.ejecutada_en ? format(new Date(insp.ejecutada_en), "dd MMM yyyy", { locale: es }) : 'Pendiente'} />
+        <Info label="Hora ejecución"    value={insp.ejecutada_en ? format(new Date(insp.ejecutada_en), "HH:mm", { locale: es }) : '—'} />
+        <Info label="Aprobado por"      value={insp.firmas?.find(f => f.accion_firma === 'aprueba')?.firmante_nombre || '—'} />
         <Info label="Puntaje"           value={`${insp.puntaje_obtenido ?? 0} / ${insp.puntaje_total ?? 0}`} />
         <Info label="Requiere firma"    value={insp.requiere_firma ? 'Sí' : 'No'} />
       </div>
@@ -575,6 +750,62 @@ export default function InspeccionDetailPage() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Respuestas del Checklist — inspecciones de tipo equipo */}
+      {insp.equipo_catalogo_id && insp.respuestas_checklist?.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+            <div>
+              <h2 className="font-semibold text-gray-800">
+                Checklist — {insp.equipo_catalogo_nombre || 'Equipo'} ({insp.respuestas_checklist.length} respuestas)
+              </h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Conformes: {resumenChecklist.conformes} · No conformes: {resumenChecklist.nc} · Observaciones: {resumenChecklist.obs}
+                {resumenChecklist.na > 0 && ` · N/A: ${resumenChecklist.na}`}
+                {resumenChecklist.pendientes > 0 && ` · Sin respuesta: ${resumenChecklist.pendientes}`}
+              </p>
+            </div>
+            <span className={`text-sm font-bold px-3 py-1 rounded-full border ${
+              (pctChecklist || 0) >= 90 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              : (pctChecklist || 0) >= 70 ? 'bg-amber-50 text-amber-700 border-amber-200'
+              : 'bg-red-50 text-red-600 border-red-200'
+            }`}>
+              {(pctChecklist || 0).toFixed ? (pctChecklist || 0).toFixed(1) : pctChecklist}%
+            </span>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {insp.respuestas_checklist
+              .sort((a, b) => (a.orden || 0) - (b.orden || 0))
+              .map((r, idx) => {
+                const RESULT_CFG = {
+                  C:  { label: 'Conforme',       cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+                  S:  { label: 'Sí',             cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+                  A:  { label: 'Aprobado',       cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+                  N:  { label: 'No conforme',    cls: 'bg-red-50 text-red-700 border-red-200' },
+                  O:  { label: 'Observación',    cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+                  NA: { label: 'No aplica',      cls: 'bg-gray-100 text-gray-500 border-gray-200' },
+                }
+                const cfg = RESULT_CFG[r.resultado] || { label: r.resultado || 'Sin respuesta', cls: 'bg-gray-50 text-gray-400 border-gray-200' }
+                return (
+                  <div key={r.id || idx} className={`px-5 py-3 flex items-start gap-4 ${r.resultado === 'N' ? 'bg-red-50/30' : ''}`}>
+                    <span className="text-xs text-gray-400 font-mono mt-0.5 w-5 flex-shrink-0">{idx + 1}.</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-700 leading-snug">{r.texto || `Pregunta ${r.pregunta_id}`}</p>
+                      {r.nota && <p className="text-xs text-gray-400 mt-1 italic">"{r.nota}"</p>}
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {r.cantidad && <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded">Cantidad: {r.cantidad}</span>}
+                        {r.fecha_vencimiento_item && <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded">Vence: {r.fecha_vencimiento_item}</span>}
+                      </div>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium flex-shrink-0 ${cfg.cls}`}>
+                      {cfg.label}
+                    </span>
+                  </div>
+                )
+              })}
           </div>
         </div>
       )}

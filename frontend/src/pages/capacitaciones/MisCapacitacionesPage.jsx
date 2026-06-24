@@ -123,30 +123,30 @@ export default function MisCapacitacionesPage() {
   const evalPend = data?.evaluaciones_pendientes || []
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <button onClick={() => navigate('/capacitaciones')} className="btn-back">
-          <ArrowLeft size={14} /> Capacitaciones
+    <div className="space-y-4 p-4 pt-6">
+      {/* Header simple */}
+      <div className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg mb-2">
+        <button
+          onClick={() => navigate('/capacitaciones')}
+          className="p-2 hover:bg-gray-200 rounded"
+        >
+          <ArrowLeft size={20} />
         </button>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Mis Capacitaciones</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Tu historial y próximas capacitaciones</p>
-        </div>
+        <h1 className="text-lg font-bold">Mis Capacitaciones</h1>
       </div>
 
       {/* KPIs personales */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {[
           { label:'Asignadas', value: stats.total_asignadas || 0, color:'text-gray-700', icon: GraduationCap },
           { label:'Asistidas', value: stats.asistidas || 0, color:'text-emerald-600', icon: CheckCircle },
           { label:'Aprobadas', value: stats.aprobadas || 0, color:'text-blue-600', icon: Award },
-          { label:'Horas acum.', value:`${stats.horas_acumuladas?.toFixed(1) || 0}h`, color:'text-purple-600', icon: Clock },
+          { label:'Horas', value:`${stats.horas_acumuladas?.toFixed(1) || 0}h`, color:'text-purple-600', icon: Clock },
         ].map(({ label, value, color, icon: Icon }) => (
-          <div key={label} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center gap-3">
-            <Icon size={18} className={`${color} flex-shrink-0`} />
+          <div key={label} className="bg-white rounded-lg border border-gray-200 p-3 flex items-center gap-2">
+            <Icon size={16} className={`${color} flex-shrink-0`} />
             <div>
-              <p className={`text-xl font-bold ${color}`}>{value}</p>
+              <p className={`text-lg font-bold ${color}`}>{value}</p>
               <p className="text-xs text-gray-500">{label}</p>
             </div>
           </div>
@@ -258,35 +258,94 @@ export default function MisCapacitacionesPage() {
             </div>
           ) : historial.map(cap => (
             <div key={cap.id} onClick={() => navigate(`/capacitaciones/${cap.id}`)}
-              className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center gap-4 cursor-pointer hover:shadow-md transition-shadow">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${cap.asistio ? 'bg-emerald-50' : 'bg-gray-100'}`}>
-                {cap.asistio
-                  ? <CheckCircle size={18} className="text-emerald-600" />
-                  : <XCircle size={18} className="text-gray-400" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-gray-900 truncate">{cap.titulo}</p>
-                <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-400 flex-wrap">
-                  <span>{format(new Date(cap.fecha_ejecutada), 'd MMM yyyy', { locale: es })}</span>
-                  <span>{cap.duracion_horas}h</span>
-                  <span className={`${TIPO_COLOR[cap.tipo]} px-1.5 py-0.5 rounded text-[10px]`}>{TIPO_LABEL[cap.tipo]}</span>
+              className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-lg hover:border-roka-200 p-5 cursor-pointer transition-all group">
+
+              {/* Header: Título y Estado */}
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="font-semibold text-gray-900 text-base group-hover:text-roka-700 transition-colors">
+                      {cap.titulo}
+                    </h3>
+                    {cap.asistio ? (
+                      <CheckCircle size={18} className="text-emerald-500 flex-shrink-0" />
+                    ) : (
+                      <XCircle size={18} className="text-gray-400 flex-shrink-0" />
+                    )}
+                  </div>
+                  {cap.tema && (
+                    <p className="text-sm text-gray-500 line-clamp-1">{cap.tema}</p>
+                  )}
+                </div>
+
+                {/* Nota/Badge de aprobación */}
+                <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                  {cap.nota != null && (
+                    <div className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold text-sm ${
+                      cap.aprobado
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : 'bg-red-100 text-red-700'
+                    }`}>
+                      <Award size={14} />
+                      <span>{cap.nota}/20</span>
+                    </div>
+                  )}
+                  {cap.aprobado === true && (
+                    <span className="text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-medium">
+                      ✓ Aprobado
+                    </span>
+                  )}
+                  {cap.aprobado === false && (
+                    <span className="text-xs px-2 py-0.5 bg-red-50 text-red-600 border border-red-200 rounded-full font-medium">
+                      ✗ Desaprobado
+                    </span>
+                  )}
+                  {!cap.asistio && (
+                    <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">
+                      No asistió
+                    </span>
+                  )}
                 </div>
               </div>
-              <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                {cap.nota != null && (
-                  <span className={`text-sm font-bold ${cap.aprobado ? 'text-emerald-600' : 'text-red-500'}`}>
-                    {cap.nota}/20
+
+              {/* Badges de tipo y bloque */}
+              <div className="flex items-center gap-2 mb-3">
+                <span className={`text-xs font-medium px-2.5 py-1 rounded-md ${TIPO_COLOR[cap.tipo]}`}>
+                  {TIPO_LABEL[cap.tipo]}
+                </span>
+                {cap.bloque && (
+                  <span className="text-xs px-2.5 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-md font-medium">
+                    {cap.bloque}
                   </span>
                 )}
-                {cap.aprobado === true && (
-                  <span className="text-[10px] text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">Aprobado</span>
-                )}
-                {cap.aprobado === false && (
-                  <span className="text-[10px] text-red-500 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full">Desaprobado</span>
-                )}
-                {!cap.asistio && <span className="text-[10px] text-gray-400">No asistió</span>}
               </div>
-              <ChevronRight size={14} className="text-gray-300" />
+
+              {/* Información de la capacitación */}
+              <div className="flex items-center gap-4 text-xs text-gray-600">
+                <span className="flex items-center gap-1.5">
+                  <Calendar size={13} className="text-gray-400" />
+                  <span className="font-medium">
+                    {format(new Date(cap.fecha_ejecutada), 'd MMM yyyy', { locale: es })}
+                  </span>
+                </span>
+
+                <span className="flex items-center gap-1.5">
+                  <Clock size={13} className="text-gray-400" />
+                  <span className="font-medium">{cap.duracion_horas}h</span>
+                </span>
+
+                {cap.expositor && (
+                  <span className="flex items-center gap-1.5 max-w-[200px] truncate">
+                    <GraduationCap size={13} className="text-gray-400 flex-shrink-0" />
+                    <span>{cap.expositor}</span>
+                  </span>
+                )}
+              </div>
+
+              {/* Ícono de navegación */}
+              <div className="absolute top-5 right-5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <ChevronRight size={18} className="text-roka-400" />
+              </div>
             </div>
           ))}
         </div>

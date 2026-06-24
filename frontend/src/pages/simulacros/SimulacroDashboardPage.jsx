@@ -114,8 +114,19 @@ function GanttSimulacros({ items, anio }) {
                       backgroundColor: TIPO_COLOR[s.tipo] || '#6b7280',
                       opacity, top: '50%', transform: 'translateY(-50%)',
                     }}>
-                    <div className="absolute -top-7 left-0 bg-gray-900 text-white text-[10px] px-2 py-1 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30 shadow-lg">
-                      {format(new Date(s.fecha_programada), 'd MMM', { locale: es })} · {TIPO_LABEL[s.tipo]}
+                    <div className="absolute -top-16 left-0 bg-gray-900 text-white text-[11px] px-3 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30 shadow-xl min-w-max">
+                      <div className="font-semibold mb-0.5">{s.nombre}</div>
+                      <div className="text-[10px] text-gray-300">
+                        {TIPO_EMOJI[s.tipo]} {TIPO_LABEL[s.tipo]} · {format(new Date(s.fecha_programada), "d 'de' MMM yyyy", { locale: es })}
+                      </div>
+                      {s.area?.nombre && (
+                        <div className="text-[10px] text-gray-400 mt-0.5">📍 {s.area.nombre}</div>
+                      )}
+                      <div className="text-[10px] mt-1">
+                        <span className={`px-1.5 py-0.5 rounded ${ecfg.bg} ${ecfg.color} font-medium`}>
+                          {ecfg.label}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -312,36 +323,6 @@ export default function SimulacroDashboardPage() {
           )}
         </div>
       </div>
-
-      {/* Gráfico Por área */}
-      {(stats?.por_area?.length > 0) && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <h2 className="font-semibold text-gray-800 mb-1 flex items-center gap-2">
-            <BarChart2 size={16} className="text-roka-500" /> Por área
-          </h2>
-          <p className="text-xs text-gray-400 mb-4">Simulacros ejecutados vs programados por área</p>
-          <ResponsiveContainer width="100%" height={Math.max(160, stats.por_area.length * 40)}>
-            <BarChart data={stats.por_area.map(a => ({
-              area: a.area, Ejecutados: a.ejecutados, Pendientes: a.total - a.ejecutados,
-            }))} layout="vertical" margin={{ top: 0, right: 50, left: 8, bottom: 0 }} barGap={3}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f3f4f6" />
-              <XAxis type="number" tick={{ fontSize: 11, fill: '#9ca3af' }} tickLine={false} axisLine={false} allowDecimals={false} />
-              <YAxis type="category" dataKey="area" width={150} tick={{ fontSize: 11, fill: '#374151' }} tickLine={false} axisLine={false} />
-              <Tooltip cursor={{ fill: '#f9fafb' }} contentStyle={{ borderRadius: 10, border: '1px solid #e5e7eb', fontSize: 12 }} />
-              <Bar dataKey="Ejecutados" stackId="a" fill="#10b981" radius={[0,0,0,0]} maxBarSize={22}>
-                <LabelList dataKey="Ejecutados" position="insideRight" style={{ fontSize: 10, fontWeight: 700, fill: 'white' }} formatter={v => v > 0 ? v : ''} />
-              </Bar>
-              <Bar dataKey="Pendientes" stackId="a" fill="#e5e7eb" radius={[0,6,6,0]} maxBarSize={22}>
-                <LabelList dataKey="Pendientes" position="right" style={{ fontSize: 11, fontWeight: 700, fill: '#374151' }} formatter={(v, name, props) => props?.payload?.Ejecutados + v} />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-          <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
-            <span className="flex items-center gap-1.5"><span className="w-3 h-2 bg-emerald-500 rounded-sm inline-block"/>Ejecutados</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-2 bg-gray-200 rounded-sm inline-block"/>Pendientes</span>
-          </div>
-        </div>
-      )}
 
       {/* Gantt / Lista accesos rápidos */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

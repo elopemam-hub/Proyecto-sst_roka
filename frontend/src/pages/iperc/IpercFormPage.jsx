@@ -71,7 +71,7 @@ export default function IpercFormPage() {
 
   const cargarMaestros = async () => {
     try {
-      const areasRes = await api.get('/areas')
+      const areasRes = await api.get('/areas', { params: { per_page: 1000 } })
       setAreas(areasRes.data.data || areasRes.data || [])
     } catch (_) {}
   }

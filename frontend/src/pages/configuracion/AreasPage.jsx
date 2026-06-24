@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { LayoutGrid, Plus, Edit2, Trash2, X, Save } from 'lucide-react'
+import { LayoutGrid, Plus, Edit2, Trash2, X, Save, Merge } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
 
@@ -11,13 +11,54 @@ const NIVEL_COLOR = {
   critico: 'bg-red-50 text-red-700',
 }
 
+const PER_PAGE = 10
+
+function Paginador({ total, pagina, setPagina }) {
+  const totalPags = Math.ceil(total / PER_PAGE)
+  if (totalPags <= 1) return null
+  return (
+    <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
+      <p className="text-xs text-gray-500">{total} registros · página {pagina} de {totalPags}</p>
+      <div className="flex items-center gap-1">
+        <button disabled={pagina === 1} onClick={() => setPagina(p => p - 1)}
+          className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-100 text-gray-600">
+          ← Anterior
+        </button>
+        {Array.from({ length: totalPags }, (_, i) => i + 1)
+          .filter(p => p === 1 || p === totalPags || Math.abs(p - pagina) <= 1)
+          .reduce((acc, p, idx, arr) => {
+            if (idx > 0 && p - arr[idx - 1] > 1) acc.push('…')
+            acc.push(p)
+            return acc
+          }, [])
+          .map((p, i) => p === '…'
+            ? <span key={`e${i}`} className="px-2 text-xs text-gray-400">…</span>
+            : <button key={p} onClick={() => setPagina(p)}
+                className={`w-8 h-7 text-xs rounded-lg border transition-colors ${pagina === p ? 'bg-roka-500 text-white border-roka-500' : 'border-gray-300 text-gray-600 hover:bg-gray-100'}`}>
+                {p}
+              </button>
+          )}
+        <button disabled={pagina === totalPags} onClick={() => setPagina(p => p + 1)}
+          className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-100 text-gray-600">
+          Siguiente →
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function AreasPage() {
   const [areas, setAreas]     = useState([])
   const [cargos, setCargos]   = useState([])
   const [sedes, setSedes]     = useState([])
   const [loading, setLoading] = useState(true)
-  const [modal, setModal]     = useState(null) // {tipo:'area'|'cargo', data}
+  const [modal, setModal]         = useState(null) // {tipo:'area'|'cargo', data}
+  const [modalFusion, setModalFusion] = useState(null) // {area} origen
+  const [areaDestino, setAreaDestino] = useState('')
+  const [fusionando, setFusionando]   = useState(false)
   const [form, setForm]       = useState({})
+  const [paginaAreas,  setPaginaAreas]  = useState(1)
+  const [paginaCargos, setPaginaCargos] = useState(1)
 
   useEffect(() => { cargar() }, [])
 
@@ -25,8 +66,8 @@ export default function AreasPage() {
     setLoading(true)
     try {
       const [{ data: a }, { data: c }, { data: s }] = await Promise.all([
-        api.get('/areas'),
-        api.get('/cargos').catch(() => ({ data: [] })),
+        api.get('/areas', { params: { per_page: 1000 } }),
+        api.get('/cargos', { params: { per_page: 1000 } }).catch(() => ({ data: [] })),
         api.get('/sedes').catch(() => ({ data: [] })),
       ])
       setAreas(Array.isArray(a) ? a : (a.data || []))
@@ -61,6 +102,23 @@ export default function AreasPage() {
     }
   }
 
+  const fusionar = async () => {
+    if (!areaDestino) { toast.error('Selecciona el área destino'); return }
+    if (!window.confirm(
+      `¿Fusionar "${modalFusion.nombre}" → "${areas.find(a => String(a.id) === String(areaDestino))?.nombre}"?\n\nTodos los equipos, inspecciones, personal y demás registros serán reasignados al área destino. Esta acción no se puede deshacer.`
+    )) return
+    setFusionando(true)
+    try {
+      const { data } = await api.post(`/areas/${modalFusion.id}/fusionar`, { area_destino_id: areaDestino })
+      toast.success(data.message)
+      setModalFusion(null)
+      setAreaDestino('')
+      await cargar()
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Error al fusionar')
+    } finally { setFusionando(false) }
+  }
+
   const eliminar = async (tipo, id) => {
     if (!confirm('¿Eliminar este registro?')) return
     try {
@@ -71,9 +129,8 @@ export default function AreasPage() {
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
-  const totalPersonalArea = (areaId) => {
-    return 0 // Placeholder — podría consultarse con /api/personal?area_id=
-  }
+  const areasPag  = areas.slice((paginaAreas  - 1) * PER_PAGE, paginaAreas  * PER_PAGE)
+  const cargosPag = cargos.slice((paginaCargos - 1) * PER_PAGE, paginaCargos * PER_PAGE)
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-2 border-roka-500 border-t-transparent rounded-full animate-spin" /></div>
 
@@ -120,20 +177,22 @@ export default function AreasPage() {
             <tbody className="divide-y divide-gray-100">
               {areas.length === 0 ? (
                 <tr><td colSpan={4} className="text-center py-8 text-gray-400">No hay áreas registradas</td></tr>
-              ) : areas.map(a => (
+              ) : areasPag.map(a => (
                 <tr key={a.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium text-gray-800">{a.nombre}</td>
                   <td className="px-4 py-3 text-gray-500">{sedes.find(s => s.id === a.sede_id)?.nombre || '—'}</td>
                   <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{a.descripcion || '—'}</td>
                   <td className="px-4 py-3 flex items-center gap-2">
-                    <button onClick={() => abrirModal('area', a)} className="p-1.5 text-gray-400 hover:text-roka-600 hover:bg-roka-50 rounded-lg"><Edit2 size={14} /></button>
-                    <button onClick={() => eliminar('areas', a.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={14} /></button>
+                    <button onClick={() => abrirModal('area', a)} className="p-1.5 text-gray-400 hover:text-roka-600 hover:bg-roka-50 rounded-lg" title="Editar"><Edit2 size={14} /></button>
+                    <button onClick={() => { setModalFusion(a); setAreaDestino('') }} className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg" title="Fusionar con otra área"><Merge size={14} /></button>
+                    <button onClick={() => eliminar('areas', a.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Eliminar"><Trash2 size={14} /></button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        <Paginador total={areas.length} pagina={paginaAreas} setPagina={setPaginaAreas} />
       </div>
 
       {/* Tabla Cargos */}
@@ -156,7 +215,7 @@ export default function AreasPage() {
             <tbody className="divide-y divide-gray-100">
               {cargos.length === 0 ? (
                 <tr><td colSpan={4} className="text-center py-8 text-gray-400">No hay cargos registrados</td></tr>
-              ) : cargos.map(c => (
+              ) : cargosPag.map(c => (
                 <tr key={c.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium text-gray-800">{c.nombre}</td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-500">{c.codigo || '—'}</td>
@@ -179,7 +238,62 @@ export default function AreasPage() {
             </tbody>
           </table>
         </div>
+        <Paginador total={cargos.length} pagina={paginaCargos} setPagina={setPaginaCargos} />
       </div>
+
+      {/* Modal Fusionar Áreas */}
+      {modalFusion && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Merge size={18} className="text-purple-600"/>
+                <h3 className="text-base font-semibold text-gray-800">Fusionar Área</h3>
+              </div>
+              <button onClick={() => setModalFusion(null)} className="p-1 text-gray-400 hover:text-gray-600"><X size={16}/></button>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+              <p className="text-xs text-amber-800">
+                Todos los registros de <strong>"{modalFusion.nombre}"</strong> (equipos, inspecciones, personal, etc.)
+                serán reasignados al área destino y el área origen será eliminada.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Área origen (se eliminará)</label>
+                <div className="border border-red-200 bg-red-50 rounded-lg px-3 py-2 text-sm font-medium text-red-700">
+                  {modalFusion.nombre}
+                </div>
+              </div>
+              <div className="flex items-center justify-center text-gray-400 text-xs">↓ fusionar hacia ↓</div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Área destino (se conserva)</label>
+                <select value={areaDestino} onChange={e => setAreaDestino(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+                  <option value="">Seleccionar área destino...</option>
+                  {areas.filter(a => a.id !== modalFusion.id).map(a => (
+                    <option key={a.id} value={a.id}>{a.nombre}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setModalFusion(null)}
+                className="px-4 py-2 border border-gray-300 text-gray-600 rounded-lg text-sm hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={fusionar} disabled={fusionando || !areaDestino}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium disabled:opacity-40">
+                <Merge size={14}/>
+                {fusionando ? 'Fusionando...' : 'Fusionar y eliminar origen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal */}
       {modal && (

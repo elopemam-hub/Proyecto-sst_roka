@@ -41,6 +41,17 @@ iniciar_*.ps1
 iniciar_*.vbs
 {backend,frontend}
 
-# ── Carpeta duplicada ─────────────────────────────────────────
+# ── Carpeta duplicada / obsoleta ──────────────────────────────
 backend/
 deploy/hostinger/env_produccion
+
+# ── Archivos temporales de desarrollo ────────────────────────
+laravel-app/tmp_test.php
+laravel-app/sincronizar_epps_trabajadores.php
+laravel-app/check_*.php
+verificar-qr.html
+VERIFICAR_QR.bat
+
+# ── Carpetas de build duplicadas en raíz (no son el deploy) ──
+/public_html/
+/public/

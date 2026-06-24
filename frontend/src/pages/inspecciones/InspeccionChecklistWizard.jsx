@@ -18,46 +18,85 @@ const SUBMOD_STYLE = {
 function FirmaCanvas({ label, onFirmar, firmado }) {
   const canvasRef = useRef(null)
   const drawing   = useRef(false)
+  const lastPos   = useRef({ x: 0, y: 0 })
+  const [hasStroke, setHasStroke] = useState(false)
 
-  const getPos = (e, canvas) => {
+  // Inicializar canvas con tamaño real del contenedor (DPI-aware)
+  const initCanvas = useCallback(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
     const rect = canvas.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return
+
+    const dpr = window.devicePixelRatio || 1
+    canvas.width  = Math.floor(rect.width  * dpr)
+    canvas.height = Math.floor(rect.height * dpr)
+
+    const ctx = canvas.getContext('2d')
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.fillStyle   = '#ffffff'
+    ctx.fillRect(0, 0, rect.width, rect.height)
+    ctx.strokeStyle = '#1e293b'
+    ctx.lineWidth   = 2
+    ctx.lineCap     = 'round'
+    ctx.lineJoin    = 'round'
+  }, [])
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => initCanvas())
+    const ro  = new ResizeObserver(() => initCanvas())
+    if (canvasRef.current) ro.observe(canvasRef.current)
+    return () => { cancelAnimationFrame(raf); ro.disconnect() }
+  }, [initCanvas])
+
+  const getPos = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect()
     const src  = e.touches ? e.touches[0] : e
     return { x: src.clientX - rect.left, y: src.clientY - rect.top }
   }
 
   const start = (e) => {
-    drawing.current = true
-    const c   = canvasRef.current
-    const ctx = c.getContext('2d')
-    const pos = getPos(e, c)
-    ctx.beginPath()
-    ctx.moveTo(pos.x, pos.y)
     e.preventDefault()
+    drawing.current = true
+    lastPos.current = getPos(e)
+    // Punto para clics sin movimiento
+    const ctx = canvasRef.current.getContext('2d')
+    ctx.beginPath()
+    ctx.arc(lastPos.current.x, lastPos.current.y, 1, 0, Math.PI * 2)
+    ctx.fill()
+    setHasStroke(true)
   }
 
   const draw = (e) => {
     if (!drawing.current) return
-    const c   = canvasRef.current
-    const ctx = c.getContext('2d')
-    const pos = getPos(e, c)
+    e.preventDefault()
+    const pos = getPos(e)
+    const ctx = canvasRef.current.getContext('2d')
+    ctx.beginPath()
+    ctx.moveTo(lastPos.current.x, lastPos.current.y)
     ctx.lineTo(pos.x, pos.y)
+    ctx.stroke()
+    lastPos.current = pos
+  }
+
+  const stop = (e) => { if (e) e.preventDefault(); drawing.current = false }
+
+  const limpiar = () => {
+    const canvas = canvasRef.current
+    const ctx    = canvas.getContext('2d')
+    const rect   = canvas.getBoundingClientRect()
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, rect.width, rect.height)
     ctx.strokeStyle = '#1e293b'
     ctx.lineWidth   = 2
     ctx.lineCap     = 'round'
-    ctx.stroke()
-    e.preventDefault()
-  }
-
-  const stop = () => { drawing.current = false }
-
-  const limpiar = () => {
-    const c = canvasRef.current
-    c.getContext('2d').clearRect(0, 0, c.width, c.height)
+    ctx.lineJoin    = 'round'
+    setHasStroke(false)
   }
 
   const guardar = () => {
-    const b64 = canvasRef.current.toDataURL('image/png')
-    onFirmar(b64)
+    if (!hasStroke) return
+    onFirmar(canvasRef.current.toDataURL('image/png'))
   }
 
   if (firmado) {
@@ -72,18 +111,27 @@ function FirmaCanvas({ label, onFirmar, firmado }) {
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium text-gray-700">{label}</p>
-      <canvas
-        ref={canvasRef}
-        width={380} height={120}
-        className="border-2 border-dashed border-gray-300 rounded-lg bg-white cursor-crosshair w-full"
-        onMouseDown={start} onMouseMove={draw} onMouseUp={stop} onMouseLeave={stop}
-        onTouchStart={start} onTouchMove={draw} onTouchEnd={stop}
-      />
+      {/* Altura fija en el wrapper — NO en el canvas — evita distorsión de coordenadas */}
+      <div className="relative border-2 border-dashed border-gray-300 rounded-lg overflow-hidden bg-white" style={{ height: '120px' }}>
+        <canvas
+          ref={canvasRef}
+          className="block w-full h-full touch-none cursor-crosshair"
+          onMouseDown={start} onMouseMove={draw} onMouseUp={stop} onMouseLeave={stop}
+          onTouchStart={start} onTouchMove={draw} onTouchEnd={stop} onTouchCancel={stop}
+        />
+        {!hasStroke && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <span className="text-gray-300 text-sm italic select-none">Firme aquí</span>
+          </div>
+        )}
+        <div className="absolute bottom-4 left-6 right-6 border-b border-gray-300 pointer-events-none" />
+      </div>
       <div className="flex gap-2">
         <button onClick={limpiar} className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">
           Limpiar
         </button>
-        <button onClick={guardar} className="text-xs px-3 py-1.5 bg-roka-500 hover:bg-roka-600 text-white rounded-lg font-medium">
+        <button onClick={guardar} disabled={!hasStroke}
+          className="text-xs px-3 py-1.5 bg-roka-500 hover:bg-roka-600 disabled:opacity-40 text-white rounded-lg font-medium">
           Guardar firma
         </button>
       </div>
@@ -302,6 +350,8 @@ export default function InspeccionChecklistWizard() {
   const [submoduloSel, setSubmoduloSel] = useState(null)
   const [equipoSel, setEquipoSel]       = useState(null)
   const [busqEquipo, setBusqEquipo]     = useState('')
+  const [equiposFisicos, setEquiposFisicos] = useState([])
+  const [equipoFisicoId, setEquipoFisicoId] = useState(null)
   const [areaId, setAreaId]             = useState('')
   const [inspectorId, setInspectorId]   = useState('')
   const [turno, setTurno]               = useState('mañana')
@@ -313,7 +363,7 @@ export default function InspeccionChecklistWizard() {
   // Cargar sub-módulos al iniciar
   useEffect(() => {
     api.get('/checklist/submodulos').then(({ data }) => setSubmodulos(data)).catch(() => {})
-    api.get('/areas').then(({ data }) => setAreas(data.data || data)).catch(() => {})
+    api.get('/areas', { params: { per_page: 1000 } }).then(({ data }) => setAreas(data.data || data)).catch(() => {})
     api.get('/personal').then(({ data }) => setPersonal(data.data || data)).catch(() => {})
   }, [])
 
@@ -340,7 +390,14 @@ export default function InspeccionChecklistWizard() {
       ]).then(([{ data: insp }, { data: resps }]) => {
         setInspeccion(insp)
         if (insp.equipo_catalogo_id) {
-          return api.get(`/checklist/preguntas/${insp.equipo_catalogo_id}?solo_activas=true`)
+          // Determinar frecuencia de inspección desde el catálogo del equipo
+          const frecuencia = insp.equipo_catalogo?.frecuencia_inspeccion || null
+          const params = { solo_activas: true }
+          if (frecuencia) {
+            params.frecuencia = frecuencia
+          }
+
+          return api.get(`/checklist/preguntas/${insp.equipo_catalogo_id}`, { params })
             .then(({ data }) => {
               setPreguntas(data)
               const mapa = {}
@@ -351,6 +408,21 @@ export default function InspeccionChecklistWizard() {
       }).catch(() => {}).finally(() => setLoading(false))
     }
   }, [inspId])
+
+  // Cargar equipos físicos cuando se selecciona un catálogo
+  useEffect(() => {
+    if (equipoSel?.id) {
+      api.get('/equipos', {
+        params: {
+          equipo_catalogo_id: equipoSel.id,
+          estado: 'operativo',
+          per_page: 100
+        }
+      })
+      .then(({ data }) => setEquiposFisicos(data.data || data))
+      .catch(() => {})
+    }
+  }, [equipoSel?.id])
 
   // Al seleccionar sub-módulo → cargar equipos
   useEffect(() => {
@@ -366,7 +438,15 @@ export default function InspeccionChecklistWizard() {
   useEffect(() => {
     if (!equipoSel) return
     setLoading(true)
-    api.get(`/checklist/preguntas/${equipoSel.id}?solo_activas=true`)
+
+    // Determinar frecuencia de inspección desde el catálogo del equipo
+    const frecuencia = equipoSel.frecuencia_inspeccion || null
+    const params = { solo_activas: true }
+    if (frecuencia) {
+      params.frecuencia = frecuencia
+    }
+
+    api.get(`/checklist/preguntas/${equipoSel.id}`, { params })
       .then(({ data }) => setPreguntas(data))
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -393,10 +473,11 @@ export default function InspeccionChecklistWizard() {
       const body = {
         sede_id:            1,
         area_id:            areaId,
-        tipo:               submoduloSel.codigo === 'A' ? 'equipos' : submoduloSel.codigo === 'B' ? 'infraestructura' : 'emergencias',
+        tipo:               submoduloSel.tipo_inspeccion || 'equipos',
         titulo:             equipoSel.nombre,
         planificada_para:   fecha,
         equipo_catalogo_id: equipoSel.id,
+        equipo_id:          equipoFisicoId || null,
         submodulo_id:       submoduloSel.id,
         turno,
       }
@@ -445,13 +526,25 @@ export default function InspeccionChecklistWizard() {
   }
 
   // Generar acciones NC y finalizar
+  // Determinar ruta de retorno según frecuencia de inspección
+  const getRutaRetorno = () => {
+    if (inspeccion?.frecuencia_inspeccion === 'mensual') {
+      return '/inspecciones/mensual'
+    }
+    if (inspeccion?.frecuencia_inspeccion === 'diaria') {
+      return '/inspecciones/diarias'
+    }
+    // Default: lista general de inspecciones
+    return '/inspecciones'
+  }
+
   const finalizar = async () => {
     setSaving(true)
     try {
       if (inspeccion.items_nc > 0) {
         await api.post(`/inspecciones/${inspeccion.id}/checklist/generar-acciones-nc`)
       }
-      navigate(`/inspecciones/${inspeccion.id}`)
+      navigate(getRutaRetorno())
     } catch { } finally { setSaving(false) }
   }
 
@@ -483,7 +576,7 @@ export default function InspeccionChecklistWizard() {
       {/* Header + stepper */}
       <div>
         <div className="flex items-center gap-3 mb-1">
-          <button onClick={() => navigate('/inspecciones')}
+          <button onClick={() => navigate(getRutaRetorno())}
             className="btn-back">
             <ArrowLeft size={14} /> Inspecciones
           </button>
@@ -561,6 +654,29 @@ export default function InspeccionChecklistWizard() {
                 {personal.map(p => <option key={p.id} value={p.id}>{p.nombres} {p.apellidos}</option>)}
               </select>
             </div>
+            {equiposFisicos.length > 0 && (
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  Equipo Específico {equiposFisicos.length > 1 && <span className="text-red-500">*</span>}
+                </label>
+                <select
+                  value={equipoFisicoId || ''}
+                  onChange={e => setEquipoFisicoId(e.target.value || null)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-roka-400"
+                  required={equiposFisicos.length > 1}
+                >
+                  <option value="">Seleccionar equipo...</option>
+                  {equiposFisicos.map(eq => (
+                    <option key={eq.id} value={eq.id}>
+                      {eq.codigo} — {eq.nombre} {eq.ubicacion && `(${eq.ubicacion})`}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Identifique cuál {equipoSel.nombre} se inspeccionará
+                </p>
+              </div>
+            )}
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Fecha</label>
               <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}

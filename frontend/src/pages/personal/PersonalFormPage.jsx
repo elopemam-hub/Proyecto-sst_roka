@@ -30,18 +30,27 @@ export default function PersonalFormPage() {
     area_id: '', cargo_id: '', cargo: '',
     fecha_ingreso: new Date().toLocaleDateString('en-CA'),
     tipo_contrato: 'indefinido', estado: 'activo',
+    // Campos para trabajadores terceros
+    tipo_trabajador: 'interno',
+    empresa_tercera: '',
+    certificaciones: [],
+    vigencia_hasta: '',
   })
   const [areas, setAreas]     = useState([])
   const [cargos, setCargos]   = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving]   = useState(false)
 
+  // Estados para archivos
+  const [dniFoto, setDniFoto] = useState(null)
+  const [licenciaFoto, setLicenciaFoto] = useState(null)
+
   useEffect(() => {
     const init = async () => {
       setLoading(true)
       try {
         const [rAreas, rCargos] = await Promise.all([
-          api.get('/areas'),
+          api.get('/areas', { params: { per_page: 1000 } }),
           api.get('/cargos'),
         ])
         setAreas(rAreas.data.data || rAreas.data)
@@ -68,6 +77,14 @@ export default function PersonalFormPage() {
             fecha_ingreso:  data.fecha_ingreso || '',
             tipo_contrato:  data.tipo_contrato || 'indefinido',
             estado:         data.estado || 'activo',
+            // Campos terceros
+            tipo_trabajador: data.tipo_trabajador || 'interno',
+            empresa_tercera: data.empresa_tercera || '',
+            certificaciones: data.certificaciones || [],
+            vigencia_hasta:  data.vigencia_hasta || '',
+            // Rutas de archivos
+            dni_foto_path: data.dni_foto_path || '',
+            licencia_foto_path: data.licencia_foto_path || '',
           })
         }
       } catch { toast.error('Error al cargar datos') } finally { setLoading(false) }
@@ -87,21 +104,58 @@ export default function PersonalFormPage() {
       toast.error('El DNI debe tener exactamente 8 dígitos')
       return
     }
+    if (form.tipo_trabajador === 'tercero' && !form.empresa_tercera.trim()) {
+      toast.error('Debe especificar la empresa proveedora para trabajadores terceros')
+      return
+    }
 
-    const payload = { ...form }
+    // Preparar payload (JSON o FormData si hay archivos)
+    const hayArchivos = dniFoto || licenciaFoto
+    let payload
+
+    if (hayArchivos) {
+      // Usar FormData para enviar archivos
+      payload = new FormData()
+      Object.keys(form).forEach(key => {
+        const value = form[key]
+        if (value !== null && value !== undefined && value !== '') {
+          if (Array.isArray(value)) {
+            payload.append(key, JSON.stringify(value))
+          } else {
+            payload.append(key, value)
+          }
+        }
+      })
+      if (dniFoto) payload.append('dni_foto', dniFoto)
+      if (licenciaFoto) payload.append('licencia_foto', licenciaFoto)
+    } else {
+      // Usar JSON normal
+      payload = { ...form }
+    }
+
     // Si se seleccionó cargo del listado, no enviar texto libre
-    if (payload.cargo_id) delete payload.cargo
+    if (form.cargo_id) {
+      if (hayArchivos) payload.delete('cargo')
+      else delete payload.cargo
+    }
     // Si se escribió cargo libre sin seleccionar del listado, limpiar cargo_id
-    if (!payload.cargo_id && payload.cargo) delete payload.cargo_id
+    if (!form.cargo_id && form.cargo) {
+      if (hayArchivos) payload.delete('cargo_id')
+      else delete payload.cargo_id
+    }
 
     setSaving(true)
     try {
       if (esEdicion) {
-        await api.put(`/personal/${id}`, payload)
+        await api.put(`/personal/${id}`, payload, {
+          headers: hayArchivos ? { 'Content-Type': 'multipart/form-data' } : {}
+        })
         toast.success('Personal actualizado')
         navigate(`/personal/${id}`)
       } else {
-        const { data } = await api.post('/personal', payload)
+        const { data } = await api.post('/personal', payload, {
+          headers: hayArchivos ? { 'Content-Type': 'multipart/form-data' } : {}
+        })
         toast.success('Personal registrado correctamente')
         navigate(`/personal/${data.id}`)
       }
@@ -163,6 +217,19 @@ export default function PersonalFormPage() {
               })()}
             </div>
             <div>
+              <label className="block text-xs text-slate-400 mb-1">Foto/Imagen del DNI</label>
+              <input type="file" accept="image/jpeg,image/png,image/jpg,application/pdf"
+                onChange={e => setDniFoto(e.target.files[0])}
+                className="w-full bg-slate-900 border border-slate-700 text-slate-400 rounded-lg px-3 py-2 text-sm file:mr-4 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:bg-roka-500 file:text-white hover:file:bg-roka-600 focus:outline-none focus:ring-2 focus:ring-roka-500" />
+              <p className="text-xs text-slate-500 mt-1">Formatos: JPG, PNG, PDF (máx. 5 MB)</p>
+              {form.dni_foto_path && !dniFoto && (
+                <a href={`/storage/${form.dni_foto_path}`} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 mt-1">
+                  📄 Ver documento actual
+                </a>
+              )}
+            </div>
+            <div>
               <label className="block text-xs text-slate-400 mb-1">Fecha de nacimiento</label>
               <input type="date" value={form.fecha_nacimiento} onChange={e => set('fecha_nacimiento', e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-roka-500" />
@@ -216,27 +283,129 @@ export default function PersonalFormPage() {
               <select value={form.licencia_categoria || ''} onChange={e => set('licencia_categoria', e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-roka-500">
                 <option value="">Sin licencia</option>
-                <optgroup label="Vehículos menores">
-                  <option value="A-I">A-I · Motocicletas</option>
-                  <option value="A-IIa">A-IIa · Mototaxis</option>
-                  <option value="A-IIb">A-IIb · Trimotos</option>
+                <optgroup label="CLASE A">
+                  <option value="A-I">A-I</option>
+                  <option value="A-IIa">A-IIa</option>
+                  <option value="A-IIb">A-IIb</option>
+                  <option value="A-IIIa">A-IIIa</option>
+                  <option value="A-IIIb">A-IIIb</option>
                 </optgroup>
-                <optgroup label="Vehículos ligeros">
-                  <option value="B-I">B-I · Automóviles / camionetas</option>
-                  <option value="B-IIa">B-IIa · Taxis</option>
-                  <option value="B-IIb">B-IIb · Bus menor escolar</option>
-                  <option value="B-IIc">B-IIc · Transporte particular</option>
+                <optgroup label="CLASE B">
+                  <option value="B-I">B-I</option>
+                  <option value="B-IIa">B-IIa</option>
+                  <option value="B-IIb">B-IIb</option>
+                  <option value="B-IIc">B-IIc</option>
                 </optgroup>
-                <optgroup label="Vehículos pesados">
-                  <option value="C-I">C-I · Camión ligero</option>
-                  <option value="C-IIa">C-IIa · Camión</option>
-                  <option value="C-IIb">C-IIb · Tracto camión</option>
-                  <option value="C-IIIa">C-IIIa · Bus / Ómnibus</option>
-                  <option value="C-IIIb">C-IIIb · Ómnibus articulado</option>
-                  <option value="C-IIIc">C-IIIc · Transporte escolar</option>
+                <optgroup label="CLASE C">
+                  <option value="C-I">C-I</option>
+                  <option value="C-IIa">C-IIa</option>
+                  <option value="C-IIb">C-IIb</option>
+                  <option value="C-IIIa">C-IIIa</option>
+                  <option value="C-IIIb">C-IIIb</option>
+                  <option value="C-IIIc">C-IIIc</option>
                 </optgroup>
               </select>
             </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Foto/Imagen de la Licencia</label>
+              <input type="file" accept="image/jpeg,image/png,image/jpg,application/pdf"
+                onChange={e => setLicenciaFoto(e.target.files[0])}
+                className="w-full bg-slate-900 border border-slate-700 text-slate-400 rounded-lg px-3 py-2 text-sm file:mr-4 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:bg-roka-500 file:text-white hover:file:bg-roka-600 focus:outline-none focus:ring-2 focus:ring-roka-500" />
+              <p className="text-xs text-slate-500 mt-1">Formatos: JPG, PNG, PDF (máx. 5 MB)</p>
+              {form.licencia_foto_path && !licenciaFoto && (
+                <a href={`/storage/${form.licencia_foto_path}`} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 mt-1">
+                  📄 Ver documento actual
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Tipo de Trabajador */}
+        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Tipo de Trabajador</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className="block text-xs text-slate-400 mb-2">Selecciona el tipo de trabajador</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="tipo_trabajador"
+                    value="interno"
+                    checked={form.tipo_trabajador === 'interno'}
+                    onChange={e => set('tipo_trabajador', e.target.value)}
+                    className="text-roka-500 focus:ring-roka-500"
+                  />
+                  <span className="text-sm text-slate-200">Personal Interno (Empleado de la empresa)</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="tipo_trabajador"
+                    value="tercero"
+                    checked={form.tipo_trabajador === 'tercero'}
+                    onChange={e => set('tipo_trabajador', e.target.value)}
+                    className="text-roka-500 focus:ring-roka-500"
+                  />
+                  <span className="text-sm text-slate-200">Tercero / Proveedor (Contratista externo)</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Campos solo para terceros */}
+            {form.tipo_trabajador === 'tercero' && (
+              <>
+                <div className="md:col-span-2">
+                  <label className="block text-xs text-slate-400 mb-1">
+                    Empresa Proveedora <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={form.empresa_tercera}
+                    onChange={e => set('empresa_tercera', e.target.value)}
+                    placeholder="Ej: ACME Servicios SAC, TechPro Inspecciones EIRL"
+                    className="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-roka-500"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Nombre de la empresa para la que trabaja este técnico/inspector</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Vigencia del Contrato / Certificación</label>
+                  <input
+                    type="date"
+                    value={form.vigencia_hasta || ''}
+                    onChange={e => set('vigencia_hasta', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-roka-500"
+                  />
+                  {form.vigencia_hasta && (() => {
+                    const dias = Math.ceil((new Date(form.vigencia_hasta) - new Date()) / 86400000)
+                    if (dias < 0) return <p className="text-xs text-red-400 mt-1">⚠ Vencido hace {Math.abs(dias)} días</p>
+                    if (dias <= 30) return <p className="text-xs text-amber-400 mt-1">⚠ Vence en {dias} días</p>
+                    if (dias <= 90) return <p className="text-xs text-blue-400 mt-1">✓ Vigente ({dias} días restantes)</p>
+                    return <p className="text-xs text-emerald-400 mt-1">✓ Vigente</p>
+                  })()}
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Certificaciones (Opcional)</label>
+                  <textarea
+                    value={Array.isArray(form.certificaciones)
+                      ? form.certificaciones.map(c => typeof c === 'string' ? c : c.nombre).join('\n')
+                      : ''}
+                    onChange={e => {
+                      const lineas = e.target.value.split('\n').filter(l => l.trim())
+                      set('certificaciones', lineas.map(l => ({ nombre: l.trim() })))
+                    }}
+                    placeholder="Una certificación por línea. Ej:&#10;Certificado INDECOPI CERT-2024-001&#10;ISO 9001:2015&#10;Técnico Mecánico Nivel II"
+                    rows={4}
+                    className="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-roka-500 font-mono"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Escribe una certificación por línea</p>
+                </div>
+              </>
+            )}
           </div>
         </div>
 

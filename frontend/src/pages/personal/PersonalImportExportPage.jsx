@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+﻿import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Download, Upload, FileSpreadsheet, CheckCircle,
@@ -25,7 +25,7 @@ const COLUMNAS = [
   { key: 'estado',                    label: 'ESTADO',                     required: false, ejemplo: 'activo',               tipo: 'activo | inactivo | vacaciones | licencia' },
   { key: 'grupo_sanguineo',           label: 'GRUPO_SANGUINEO',            required: false, ejemplo: 'O+',                   tipo: 'A+ | A- | B+ | B- | AB+ | AB- | O+ | O-' },
   { key: 'licencia_conducir',         label: 'LICENCIA_CONDUCIR',          required: false, ejemplo: 'Q12345678',            tipo: 'Número de licencia' },
-  { key: 'licencia_categoria',        label: 'LICENCIA_CATEGORIA',         required: false, ejemplo: 'B-I',                  tipo: 'A-I | B-I | C-I | etc.' },
+  { key: 'licencia_categoria',        label: 'LICENCIA_CATEGORIA',         required: false, ejemplo: 'B-I',                  tipo: 'A-I | A-IIa | A-IIb | A-IIIa | A-IIIb | B-I | B-IIa | B-IIb | B-IIc | C-I | C-IIa | C-IIb | C-IIIa | C-IIIb | C-IIIc' },
   { key: 'licencia_vencimiento',      label: 'LICENCIA_VENCIMIENTO',       required: false, ejemplo: '30/06/2027',           tipo: 'dd/mm/yyyy' },
   { key: 'contacto_emergencia',       label: 'CONTACTO_EMERGENCIA',        required: false, ejemplo: 'María Ccari',          tipo: 'Nombre del contacto' },
   { key: 'contacto_emergencia_tel',   label: 'CONTACTO_EMERGENCIA_TEL',    required: false, ejemplo: '987654321',            tipo: 'Teléfono del contacto' },
@@ -164,9 +164,10 @@ export default function PersonalImportExportPage() {
   const [resultado, setResult]        = useState(null)
   const [cargando, setCargando]       = useState(false)
   const [nombreArchivo, setNombre]    = useState('')
+  const [modo, setModo]               = useState('insertar') // insertar | upsert
 
   useEffect(() => {
-    Promise.all([api.get('/areas'), api.get('/cargos')])
+    Promise.all([api.get('/areas', { params: { per_page: 1000 } }), api.get('/cargos')])
       .then(([ra, rc]) => { setAreas(ra.data.data || ra.data); setCargos(rc.data || []) })
       .catch(() => {})
   }, [])
@@ -234,39 +235,60 @@ export default function PersonalImportExportPage() {
 
   const importar = async () => {
     const validas = filas.filter(f => f._valida)
-    if (!validas.length) { toast.error('No hay filas válidas'); return }
+    if (!validas.length) { toast.error('No hay filas válidas para importar'); return }
     setImp(true)
-    let ok = 0; const fallidos = []
-    for (const f of validas) {
-      try {
-        await api.post('/personal', {
-          nombres:                     f.nombres,
-          apellidos:                   f.apellidos,
-          dni:                         f.dni,
-          dni_vencimiento:             parseFecha(f.dni_vencimiento),
-          fecha_nacimiento:            parseFecha(f.fecha_nacimiento),
-          genero:                      normalizarGenero(f.genero) || null,
-          telefono:                    f.telefono || null,
-          email:                       f.email || null,
-          direccion:                   f.direccion || null,
-          area_id:                     f._area_id || null,
-          cargo_id:                    f._cargo_id || null,
-          fecha_ingreso:               parseFecha(f.fecha_ingreso),
-          tipo_contrato:               f.tipo_contrato ? normalizarContrato(f.tipo_contrato) : 'indefinido',
-          estado:                      f.estado ? normalizarEstado(f.estado) : 'activo',
-          grupo_sanguineo:             f.grupo_sanguineo || null,
-          licencia_conducir:           f.licencia_conducir || null,
-          licencia_categoria:          f.licencia_categoria || null,
-          licencia_vencimiento:        parseFecha(f.licencia_vencimiento),
-          contacto_emergencia_nombre:  f.contacto_emergencia || null,
-          contacto_emergencia_telefono:f.contacto_emergencia_tel || null,
-        })
-        ok++
-      } catch (err) { fallidos.push({ fila: f._fila, error: err.response?.data?.message || 'Error' }) }
+
+    // Helper: convertir string vacío a null
+    const vn = (v) => (v === '' || v === undefined || v === null) ? null : v
+
+    // Enviar todo en una sola llamada al nuevo endpoint de importación masiva
+    const registros = validas.map(f => ({
+      nombres:                      f.nombres?.trim(),
+      apellidos:                    f.apellidos?.trim(),
+      dni:                          f.dni?.trim(),
+      dni_vencimiento:              vn(parseFecha(f.dni_vencimiento)),
+      fecha_nacimiento:             vn(parseFecha(f.fecha_nacimiento)),
+      genero:                       vn(normalizarGenero(f.genero)),
+      telefono:                     vn(f.telefono),
+      email:                        vn(f.email),
+      direccion:                    vn(f.direccion),
+      area_id:                      vn(f._area_id),
+      cargo_id:                     vn(f._cargo_id),
+      cargo:                        (!f._cargo_id && f.cargo) ? f.cargo : null,
+      fecha_ingreso:                vn(parseFecha(f.fecha_ingreso)),
+      tipo_contrato:                f.tipo_contrato ? normalizarContrato(f.tipo_contrato) : 'indefinido',
+      estado:                       f.estado ? normalizarEstado(f.estado) : 'activo',
+      grupo_sanguineo:              vn(f.grupo_sanguineo),
+      licencia_conducir:            vn(f.licencia_conducir),
+      licencia_categoria:           vn(f.licencia_categoria),
+      licencia_vencimiento:         vn(parseFecha(f.licencia_vencimiento)),
+      contacto_emergencia_nombre:   vn(f.contacto_emergencia),
+      contacto_emergencia_telefono: vn(f.contacto_emergencia_tel),
+    }))
+
+    try {
+      const { data } = await api.post('/personal/importar', { registros, modo })
+      setResult({
+        ok:           data.insertados,
+        actualizados: data.actualizados,
+        omitidos:     data.omitidos || 0,
+        fallidos:     data.errores || [],
+        total:        data.total,
+      })
+      if (data.insertados > 0 || data.actualizados > 0) {
+        toast.success(`✓ ${data.insertados} insertados · ${data.actualizados} actualizados`)
+      }
+      if (data.omitidos > 0) {
+        toast(`⏭ ${data.omitidos} omitidos (DNI ya existe)`, { icon: '⚠️' })
+      }
+      if (data.errores?.length > 0) {
+        toast.error(`${data.errores.length} filas con errores — revisa el detalle`)
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error en la importación')
+    } finally {
+      setImp(false)
     }
-    setResult({ ok, fallidos }); setImp(false)
-    if (ok)          toast.success(`${ok} trabajadores importados`)
-    if (fallidos.length) toast.error(`${fallidos.length} filas fallaron`)
   }
 
   const filasValidas   = filas.filter(f => f._valida)
@@ -405,6 +427,12 @@ export default function PersonalImportExportPage() {
                 className="flex items-center gap-1.5 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-2 rounded-lg text-xs font-medium">
                 <Upload size={12} /> Cargar otra plantilla
               </button>
+              {/* Modo de importación */}
+              <select value={modo} onChange={e => setModo(e.target.value)}
+                className="border border-gray-300 text-xs rounded-lg px-2 py-2 focus:outline-none focus:ring-1 focus:ring-roka-500 text-gray-700">
+                <option value="insertar">Solo insertar nuevos</option>
+                <option value="upsert">Insertar y actualizar existentes</option>
+              </select>
               <button onClick={importar} disabled={importando || !filasValidas.length}
                 className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium">
                 {importando ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
@@ -491,23 +519,62 @@ export default function PersonalImportExportPage() {
 
       {/* Resultado */}
       {resultado && (
-        <div className={`rounded-xl border p-6 text-center space-y-3 ${resultado.fallidos.length === 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
-          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto ${resultado.fallidos.length === 0 ? 'bg-emerald-100' : 'bg-amber-100'}`}>
-            {resultado.fallidos.length === 0
-              ? <CheckCircle size={28} className="text-emerald-600" />
-              : <AlertTriangle size={28} className="text-amber-600" />}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
+          {/* Resumen */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+            <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200">
+              <p className="text-2xl font-black text-emerald-600">{resultado.ok}</p>
+              <p className="text-xs text-emerald-700 font-medium">✓ Insertados</p>
+            </div>
+            <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+              <p className="text-2xl font-black text-blue-600">{resultado.actualizados || 0}</p>
+              <p className="text-xs text-blue-700 font-medium">↑ Actualizados</p>
+            </div>
+            <div className={`rounded-xl p-4 border ${resultado.omitidos > 0 ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
+              <p className={`text-2xl font-black ${resultado.omitidos > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{resultado.omitidos || 0}</p>
+              <p className={`text-xs font-medium ${resultado.omitidos > 0 ? 'text-amber-700' : 'text-gray-500'}`}>⏭ Omitidos (ya existen)</p>
+            </div>
+            <div className={`rounded-xl p-4 border ${resultado.fallidos?.length > 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+              <p className={`text-2xl font-black ${resultado.fallidos?.length > 0 ? 'text-red-600' : 'text-gray-400'}`}>{resultado.fallidos?.length || 0}</p>
+              <p className={`text-xs font-medium ${resultado.fallidos?.length > 0 ? 'text-red-700' : 'text-gray-500'}`}>✗ Con errores</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+              <p className="text-2xl font-black text-gray-700">{resultado.total || 0}</p>
+              <p className="text-xs text-gray-500 font-medium">Total</p>
+            </div>
           </div>
-          <h3 className={`text-lg font-bold ${resultado.fallidos.length === 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
-            {resultado.ok > 0 ? `${resultado.ok} trabajadores importados exitosamente` : 'Importación con errores'}
-          </h3>
-          {resultado.fallidos.length > 0 && (
-            <div className="text-xs text-amber-700 space-y-1 text-left max-w-md mx-auto">
-              {resultado.fallidos.map((f, i) => (
-                <p key={i}><span className="font-mono font-bold">Fila {f.fila}:</span> {f.error}</p>
-              ))}
+
+          {/* Info sobre omitidos */}
+          {resultado.omitidos > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
+              <span className="text-amber-500 flex-shrink-0 mt-0.5">⚠</span>
+              <p className="text-xs text-amber-700">
+                <strong>{resultado.omitidos} registro{resultado.omitidos !== 1 ? 's' : ''}</strong> omitido{resultado.omitidos !== 1 ? 's' : ''} porque el DNI ya existe.
+                Para actualizarlos, vuelve a importar con el modo <strong>"Insertar y actualizar existentes"</strong>.
+              </p>
             </div>
           )}
-          <div className="flex gap-3 justify-center pt-2">
+
+          {/* Detalle de errores */}
+          {resultado.fallidos?.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <p className="text-sm font-semibold text-red-700 mb-2 flex items-center gap-2">
+                <AlertTriangle size={14}/> Filas que no se importaron:
+              </p>
+              <div className="space-y-1 max-h-40 overflow-y-auto">
+                {resultado.fallidos.map((f, i) => (
+                  <p key={i} className="text-xs text-red-600">
+                    <span className="font-mono font-bold">Fila {f.fila} (DNI: {f.dni}):</span> {f.error}
+                  </p>
+                ))}
+              </div>
+              <p className="text-xs text-red-500 mt-2">
+                💡 Si el error es "DNI ya registrado", selecciona el modo <strong>"Insertar y actualizar existentes"</strong> para actualizarlos.
+              </p>
+            </div>
+          )}
+
+          <div className="flex gap-3 justify-end pt-1">
             <button onClick={() => { setFilas([]); setResult(null) }}
               className="px-4 py-2 border border-gray-300 text-gray-600 hover:bg-gray-50 rounded-lg text-sm">
               Importar otro archivo

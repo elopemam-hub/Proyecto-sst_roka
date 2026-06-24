@@ -11,14 +11,14 @@ export const ROLES_CONFIG = {
     descripcion: 'Supervisa todas las actividades de seguridad. Accede a reportes y gestión operativa.',
     color: 'bg-blue-50 text-blue-700 border-blue-200',
     dot: 'bg-blue-500',
-    modulos: ['dashboard', 'inspecciones', 'iperc', 'ats', 'accidentes', 'capacitaciones', 'epps', 'salud', 'seguimiento', 'reportes', 'formatos', 'documentos', 'personal', 'simulacros', 'auditorias', 'vehiculos', 'equipos', 'programa', 'firmas'],
+    modulos: ['dashboard', 'inspecciones', 'iperc', 'ats', 'accidentes', 'capacitaciones', 'opl', 'epps', 'salud', 'seguimiento', 'reportes', 'formatos', 'documentos', 'personal', 'simulacros', 'auditorias', 'vehiculos', 'equipos', 'programa', 'firmas'],
   },
   tecnico_sst: {
     label: 'Técnico SST',
     descripcion: 'Ejecuta actividades operativas de seguridad. Sin acceso a reportes ni configuración.',
     color: 'bg-roka-50 text-roka-700 border-roka-200',
     dot: 'bg-roka-500',
-    modulos: ['dashboard', 'inspecciones', 'iperc', 'ats', 'accidentes', 'capacitaciones', 'epps', 'salud', 'seguimiento', 'formatos', 'documentos', 'personal', 'simulacros', 'auditorias', 'vehiculos', 'equipos', 'programa', 'firmas'],
+    modulos: ['dashboard', 'inspecciones', 'iperc', 'ats', 'accidentes', 'capacitaciones', 'opl', 'epps', 'salud', 'seguimiento', 'formatos', 'documentos', 'personal', 'simulacros', 'auditorias', 'vehiculos', 'equipos', 'programa', 'firmas'],
   },
   operativo: {
     label: 'Operativo',
@@ -26,6 +26,13 @@ export const ROLES_CONFIG = {
     color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     dot: 'bg-emerald-500',
     modulos: ['dashboard', 'inspecciones', 'ats', 'epps', 'firmas'],
+  },
+  trabajador_tercero: {
+    label: 'Trabajador Tercero',
+    descripcion: 'Personal de empresas contratistas. Puede realizar inspecciones diarias y mensuales.',
+    color: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+    dot: 'bg-cyan-500',
+    modulos: ['dashboard', 'inspecciones', 'firmas'],
   },
   vigilante: {
     label: 'Vigilante',
@@ -55,6 +62,7 @@ const RUTA_MODULO = {
   '/epps':                  'epps',
   '/salud':                 'salud',
   '/capacitaciones':        'capacitaciones',
+  '/opl':                   'opl',
   '/simulacros':            'simulacros',
   '/auditorias':            'auditorias',
   '/formatos':              'formatos',

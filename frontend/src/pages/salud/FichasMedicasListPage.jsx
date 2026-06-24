@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Search, FileText, Plus, ChevronRight,
@@ -36,7 +36,7 @@ export default function FichasMedicasListPage() {
   const [pagina, setPagina]       = useState(1)
 
   useEffect(() => {
-    api.get('/areas').then(r => setAreas(r.data.data || r.data)).catch(() => {})
+    api.get('/areas', { params: { per_page: 1000 } }).then(r => setAreas(r.data.data || r.data)).catch(() => {})
   }, [])
 
   useEffect(() => {

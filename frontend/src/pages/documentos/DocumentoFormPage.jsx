@@ -50,7 +50,7 @@ export default function DocumentoFormPage() {
 
   const cargarAreas = async () => {
     try {
-      const { data } = await api.get('/areas')
+      const { data } = await api.get('/areas', { params: { per_page: 1000 } })
       setAreas(data.data || data || [])
     } catch { /* silent */ }
   }

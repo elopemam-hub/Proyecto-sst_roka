@@ -38,6 +38,7 @@ const ESTADO_CFG = {
   operativo:     { label: 'Operativo',     cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   mantenimiento: { label: 'Mantenimiento', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
   baja:          { label: 'Baja',          cls: 'bg-red-50 text-red-700 border-red-200' },
+  inactivo:      { label: 'Inactivo',      cls: 'bg-gray-100 text-gray-500 border-gray-200' },
 }
 
 function TarjetaTipo({ catalogo, activos, color, onInspeccionar }) {
@@ -193,7 +194,7 @@ export default function EquipoEmergenciaPage() {
     setLoading(true)
     try {
       const { data } = await api.get('/checklist/inventario-resumen')
-      const emergencia = (Array.isArray(data) ? data : []).filter(c => c.submodulo?.codigo === 'C')
+      const emergencia = (Array.isArray(data) ? data : []).filter(c => c.submodulo?.tipo_inspeccion === 'emergencias')
       setCatalogos(emergencia)
       const inv = {}
       emergencia.forEach(c => { inv[c.id] = c.activos || [] })

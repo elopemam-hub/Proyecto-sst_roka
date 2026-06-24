@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use App\Models\EppInventario;
+use App\Observers\EppInventarioObserver;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -19,6 +21,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // Registrar Observer de EPP Inventario para trazabilidad automática
+        EppInventario::observe(EppInventarioObserver::class);
     }
 }

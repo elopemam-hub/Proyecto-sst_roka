@@ -24,6 +24,11 @@ class SimulacroController extends Controller
         $query = Simulacro::where('empresa_id', $request->user()->empresa_id)
             ->with(['area:id,nombre', 'coordinador:id,nombres,apellidos']);
 
+        // Filtro por año
+        if ($request->filled('anio')) {
+            $query->whereYear('fecha_programada', $request->integer('anio'));
+        }
+
         if ($request->filled('estado')) {
             $query->where('estado', $request->estado);
         }

@@ -26,6 +26,9 @@ return new class extends Migration
                 'orden_limpieza',
                 'higiene',
                 'general',
+                'taller',
+                'almacen',
+                'oficinas',
             ])->default('general');
             $table->string('titulo');
             $table->text('descripcion')->nullable();

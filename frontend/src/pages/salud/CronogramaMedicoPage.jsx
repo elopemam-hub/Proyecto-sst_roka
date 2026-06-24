@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Search, Plus, ChevronRight, CheckCircle,
@@ -221,7 +221,7 @@ export default function CronogramaMedicoPage() {
   const [anio, setAnio]             = useState(new Date().getFullYear())
 
   useEffect(() => {
-    api.get('/areas').then(r => setAreas(r.data.data || r.data)).catch(() => {})
+    api.get('/areas', { params: { per_page: 1000 } }).then(r => setAreas(r.data.data || r.data)).catch(() => {})
   }, [])
 
   useEffect(() => { cargar() }, [filtroArea])

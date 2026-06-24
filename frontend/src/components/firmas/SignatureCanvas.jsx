@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { RotateCcw, Check, Pen } from 'lucide-react'
 
 /**
@@ -6,78 +6,110 @@ import { RotateCcw, Check, Pen } from 'lucide-react'
  * Soporta touch y mouse, genera PNG en base64
  */
 export default function SignatureCanvas({ onSave, onCancel, loading = false }) {
-  const canvasRef = useRef(null)
-  const [isDrawing, setIsDrawing] = useState(false)
+  const canvasRef    = useRef(null)
+  const isDrawing    = useRef(false)          // useRef, no useState — evita stale closures
+  const lastPos      = useRef({ x: 0, y: 0 })
   const [hasSignature, setHasSignature] = useState(false)
-  const [lastPos, setLastPos] = useState({ x: 0, y: 0 })
 
-  // Inicializar canvas
-  useEffect(() => {
+  // ── Inicializar/redimensionar canvas ──────────────────────────────────────
+  const initCanvas = useCallback(() => {
     const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
-
-    // Ajustar tamaño real al contenedor (DPI-aware)
+    if (!canvas) return
     const rect = canvas.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return   // aún no está en el DOM
+
     const dpr = window.devicePixelRatio || 1
-    canvas.width  = rect.width  * dpr
-    canvas.height = rect.height * dpr
-    ctx.scale(dpr, dpr)
+    canvas.width  = Math.floor(rect.width  * dpr)
+    canvas.height = Math.floor(rect.height * dpr)
 
-    // Fondo blanco (para que al guardar PNG no sea transparente)
-    ctx.fillStyle = '#ffffff'
+    const ctx = canvas.getContext('2d')
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)             // más seguro que scale acumulativa
+
+    ctx.fillStyle   = '#ffffff'
     ctx.fillRect(0, 0, rect.width, rect.height)
-
-    // Estilo de trazo
-    ctx.strokeStyle   = '#0f172a'
-    ctx.lineWidth     = 2.2
-    ctx.lineCap       = 'round'
-    ctx.lineJoin      = 'round'
+    ctx.strokeStyle = '#0f172a'
+    ctx.lineWidth   = 2.2
+    ctx.lineCap     = 'round'
+    ctx.lineJoin    = 'round'
   }, [])
 
+  useEffect(() => {
+    // requestAnimationFrame garantiza que el modal ya está pintado en pantalla
+    const raf = requestAnimationFrame(() => {
+      initCanvas()
+    })
+
+    // ResizeObserver para reaccionar si el contenedor cambia (responsive)
+    const ro = new ResizeObserver(() => initCanvas())
+    if (canvasRef.current) ro.observe(canvasRef.current)
+
+    return () => {
+      cancelAnimationFrame(raf)
+      ro.disconnect()
+    }
+  }, [initCanvas])
+
+  // ── Obtener coordenadas relativas al canvas (mouse y touch) ──────────────
   const getPos = (e) => {
     const canvas = canvasRef.current
     const rect   = canvas.getBoundingClientRect()
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+    const src    = e.touches ? e.touches[0] : e
     return {
-      x: clientX - rect.left,
-      y: clientY - rect.top,
+      x: src.clientX - rect.left,
+      y: src.clientY - rect.top,
     }
   }
 
+  // ── Handlers de dibujo (sin setState para lastPos/isDrawing) ─────────────
   const startDrawing = (e) => {
     e.preventDefault()
-    const pos = getPos(e)
-    setLastPos(pos)
-    setIsDrawing(true)
+    isDrawing.current = true
+    lastPos.current   = getPos(e)
+
+    // Punto inicial (para clics sin movimiento)
+    const ctx = canvasRef.current.getContext('2d')
+    ctx.beginPath()
+    ctx.arc(lastPos.current.x, lastPos.current.y, 1, 0, Math.PI * 2)
+    ctx.fill()
+    setHasSignature(true)
   }
 
   const draw = (e) => {
-    if (!isDrawing) return
+    if (!isDrawing.current) return
     e.preventDefault()
+
     const pos = getPos(e)
     const ctx = canvasRef.current.getContext('2d')
 
     ctx.beginPath()
-    ctx.moveTo(lastPos.x, lastPos.y)
+    ctx.moveTo(lastPos.current.x, lastPos.current.y)
     ctx.lineTo(pos.x, pos.y)
     ctx.stroke()
 
-    setLastPos(pos)
-    setHasSignature(true)
+    lastPos.current = pos
   }
 
-  const stopDrawing = () => setIsDrawing(false)
+  const stopDrawing = (e) => {
+    if (e) e.preventDefault()
+    isDrawing.current = false
+  }
 
+  // ── Limpiar ───────────────────────────────────────────────────────────────
   const limpiar = () => {
     const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
-    const rect = canvas.getBoundingClientRect()
+    const ctx    = canvas.getContext('2d')
+    const rect   = canvas.getBoundingClientRect()
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, rect.width, rect.height)
+    // Restaurar estilo de trazo después de limpiar
+    ctx.strokeStyle = '#0f172a'
+    ctx.lineWidth   = 2.2
+    ctx.lineCap     = 'round'
+    ctx.lineJoin    = 'round'
     setHasSignature(false)
   }
 
+  // ── Guardar ───────────────────────────────────────────────────────────────
   const guardar = () => {
     if (!hasSignature) return
     const base64 = canvasRef.current.toDataURL('image/png')
@@ -92,12 +124,14 @@ export default function SignatureCanvas({ onSave, onCancel, loading = false }) {
         <span>Dibuje su firma en el recuadro usando dedo, stylus o mouse</span>
       </div>
 
-      {/* Canvas container */}
-      <div className="relative bg-white rounded-xl overflow-hidden border-2 border-dashed border-slate-700 hover:border-slate-600 transition-colors">
+      {/* Canvas container — altura fija en el wrapper, no en el canvas */}
+      <div
+        className="relative bg-white rounded-xl overflow-hidden border-2 border-dashed border-slate-700 hover:border-roka-500/50 transition-colors"
+        style={{ height: '200px' }}
+      >
         <canvas
           ref={canvasRef}
-          className="block w-full touch-none"
-          style={{ height: '200px' }}
+          className="block w-full h-full touch-none cursor-crosshair"
           onMouseDown={startDrawing}
           onMouseMove={draw}
           onMouseUp={stopDrawing}
@@ -105,13 +139,12 @@ export default function SignatureCanvas({ onSave, onCancel, loading = false }) {
           onTouchStart={startDrawing}
           onTouchMove={draw}
           onTouchEnd={stopDrawing}
+          onTouchCancel={stopDrawing}
         />
 
         {!hasSignature && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <p className="text-slate-400 text-sm italic select-none">
-              Firme aquí
-            </p>
+            <p className="text-slate-300 text-sm italic select-none">Firme aquí</p>
           </div>
         )}
 

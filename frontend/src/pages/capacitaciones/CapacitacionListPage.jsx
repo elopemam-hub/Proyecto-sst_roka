@@ -78,12 +78,20 @@ export default function CapacitacionListPage() {
             <p className="text-slate-400 text-sm mt-1">Programa de capacitación SST · Art. 35 Ley 29783</p>
           </div>
         </div>
-        <button
-          onClick={() => navigate('/capacitaciones/nueva')}
-          className="flex items-center gap-2 bg-roka-500 hover:bg-roka-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-lg shadow-roka-500/20"
-        >
-          <Plus size={16} /> Nueva Capacitación
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => navigate('/capacitaciones/matriz')}
+            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Users size={16} /> Matriz Trabajadores
+          </button>
+          <button
+            onClick={() => navigate('/capacitaciones/nueva')}
+            className="flex items-center gap-2 bg-roka-500 hover:bg-roka-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-lg shadow-roka-500/20"
+          >
+            <Plus size={16} /> Nueva Capacitación
+          </button>
+        </div>
       </div>
 
       {/* KPIs */}

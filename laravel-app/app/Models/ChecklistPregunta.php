@@ -13,7 +13,7 @@ class ChecklistPregunta extends Model
         'equipo_id', 'orden', 'texto', 'tipo_respuesta',
         'es_obligatoria', 'permite_foto', 'permite_nota',
         'permite_cantidad', 'permite_fecha_vencimiento',
-        'ayuda', 'valor_limite', 'activo',
+        'ayuda', 'valor_limite', 'activo', 'frecuencia',
     ];
 
     protected $casts = [
