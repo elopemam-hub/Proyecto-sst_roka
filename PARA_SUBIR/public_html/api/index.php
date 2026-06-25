@@ -15,7 +15,7 @@
 // ┌─────────────────────────────────────────────────────────────┐
 // │  CONFIGURA ESTA RUTA antes de subir el archivo              │
 // └─────────────────────────────────────────────────────────────┘
-$laravelRoot = '/home/u248634042/sst_roka_backend';
+$laravelRoot = '/home/u248634042/domains/roka50safety.online/sst_roka_backend';
 // ─────────────────────────────────────────────────────────────
 
 use Illuminate\Foundation\Application;
@@ -30,6 +30,11 @@ if (file_exists($maintenance = $laravelRoot . '/storage/framework/maintenance.ph
 
 // Autoloader de Composer
 require $laravelRoot . '/vendor/autoload.php';
+
+// Corregir SCRIPT_NAME para que Symfony calcule bien el path base
+// (sin esto, Laravel recibe /auth/login en vez de /api/auth/login)
+$_SERVER['SCRIPT_NAME'] = '/index.php';
+$_SERVER['PHP_SELF']    = '/index.php';
 
 // Arrancar Laravel y procesar la petición
 /** @var Application $app */

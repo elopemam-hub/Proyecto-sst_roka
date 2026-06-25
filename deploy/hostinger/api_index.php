@@ -15,7 +15,7 @@
 // ┌─────────────────────────────────────────────────────────────┐
 // │  CONFIGURA ESTA RUTA antes de subir el archivo              │
 // └─────────────────────────────────────────────────────────────┘
-$laravelRoot = '/home/u248634042/sst_roka_backend';
+$laravelRoot = '/home/u248634042/domains/roka50safety.online/sst_roka_backend';
 // ─────────────────────────────────────────────────────────────
 
 use Illuminate\Foundation\Application;
