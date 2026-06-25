@@ -2,20 +2,23 @@
 # SST ROKA — public_html/.htaccess
 # ============================================================
 
+# Requerido por Hostinger/LiteSpeed para mod_rewrite
+Options -MultiViews
+
 <IfModule mod_rewrite.c>
     RewriteEngine On
+    RewriteBase /
 
     # Pasar el header Authorization a PHP (necesario para Sanctum)
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
-    # Archivos y directorios reales se sirven directamente
-    RewriteCond %{REQUEST_FILENAME} -f [OR]
-    RewriteCond %{REQUEST_FILENAME} -d
-    RewriteRule ^ - [L]
+    # No reescribir archivos o directorios reales
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
 
     # Todo lo demás → React SPA (index.html)
-    RewriteRule ^ index.html [L]
+    RewriteRule ^ /index.html [L]
 </IfModule>
 
 # ── MIME Types (crítico para ES Modules y CSS) ───────────────
