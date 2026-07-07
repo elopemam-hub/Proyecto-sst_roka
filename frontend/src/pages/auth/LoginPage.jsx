@@ -157,15 +157,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Credenciales demo */}
-          <div className="mt-6 p-4 bg-slate-800/50 border border-slate-700/50 rounded-xl">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Acceso</p>
-            <div className="space-y-1">
-              <p className="text-xs text-slate-400 font-mono">admin@roka.pe</p>
-              <p className="text-xs text-slate-400 font-mono">Admin2024</p>
-            </div>
-          </div>
-
           {/* Footer */}
           <p className="text-center text-xs text-slate-600 mt-8">
             SST ROKA · Alineado a Ley 29783 y DS 005-2012-TR

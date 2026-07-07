@@ -12,14 +12,17 @@ class ChecklistPregunta extends Model
     protected $fillable = [
         'equipo_id', 'orden', 'texto', 'tipo_respuesta',
         'es_obligatoria', 'permite_foto', 'permite_nota',
-        'ayuda', 'valor_limite', 'activo',
+        'permite_cantidad', 'permite_fecha_vencimiento',
+        'ayuda', 'valor_limite', 'activo', 'frecuencia',
     ];
 
     protected $casts = [
-        'es_obligatoria' => 'boolean',
-        'permite_foto'   => 'boolean',
-        'permite_nota'   => 'boolean',
-        'activo'         => 'boolean',
+        'es_obligatoria'           => 'boolean',
+        'permite_foto'             => 'boolean',
+        'permite_nota'             => 'boolean',
+        'permite_cantidad'         => 'boolean',
+        'permite_fecha_vencimiento'=> 'boolean',
+        'activo'                   => 'boolean',
     ];
 
     public function equipo(): BelongsTo

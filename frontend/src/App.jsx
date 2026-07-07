@@ -125,10 +125,11 @@ const AuditoriaFormPage   = lazy(() => import('./pages/auditorias/AuditoriaFormP
 const AuditoriaDetailPage = lazy(() => import('./pages/auditorias/AuditoriaDetailPage'))
 
 // Fase 6 — Formatos
-const FormatoListPage       = lazy(() => import('./pages/formatos/FormatoListPage'))
-const FormatoFormPage       = lazy(() => import('./pages/formatos/FormatoFormPage'))
-const FormatoDetailPage     = lazy(() => import('./pages/formatos/FormatoDetailPage'))
-const FormatoBibliotecaPage = lazy(() => import('./pages/formatos/FormatoBibliotecaPage'))
+const FormatoListPage                    = lazy(() => import('./pages/formatos/FormatoListPage'))
+const FormatoFormPage                    = lazy(() => import('./pages/formatos/FormatoFormPage'))
+const FormatoDetailPage                  = lazy(() => import('./pages/formatos/FormatoDetailPage'))
+const FormatoBibliotecaPage              = lazy(() => import('./pages/formatos/FormatoBibliotecaPage'))
+const FormatoCapacitacionImpresionPage   = lazy(() => import('./pages/formatos/FormatoCapacitacionImpresionPage'))
 
 // Fase 6 — Documentos
 const DocumentoListPage   = lazy(() => import('./pages/documentos/DocumentoListPage'))
@@ -159,6 +160,9 @@ const EquipoEmergenciaPage      = lazy(() => import('./pages/equipos/EquipoEmerg
 const EquipoInventarioAreaPage  = lazy(() => import('./pages/equipos/EquipoInventarioAreaPage'))
 const EquipoCertificadosPage    = lazy(() => import('./pages/equipos/EquipoCertificadosPage'))
 const EquipoCertificadosAlertasPage = lazy(() => import('./pages/equipos/EquipoCertificadosAlertasPage'))
+const MisEquiposHoyPage             = lazy(() => import('./pages/equipos/MisEquiposHoyPage'))
+const EquipoAsignacionPage          = lazy(() => import('./pages/equipos/EquipoAsignacionPage'))
+const EquipoAsignacionConfigPage    = lazy(() => import('./pages/equipos/EquipoAsignacionConfigPage'))
 
 // Sustancias Peligrosas
 const SustanciaListPage              = lazy(() => import('./pages/sustancias/SustanciaListPage'))
@@ -355,6 +359,7 @@ export default function App() {
             <Route path="formatos/nuevo"              element={<FormatoFormPage />} />
             <Route path="formatos/:id"                element={<FormatoDetailPage />} />
             <Route path="formatos/:id/editar"         element={<FormatoFormPage />} />
+            <Route path="formatos/capacitacion/:id/imprimir" element={<FormatoCapacitacionImpresionPage />} />
 
             {/* Documentos SST */}
             <Route path="documentos"                  element={<DocumentoListPage />} />
@@ -409,6 +414,9 @@ export default function App() {
             <Route path="equipos/emergencia"          element={<EquipoEmergenciaPage />} />
             <Route path="equipos/certificados"        element={<EquipoCertificadosPage />} />
             <Route path="equipos/certificados/alertas" element={<EquipoCertificadosAlertasPage />} />
+            <Route path="equipos/asignaciones"         element={<EquipoAsignacionPage />} />
+            <Route path="equipos/asignaciones/config"  element={<EquipoAsignacionConfigPage />} />
+            <Route path="equipos/mis-equipos"          element={<MisEquiposHoyPage />} />
 
             {/* Sustancias Peligrosas */}
             <Route path="sustancias"                        element={<SustanciaListPage />} />

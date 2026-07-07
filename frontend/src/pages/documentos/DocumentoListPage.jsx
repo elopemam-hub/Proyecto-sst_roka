@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, FolderArchive, Search } from 'lucide-react'
+import { Plus, FolderArchive, Search, FileText, FileSpreadsheet, FileIcon, X, ExternalLink, Loader2, Download, Trash2 } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
 
@@ -42,6 +42,8 @@ export default function DocumentoListPage() {
   const [filtros, setFiltros] = useState({ tipo: '', estado: '', area_id: '', search: '' })
   const [page, setPage] = useState(1)
   const [meta, setMeta] = useState(null)
+  const [visor, setVisor] = useState(null) // { url, nombre, esPdf }
+  const [visorCargando, setVisorCargando] = useState(false)
 
   useEffect(() => {
     cargar()
@@ -82,7 +84,53 @@ export default function DocumentoListPage() {
     setPage(1)
   }
 
-  return (
+  const abrirArchivo = async (doc) => {
+    if (!doc.archivo_nombre && !doc.archivo_path) return
+    const nombre = doc.archivo_nombre || 'documento'
+    const ext = nombre.split('.').pop().toLowerCase()
+    const esPdf = ext === 'pdf'
+
+    setVisorCargando(true)
+    setVisor({ url: null, nombre, esPdf })
+    try {
+      const response = await api.get(`/documentos/${doc.id}/ver`, { responseType: 'blob' })
+      const url = URL.createObjectURL(response.data)
+      setVisor({ url, nombre, esPdf })
+    } catch {
+      toast.error('No se pudo abrir el archivo')
+      setVisor(null)
+    } finally {
+      setVisorCargando(false)
+    }
+  }
+
+  const cerrarVisor = () => {
+    if (visor?.url) URL.revokeObjectURL(visor.url)
+    setVisor(null)
+  }
+
+  const eliminar = async (doc) => {
+    if (!confirm(`¿Eliminar el documento "${doc.titulo}"? Esta acción no se puede deshacer.`)) return
+    try {
+      await api.delete(`/documentos/${doc.id}`)
+      toast.success('Documento eliminado')
+      cargar()
+      cargarEstadisticas()
+    } catch {
+      toast.error('No se pudo eliminar el documento')
+    }
+  }
+
+  const TIPO_ARCHIVO = (nombre) => {
+    if (!nombre) return null
+    const ext = nombre.split('.').pop().toLowerCase()
+    if (ext === 'pdf')               return { label: 'PDF',  bg: '#7f1d1d', color: '#fca5a5', Icon: FileText }
+    if (['xls','xlsx'].includes(ext)) return { label: 'XLS',  bg: '#14532d', color: '#86efac', Icon: FileSpreadsheet }
+    if (['doc','docx'].includes(ext)) return { label: 'DOC',  bg: '#1e3a8a', color: '#93c5fd', Icon: FileText }
+    return                                   { label: ext.toUpperCase(), bg: '#1e293b', color: '#94a3b8', Icon: FileIcon }
+  }
+
+  return (<>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -182,6 +230,7 @@ export default function DocumentoListPage() {
                 <th className="px-4 py-3 text-left">Estado</th>
                 <th className="px-4 py-3 text-left">Área</th>
                 <th className="px-4 py-3 text-left">Aprobado</th>
+                <th className="px-4 py-3 text-left">Adjunto</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -191,9 +240,6 @@ export default function DocumentoListPage() {
                   <td className="px-4 py-3 font-mono text-xs text-slate-300">{d.codigo}</td>
                   <td className="px-4 py-3 text-white max-w-xs">
                     <div className="truncate">{d.titulo}</div>
-                    {d.archivo_nombre && (
-                      <div className="text-xs text-slate-500 truncate">{d.archivo_nombre}</div>
-                    )}
                   </td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${TIPO_COLORS[d.tipo] || ''}`}>
@@ -210,13 +256,45 @@ export default function DocumentoListPage() {
                   <td className="px-4 py-3 text-slate-400 text-xs">
                     {d.fecha_aprobacion ? new Date(d.fecha_aprobacion).toLocaleDateString('es-PE') : '—'}
                   </td>
+                  <td className="px-4 py-3">
+                    {(() => {
+                      const tipo = TIPO_ARCHIVO(d.archivo_nombre)
+                      if (!tipo) return <span className="text-slate-600 text-xs">—</span>
+                      const { label, bg, color, Icon } = tipo
+                      return (
+                        <button
+                          onClick={() => abrirArchivo(d)}
+                          title={d.archivo_nombre}
+                          className="flex items-center gap-2 group hover:opacity-90 transition-opacity"
+                        >
+                          <span className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-bold flex-shrink-0"
+                            style={{ backgroundColor: bg, color }}>
+                            <Icon size={12} />
+                            {label}
+                          </span>
+                          <span className="text-xs text-slate-400 group-hover:text-slate-200 truncate max-w-[120px] transition-colors" style={{ direction: 'rtl', textAlign: 'left' }}>
+                            {d.archivo_nombre}
+                          </span>
+                        </button>
+                      )
+                    })()}
+                  </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => navigate(`/documentos/${d.id}`)}
-                      className="text-roka-400 hover:text-roka-300 text-xs font-medium"
-                    >
-                      Ver
-                    </button>
+                    <div className="flex items-center justify-end gap-3">
+                      <button
+                        onClick={() => navigate(`/documentos/${d.id}`)}
+                        className="text-roka-400 hover:text-roka-300 text-xs font-medium"
+                      >
+                        Ver
+                      </button>
+                      <button
+                        onClick={() => eliminar(d)}
+                        className="text-slate-500 hover:text-red-400 transition-colors"
+                        title="Eliminar documento"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -238,5 +316,106 @@ export default function DocumentoListPage() {
         )}
       </div>
     </div>
-  )
+
+    {/* ── Visor de archivo ───────────────────────────────────────────── */}
+    {(visorCargando || visor) && (
+      <div
+        className="fixed inset-0 z-[70] flex items-center justify-center p-6"
+        style={{ backgroundColor: 'rgba(0,0,0,0.70)' }}
+        onClick={cerrarVisor}
+      >
+        <div
+          className="flex flex-col rounded-xl overflow-hidden shadow-2xl"
+          style={{ width: '860px', maxWidth: '95vw', height: '90vh', backgroundColor: '#0f172a' }}
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-3 flex-shrink-0" style={{ backgroundColor: '#1e293b', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-md flex items-center justify-center" style={{ backgroundColor: '#1d4ed8' }}>
+                <FileText size={14} style={{ color: '#fff' }} />
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#94a3b8' }}>Documento adjunto</p>
+                <p className="text-sm font-semibold leading-tight" style={{ color: '#f1f5f9' }}>{visor?.nombre || '...'}</p>
+              </div>
+            </div>
+            <button
+              onClick={cerrarVisor}
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+              style={{ color: '#94a3b8' }}
+              onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#f1f5f9' }}
+              onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#94a3b8' }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          {/* Contenido */}
+          <div className="flex-1 overflow-hidden" style={{ backgroundColor: '#374151' }}>
+            {visorCargando ? (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+                <Loader2 size={36} className="animate-spin" style={{ color: '#6366f1' }} />
+                <p className="text-sm" style={{ color: '#94a3b8' }}>Cargando archivo...</p>
+              </div>
+            ) : visor?.url && visor?.esPdf ? (
+              <iframe src={visor.url} className="w-full h-full border-0" title={visor.nombre} />
+            ) : visor?.url ? (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-4">
+                <FileSpreadsheet size={52} style={{ color: '#16a34a' }} />
+                <p className="text-sm font-medium" style={{ color: '#e2e8f0' }}>{visor.nombre}</p>
+                <p className="text-xs" style={{ color: '#94a3b8' }}>Este tipo de archivo no se puede previsualizar.</p>
+                <a
+                  href={visor.url}
+                  download={visor.nombre}
+                  className="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-colors"
+                  style={{ backgroundColor: '#1d4ed8', color: '#fff' }}
+                >
+                  <Download size={15} /> Descargar archivo
+                </a>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-2 px-5 py-3 flex-shrink-0" style={{ backgroundColor: '#1e293b', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            {visor?.url && visor?.esPdf && (
+              <a
+                href={visor.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg text-sm font-medium transition-colors"
+                style={{ color: '#cbd5e1', border: '1px solid #475569', padding: '7px 16px', backgroundColor: 'transparent', textDecoration: 'none' }}
+                onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.07)'}
+                onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                <ExternalLink size={14} /> Abrir en nueva pestaña
+              </a>
+            )}
+            {visor?.url && (
+              <a
+                href={visor.url}
+                download={visor.nombre}
+                className="inline-flex items-center gap-2 rounded-lg text-sm font-medium transition-colors"
+                style={{ color: '#93c5fd', border: '1px solid #3b82f6', padding: '7px 16px', backgroundColor: 'transparent', textDecoration: 'none' }}
+                onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(59,130,246,0.12)'}
+                onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                <Download size={14} /> Descargar
+              </a>
+            )}
+            <button
+              onClick={cerrarVisor}
+              className="inline-flex items-center gap-2 rounded-lg text-sm font-medium transition-colors"
+              style={{ color: '#fca5a5', border: '1px solid #ef4444', padding: '7px 16px', backgroundColor: 'transparent' }}
+              onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.12)'}
+              onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <X size={14} /> Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </>)
 }

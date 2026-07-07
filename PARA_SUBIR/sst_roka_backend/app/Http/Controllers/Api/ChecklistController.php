@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ChecklistPregunta;
+use App\Models\Equipo;
 use App\Models\EquipoCatalogo;
 use App\Models\Inspeccion;
 use App\Models\InspeccionAccionChecklist;
@@ -58,6 +59,57 @@ class ChecklistController extends Controller
         return response()->json($equipo);
     }
 
+    /**
+     * GET /api/checklist/equipos/{id}/inventario
+     * Activos físicos vinculados a este tipo de catálogo.
+     */
+    public function inventarioPorCatalogo(Request $request, int $id): JsonResponse
+    {
+        $empresaId = $request->user()->empresa_id;
+
+        $activos = Equipo::where('empresa_id', $empresaId)
+            ->where('equipo_catalogo_id', $id)
+            ->with(['area:id,nombre', 'responsable:id,nombres,apellidos'])
+            ->orderBy('codigo')
+            ->get();
+
+        return response()->json($activos);
+    }
+
+    /**
+     * GET /api/checklist/inventario-resumen
+     * Catálogo completo con activos físicos embebidos — una sola query.
+     */
+    public function inventarioResumen(Request $request): JsonResponse
+    {
+        $empresaId = $request->user()->empresa_id;
+
+        // 1. Todos los catálogos
+        $catalogos = EquipoCatalogo::with('submodulo:id,codigo,nombre,color,tipo_inspeccion')
+            ->withCount(['preguntasActivas as preguntas_count'])
+            ->orderBy('submodulo_id')->orderBy('orden')
+            ->get();
+
+        // 2. Todos los activos de la empresa en UNA sola query, agrupados por catalogo_id
+        $todosActivos = Equipo::where('empresa_id', $empresaId)
+            ->whereNotNull('equipo_catalogo_id')
+            ->with(['area:id,nombre', 'responsable:id,nombres,apellidos'])
+            ->get()
+            ->groupBy('equipo_catalogo_id');
+
+        // 3. Merge en memoria — sin queries adicionales
+        $result = $catalogos->map(function ($cat) use ($todosActivos) {
+            $activos = $todosActivos->get($cat->id, collect());
+            $cat->activos              = $activos->values();
+            $cat->activos_total        = $activos->count();
+            $cat->activos_operativos   = $activos->where('estado', 'operativo')->count();
+            $cat->activos_mantenimiento= $activos->where('estado', 'mantenimiento')->count();
+            return $cat;
+        });
+
+        return response()->json($result);
+    }
+
     public function equipoStore(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -65,8 +117,9 @@ class ChecklistController extends Controller
             'nombre'            => 'required|string|max:100',
             'descripcion'       => 'nullable|string',
             'codigo'            => 'nullable|string|max:30',
-            'requiere_operador' => 'boolean',
-            'orden'             => 'nullable|integer|min:0',
+            'requiere_operador'     => 'boolean',
+            'frecuencia_inspeccion' => 'nullable|in:diaria,semanal,mensual,trimestral,semestral,anual',
+            'orden'                 => 'nullable|integer|min:0',
         ]);
 
         $equipo = EquipoCatalogo::create($validated + ['activo' => true]);
@@ -82,8 +135,9 @@ class ChecklistController extends Controller
             'nombre'            => 'sometimes|string|max:100',
             'descripcion'       => 'nullable|string',
             'codigo'            => 'nullable|string|max:30',
-            'requiere_operador' => 'boolean',
-            'orden'             => 'nullable|integer|min:0',
+            'requiere_operador'     => 'boolean',
+            'frecuencia_inspeccion' => 'nullable|in:diaria,semanal,mensual,trimestral,semestral,anual',
+            'orden'                 => 'nullable|integer|min:0',
         ]);
 
         $equipo->update($validated);
@@ -102,9 +156,56 @@ class ChecklistController extends Controller
     public function equipoDestroy(int $id): JsonResponse
     {
         $equipo = EquipoCatalogo::findOrFail($id);
+
+        // 1. Desvincular inspecciones (preserva historial, quita la FK)
+        DB::table('inspecciones')->where('equipo_catalogo_id', $id)->update(['equipo_catalogo_id' => null]);
+
+        // 2. Borrar respuestas y preguntas del catálogo
+        $preguntaIds = ChecklistPregunta::where('equipo_id', $id)->pluck('id');
+        if ($preguntaIds->isNotEmpty()) {
+            InspeccionRespuesta::whereIn('pregunta_id', $preguntaIds)->delete();
+            ChecklistPregunta::whereIn('id', $preguntaIds)->delete();
+        }
+
         $equipo->delete();
 
         return response()->json(['message' => 'Equipo eliminado']);
+    }
+
+    public function equipoDuplicar(int $id): JsonResponse
+    {
+        $original = EquipoCatalogo::with('preguntasActivas')->findOrFail($id);
+
+        $copia = EquipoCatalogo::create([
+            'submodulo_id'          => $original->submodulo_id,
+            'nombre'                => $original->nombre . ' (copia)',
+            'codigo'                => $original->codigo ? $original->codigo . '-C' : null,
+            'descripcion'           => $original->descripcion,
+            'requiere_operador'     => $original->requiere_operador,
+            'frecuencia_inspeccion' => $original->frecuencia_inspeccion,
+            'orden'                 => $original->orden,
+            'activo'                => true,
+        ]);
+
+        foreach ($original->preguntasActivas as $p) {
+            ChecklistPregunta::create([
+                'equipo_id'                 => $copia->id,
+                'orden'                     => $p->orden,
+                'texto'                     => $p->texto,
+                'tipo_respuesta'            => $p->tipo_respuesta,
+                'es_obligatoria'            => $p->es_obligatoria,
+                'permite_foto'              => $p->permite_foto,
+                'permite_nota'              => $p->permite_nota,
+                'permite_cantidad'          => $p->permite_cantidad,
+                'permite_fecha_vencimiento' => $p->permite_fecha_vencimiento,
+                'ayuda'                     => $p->ayuda,
+                'valor_limite'              => $p->valor_limite,
+                'frecuencia'                => $p->frecuencia,
+                'activo'                    => true,
+            ]);
+        }
+
+        return response()->json($copia->load('submodulo:id,codigo,nombre,color'), 201);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -119,6 +220,12 @@ class ChecklistController extends Controller
             $query->where('activo', true);
         }
 
+        // Filtrar por frecuencia (para inspecciones diarias/mensuales)
+        if ($request->filled('frecuencia')) {
+            $frecuencia = $request->input('frecuencia');
+            $query->whereIn('frecuencia', [$frecuencia, 'ambas']);
+        }
+
         return response()->json($query->get());
     }
 
@@ -127,13 +234,14 @@ class ChecklistController extends Controller
         $validated = $request->validate([
             'equipo_id'      => 'required|exists:equipos_catalogo,id',
             'texto'          => 'required|string',
-            'tipo_respuesta' => ['nullable', Rule::in(['conf_nc_obs','si_no_na','texto','numero','fecha'])],
+            'tipo_respuesta' => ['required', Rule::in(['conf_nc_obs','si_no_na','texto','numero','fecha'])],
             'es_obligatoria' => 'boolean',
             'permite_foto'   => 'boolean',
             'permite_nota'   => 'boolean',
             'ayuda'          => 'nullable|string',
             'valor_limite'   => 'nullable|string|max:80',
             'orden'          => 'nullable|integer|min:0',
+            'frecuencia'     => ['nullable', Rule::in(['diaria', 'semanal', 'mensual', 'ambas'])],
         ]);
 
         if (!isset($validated['orden'])) {
@@ -151,13 +259,14 @@ class ChecklistController extends Controller
 
         $validated = $request->validate([
             'texto'          => 'sometimes|string',
-            'tipo_respuesta' => ['nullable', Rule::in(['conf_nc_obs','si_no_na','texto','numero','fecha'])],
+            'tipo_respuesta' => ['sometimes', Rule::in(['conf_nc_obs','si_no_na','texto','numero','fecha'])],
             'es_obligatoria' => 'boolean',
             'permite_foto'   => 'boolean',
             'permite_nota'   => 'boolean',
             'ayuda'          => 'nullable|string',
             'valor_limite'   => 'nullable|string|max:80',
             'orden'          => 'nullable|integer|min:0',
+            'frecuencia'     => ['nullable', Rule::in(['diaria', 'semanal', 'mensual', 'ambas'])],
         ]);
 
         $pregunta->update($validated);
@@ -176,6 +285,7 @@ class ChecklistController extends Controller
     public function preguntaDestroy(int $id): JsonResponse
     {
         $pregunta = ChecklistPregunta::findOrFail($id);
+        InspeccionRespuesta::where('pregunta_id', $id)->delete();
         $pregunta->delete();
 
         return response()->json(['message' => 'Pregunta eliminada']);
@@ -201,11 +311,13 @@ class ChecklistController extends Controller
         $inspeccion = Inspeccion::where('empresa_id', $request->user()->empresa_id)->findOrFail($inspId);
 
         $validated = $request->validate([
-            'items'              => 'required|array|min:1',
-            'items.*.pregunta_id' => 'required|exists:checklist_preguntas,id',
-            'items.*.resultado'   => 'nullable|string|max:20',
-            'items.*.nota'        => 'nullable|string',
-            'items.*.foto_base64' => 'nullable|string',
+            'items'                         => 'required|array|min:1',
+            'items.*.pregunta_id'           => 'required|exists:checklist_preguntas,id',
+            'items.*.resultado'             => 'nullable|string|max:20',
+            'items.*.nota'                  => 'nullable|string',
+            'items.*.foto_base64'           => 'nullable|string',
+            'items.*.cantidad'              => 'nullable|numeric|min:0',
+            'items.*.fecha_vencimiento_item'=> 'nullable|date',
         ]);
 
         DB::transaction(function () use ($inspeccion, $validated) {
@@ -224,12 +336,22 @@ class ChecklistController extends Controller
                 InspeccionRespuesta::updateOrCreate(
                     ['inspeccion_id' => $inspeccion->id, 'pregunta_id' => $item['pregunta_id']],
                     [
-                        'resultado'    => $item['resultado'] ?? null,
-                        'nota'         => $item['nota'] ?? null,
-                        'foto_path'    => $fotoPath ?? InspeccionRespuesta::where('inspeccion_id', $inspeccion->id)
+                        'resultado'             => $item['resultado'] ?? null,
+                        'nota'                  => $item['nota'] ?? null,
+                        'cantidad'              => $item['cantidad'] ?? null,
+                        'fecha_vencimiento_item'=> $item['fecha_vencimiento_item'] ?? null,
+                        'foto_path'             => $fotoPath ?? InspeccionRespuesta::where('inspeccion_id', $inspeccion->id)
                             ->where('pregunta_id', $item['pregunta_id'])->value('foto_path'),
                     ]
                 );
+            }
+
+            // Actualizar fecha de ejecución y estado
+            if ($inspeccion->estado === 'programada') {
+                $inspeccion->update([
+                    'estado'       => 'en_ejecucion',
+                    'ejecutada_en' => now(),
+                ]);
             }
 
             $this->recalcularPuntaje($inspeccion);
@@ -423,6 +545,39 @@ class ChecklistController extends Controller
     }
 
     // ═══════════════════════════════════════════════════════════
+    // RECÁLCULO MASIVO
+    // ═══════════════════════════════════════════════════════════
+
+    public function recalcularTodas(Request $request): JsonResponse
+    {
+        $eid   = $request->user()->empresa_id;
+        $solo  = $request->filled('inspeccion_id') ? (int)$request->inspeccion_id : null;
+
+        $query = Inspeccion::where('empresa_id', $eid)
+            ->whereNotNull('equipo_catalogo_id');
+
+        if ($solo) $query->where('id', $solo);
+
+        $inspecciones = $query->get();
+        $ok = 0; $errores = [];
+
+        foreach ($inspecciones as $insp) {
+            try {
+                $this->recalcularPuntaje($insp);
+                $ok++;
+            } catch (\Exception $e) {
+                $errores[] = ['id' => $insp->id, 'codigo' => $insp->codigo, 'error' => $e->getMessage()];
+            }
+        }
+
+        return response()->json([
+            'recalculadas' => $ok,
+            'errores'      => $errores,
+            'total'        => $inspecciones->count(),
+        ]);
+    }
+
+    // ═══════════════════════════════════════════════════════════
     // PRIVADO
     // ═══════════════════════════════════════════════════════════
 
@@ -432,17 +587,21 @@ class ChecklistController extends Controller
 
         $totalPreguntas = ChecklistPregunta::where('equipo_id', $inspeccion->equipo_catalogo_id)
             ->where('activo', true)
-            ->whereIn('tipo_respuesta', ['conf_nc_obs', 'si_no_na'])
+            ->whereIn('tipo_respuesta', ['conf_nc_obs', 'conf_nc', 'si_no_na'])
             ->count();
 
         $respuestas = InspeccionRespuesta::where('inspeccion_id', $inspeccion->id)
-            ->whereHas('pregunta', fn($q) => $q->whereIn('tipo_respuesta', ['conf_nc_obs', 'si_no_na']))
+            ->whereHas('pregunta', fn($q) => $q->whereIn('tipo_respuesta', ['conf_nc_obs', 'conf_nc', 'si_no_na']))
             ->pluck('resultado');
+
+        // NA no cuenta en el denominador — descontarlo del total
+        $naCount   = $respuestas->filter(fn($r) => $r === 'NA')->count();
+        $puntuables = max(0, $totalPreguntas - $naCount);
 
         $conformes = $respuestas->filter(fn($r) => in_array($r, ['C', 'S', 'A']))->count();
         $nc        = $respuestas->filter(fn($r) => $r === 'N')->count();
         $obs       = $respuestas->filter(fn($r) => $r === 'O')->count();
-        $pct       = $totalPreguntas > 0 ? round($conformes / $totalPreguntas * 100, 2) : 0;
+        $pct       = $puntuables > 0 ? round($conformes / $puntuables * 100, 2) : 0;
 
         $estado = $inspeccion->estado;
         if ($pct > 0 && in_array($estado, ['programada', 'en_ejecucion'])) {
@@ -451,7 +610,7 @@ class ChecklistController extends Controller
 
         $inspeccion->update([
             'porcentaje_cumplimiento' => $pct,
-            'puntaje_total'           => $totalPreguntas,
+            'puntaje_total'           => $puntuables,
             'puntaje_obtenido'        => $conformes,
             'items_conformes'         => $conformes,
             'items_nc'                => $nc,

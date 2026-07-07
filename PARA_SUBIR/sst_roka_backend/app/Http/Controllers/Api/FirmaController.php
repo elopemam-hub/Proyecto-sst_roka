@@ -21,11 +21,23 @@ class FirmaController extends Controller
      */
     public function pendientes(Request $request): JsonResponse
     {
+        $usuarioId = $request->user()->id;
+
         $pendientes = FirmaSolicitud::where('empresa_id', $request->user()->empresa_id)
             ->whereIn('estado', ['pendiente', 'en_proceso'])
             ->where('fecha_limite', '>', now())
-            ->whereDoesntHave('firmas', function ($q) use ($request) {
-                $q->where('usuario_id', $request->user()->id);
+            ->where(function ($q) use ($usuarioId) {
+                // Excluir si ya firmó la solicitud (vinculado por solicitud_id)
+                $q->whereDoesntHave('firmas', fn($f) => $f->where('usuario_id', $usuarioId))
+                  // Excluir también si ya firmó el documento directamente (sin solicitud_id)
+                  ->whereNotExists(function ($sub) use ($usuarioId) {
+                      $sub->from('firmas')
+                          ->whereColumn('firmas.documento_tipo', 'firmas_solicitudes.documento_tipo')
+                          ->whereColumn('firmas.documento_id',   'firmas_solicitudes.documento_id')
+                          ->where('firmas.usuario_id', $usuarioId)
+                          ->where('firmas.rechazada', false)
+                          ->whereNull('firmas.solicitud_id');
+                  });
             })
             ->with(['solicitante:id,nombre'])
             ->orderBy('fecha_limite')
@@ -64,9 +76,19 @@ class FirmaController extends Controller
             'dispositivo'      => 'nullable|string|max:100',
         ]);
 
-        // Resolver el modelo del documento
+        // Resolver el modelo del documento (whitelist de seguridad)
+        $modelosPermitidos = [
+            'App\\Models\\Iperc',
+            'App\\Models\\Ats',
+            'App\\Models\\Inspeccion',
+            'App\\Models\\Accidente',
+            'App\\Models\\Capacitacion',
+            'App\\Models\\Simulacro',
+            'App\\Models\\Auditoria',
+            'App\\Models\\Documento',
+        ];
         $claseDoc = $validated['documento_tipo'];
-        if (!class_exists($claseDoc)) {
+        if (!in_array($claseDoc, $modelosPermitidos)) {
             return response()->json(['message' => 'Tipo de documento no válido.'], 422);
         }
 

@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom'
 import {
   ChevronRight, ChevronLeft, Check, Camera, X, AlertTriangle,
   ClipboardCheck, PenLine, Info, Loader2, CheckCircle2, ArrowLeft
@@ -333,7 +333,11 @@ export default function InspeccionChecklistWizard() {
   const navigate    = useNavigate()
   const { id: inspId } = useParams()
   const [searchParams] = useSearchParams()
+  const location = useLocation()
   const preselCatalogoId = searchParams.get('catalogo_id')
+  // asignacion_id viene de query params o de location.state (reanudación)
+  const asignacionId   = searchParams.get('asignacion_id') || location.state?.asignacion_id || null
+  const fromMisEquipos = Boolean(asignacionId) || location.state?.from === 'mis-equipos'
 
   const [paso, setPaso]               = useState(inspId ? 3 : 1)
   const [submodulos, setSubmodulos]   = useState([])
@@ -525,16 +529,11 @@ export default function InspeccionChecklistWizard() {
     setFirmasDone(prev => ({ ...prev, [rol]: true }))
   }
 
-  // Generar acciones NC y finalizar
-  // Determinar ruta de retorno según frecuencia de inspección
+  // Determinar ruta de retorno según origen y frecuencia de inspección
   const getRutaRetorno = () => {
-    if (inspeccion?.frecuencia_inspeccion === 'mensual') {
-      return '/inspecciones/mensual'
-    }
-    if (inspeccion?.frecuencia_inspeccion === 'diaria') {
-      return '/inspecciones/diarias'
-    }
-    // Default: lista general de inspecciones
+    if (fromMisEquipos) return '/equipos/mis-equipos'
+    if (inspeccion?.frecuencia_inspeccion === 'mensual') return '/inspecciones/mensual'
+    if (inspeccion?.frecuencia_inspeccion === 'diaria') return '/inspecciones/diarias'
     return '/inspecciones'
   }
 
@@ -543,6 +542,11 @@ export default function InspeccionChecklistWizard() {
     try {
       if (inspeccion.items_nc > 0) {
         await api.post(`/inspecciones/${inspeccion.id}/checklist/generar-acciones-nc`)
+      }
+      if (asignacionId) {
+        await api.post(`/equipo-asignaciones/${asignacionId}/completar`, {
+          inspeccion_id: inspeccion.id,
+        })
       }
       navigate(getRutaRetorno())
     } catch { } finally { setSaving(false) }
@@ -578,7 +582,7 @@ export default function InspeccionChecklistWizard() {
         <div className="flex items-center gap-3 mb-1">
           <button onClick={() => navigate(getRutaRetorno())}
             className="btn-back">
-            <ArrowLeft size={14} /> Inspecciones
+            <ArrowLeft size={14} /> {fromMisEquipos ? 'Mis equipos' : 'Inspecciones'}
           </button>
           <h1 className="text-2xl font-bold text-gray-900">
             {inspId ? 'Continuar inspección' : 'Nueva inspección por catálogo'}

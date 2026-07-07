@@ -95,6 +95,8 @@ class FirmaService
                 ->exists();
 
             if ($yaFirmo) {
+                // Limpiar solicitudes huérfanas (firmadas sin solicitud_id vinculado)
+                $this->completarSolicitudesDelDocumento(get_class($documento), $documento->id);
                 throw new \Exception("Ya ha firmado este documento con la acción '{$accion}'.");
             }
 
@@ -169,10 +171,18 @@ class FirmaService
                 request: $request
             );
 
-            // Si hay solicitud, verificar si se completó el flujo
+            // Verificar flujo de la solicitud explícita
             if ($solicitud) {
                 $this->verificarFlujoCompleto($solicitud);
             }
+
+            // Completar cualquier otra solicitud abierta para este documento
+            // (cubre firmas registradas sin solicitud_id vinculado)
+            $this->completarSolicitudesDelDocumento(
+                get_class($documento),
+                $documento->id,
+                $solicitud?->id
+            );
 
             return $firma;
         });
@@ -268,7 +278,23 @@ class FirmaService
 
     private function verificarFlujoCompleto(FirmaSolicitud $solicitud): void
     {
-        if (!$solicitud->flujo_id) return;
+        if (!$solicitud->flujo_id) {
+            // Sin flujo formal: completar si existe alguna firma para el documento
+            $hayFirma = Firma::where('rechazada', false)
+                ->where('documento_tipo', $solicitud->documento_tipo)
+                ->where('documento_id', $solicitud->documento_id)
+                ->exists();
+
+            if ($hayFirma) {
+                $solicitud->update(['estado' => 'completada', 'completada_en' => now()]);
+                DB::table('firmas_log')->insert([
+                    'solicitud_id' => $solicitud->id,
+                    'evento'       => 'flujo_completado',
+                    'creado_en'    => now(),
+                ]);
+            }
+            return;
+        }
 
         $firmantesRequeridos = DB::table('firmas_flujo_firmantes')
             ->where('flujo_id', $solicitud->flujo_id)
@@ -293,6 +319,16 @@ class FirmaService
         } else {
             $solicitud->update(['estado' => 'en_proceso']);
         }
+    }
+
+    private function completarSolicitudesDelDocumento(string $tipo, int $id, ?int $excluirId = null): void
+    {
+        FirmaSolicitud::where('documento_tipo', $tipo)
+            ->where('documento_id', $id)
+            ->whereIn('estado', ['pendiente', 'en_proceso'])
+            ->when($excluirId, fn($q) => $q->where('id', '!=', $excluirId))
+            ->get()
+            ->each(fn($sol) => $this->verificarFlujoCompleto($sol));
     }
 
     private function usuarioPuedeFirmar(FirmaSolicitud $solicitud, Usuario $usuario): bool

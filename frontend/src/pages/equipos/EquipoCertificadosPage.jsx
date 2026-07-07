@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, FileText, Download, Trash2, Edit, Calendar, AlertCircle, CheckCircle, Clock, X, Image, Search, AlertTriangle, Bell, ArrowLeft } from 'lucide-react'
+import { Plus, FileText, Download, Trash2, Edit, Calendar, AlertCircle, CheckCircle, Clock, X, Image, Search, AlertTriangle, Bell, ArrowLeft, ExternalLink, Loader2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../../services/api'
 import { format } from 'date-fns'
@@ -37,6 +37,9 @@ export default function EquipoCertificadosPage() {
   const [submoduloFiltro, setSubmoduloFiltro] = useState('')
   const [areaFiltro, setAreaFiltro] = useState('')
   const [alertas, setAlertas] = useState(null)
+  const [visorUrl, setVisorUrl] = useState(null)
+  const [visorNombre, setVisorNombre] = useState('')
+  const [visorCargando, setVisorCargando] = useState(false)
   const [form, setForm] = useState({
     equipo_catalogo_id: '',
     codigo: '',
@@ -206,6 +209,27 @@ export default function EquipoCertificadosPage() {
   const cerrarForm = () => {
     setMostrarForm(false)
     setEditando(null)
+  }
+
+  const abrirDocumento = async (certId, nombre) => {
+    setVisorCargando(true)
+    setVisorNombre(nombre || 'Documento')
+    setVisorUrl(null)
+    try {
+      const response = await api.get(`/equipos-certificados/${certId}/documento`, { responseType: 'blob' })
+      const url = URL.createObjectURL(response.data)
+      setVisorUrl(url)
+    } catch {
+      alert('No se pudo abrir el documento')
+    } finally {
+      setVisorCargando(false)
+    }
+  }
+
+  const cerrarVisor = () => {
+    if (visorUrl) URL.revokeObjectURL(visorUrl)
+    setVisorUrl(null)
+    setVisorNombre('')
   }
 
   const diasParaVencer = (fecha) => {
@@ -395,19 +419,17 @@ export default function EquipoCertificadosPage() {
                       ) : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      {tieneCert && item.documento_path ? (() => {
+                      {tieneCert && item.documento_path && item.id ? (() => {
                         const ext = item.documento_path.split('.').pop().toLowerCase()
                         const isImage = ['jpg', 'jpeg', 'png'].includes(ext)
                         return (
-                          <a
-                            href={`/storage/${item.documento_path}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={`inline-flex items-center gap-1 ${isImage ? 'text-blue-600 hover:text-blue-700' : 'text-red-600 hover:text-red-700'}`}
+                          <button
+                            onClick={() => abrirDocumento(item.id, item.equipo_nombre)}
+                            className={`inline-flex items-center gap-1 underline-offset-2 hover:underline ${isImage ? 'text-blue-600 hover:text-blue-700' : 'text-red-600 hover:text-red-700'}`}
                           >
                             {isImage ? <Image className="w-4 h-4" /> : <Download className="w-4 h-4" />}
                             {isImage ? 'Imagen' : 'PDF'}
-                          </a>
+                          </button>
                         )
                       })() : (
                         <span className="text-gray-400">—</span>
@@ -444,7 +466,7 @@ export default function EquipoCertificadosPage() {
                           </>
                         ) : (
                           <button
-                            onClick={() => abrirForm({ equipo_catalogo_id: item.equipo_id, nombre: item.equipo_nombre })}
+                            onClick={() => abrirForm(item)}
                             className="px-2 py-1 text-xs text-purple-600 hover:bg-purple-50 rounded border border-purple-300"
                             title="Agregar certificado"
                           >
@@ -631,6 +653,87 @@ export default function EquipoCertificadosPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Visor PDF ─────────────────────────────────────────────────────── */}
+      {(visorCargando || visorUrl) && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center p-6"
+          style={{ backgroundColor: 'rgba(0,0,0,0.65)' }}
+          onClick={cerrarVisor}
+        >
+          <div
+            className="flex flex-col rounded-xl overflow-hidden shadow-2xl"
+            style={{ width: '860px', maxWidth: '95vw', height: '90vh', backgroundColor: '#0f172a' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 flex-shrink-0" style={{ backgroundColor: '#1e293b', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-md flex items-center justify-center" style={{ backgroundColor: '#dc2626' }}>
+                  <FileText size={14} style={{ color: '#fff' }} />
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#94a3b8' }}>Vista previa</p>
+                  <p className="text-sm font-semibold leading-tight" style={{ color: '#f1f5f9' }}>{visorNombre || 'Documento'}</p>
+                </div>
+              </div>
+              <button
+                onClick={cerrarVisor}
+                className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                style={{ color: '#94a3b8' }}
+                onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#f1f5f9' }}
+                onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#94a3b8' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Contenido PDF */}
+            <div className="flex-1 overflow-hidden" style={{ backgroundColor: '#374151' }}>
+              {visorCargando ? (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+                  <Loader2 size={36} className="animate-spin" style={{ color: '#6366f1' }} />
+                  <p className="text-sm" style={{ color: '#94a3b8' }}>Cargando documento...</p>
+                </div>
+              ) : visorUrl ? (
+                <iframe
+                  src={visorUrl}
+                  className="w-full h-full border-0"
+                  title={visorNombre}
+                />
+              ) : null}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 px-5 py-3 flex-shrink-0" style={{ backgroundColor: '#1e293b', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+              {visorUrl && (
+                <a
+                  href={visorUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg text-sm font-medium transition-colors"
+                  style={{ color: '#cbd5e1', border: '1px solid #475569', padding: '7px 16px', backgroundColor: 'transparent', textDecoration: 'none' }}
+                  onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.07)'}
+                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <ExternalLink size={14} />
+                  Abrir en nueva pestaña
+                </a>
+              )}
+              <button
+                onClick={cerrarVisor}
+                className="inline-flex items-center gap-2 rounded-lg text-sm font-medium transition-colors"
+                style={{ color: '#fca5a5', border: '1px solid #ef4444', padding: '7px 16px', backgroundColor: 'transparent' }}
+                onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.12)'}
+                onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                <X size={14} />
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}

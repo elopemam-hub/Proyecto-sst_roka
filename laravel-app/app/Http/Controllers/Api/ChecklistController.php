@@ -85,7 +85,7 @@ class ChecklistController extends Controller
         $empresaId = $request->user()->empresa_id;
 
         // 1. Todos los catálogos
-        $catalogos = EquipoCatalogo::with('submodulo:id,codigo,nombre,color')
+        $catalogos = EquipoCatalogo::with('submodulo:id,codigo,nombre,color,tipo_inspeccion')
             ->withCount(['preguntasActivas as preguntas_count'])
             ->orderBy('submodulo_id')->orderBy('orden')
             ->get();

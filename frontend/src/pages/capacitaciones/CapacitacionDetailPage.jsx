@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Edit, Play, UserCheck, UserX, Plus, Trash2, Save,
   Clock, Users, BookOpen, CheckCircle, XCircle,
-  ClipboardList, Award, Loader2, X,
+  ClipboardList, Award, Loader2, X, FileText,
 } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
@@ -296,6 +296,11 @@ export default function CapacitacionDetailPage() {
               <Play size={14} /> Ejecutar
             </button>
           )}
+          <button onClick={() => navigate(`/formatos/capacitacion/${id}/imprimir`)}
+            className="flex items-center gap-1.5 border border-blue-300 text-blue-600 hover:bg-blue-50 px-3 py-2 rounded-lg text-sm font-medium"
+            title="Generar Formato RM-050 para impresión">
+            <FileText size={14} /> Formato RM-050
+          </button>
           <button onClick={() => navigate(`/capacitaciones/${id}/editar`)}
             className="flex items-center gap-1.5 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm">
             <Edit size={14} /> Editar

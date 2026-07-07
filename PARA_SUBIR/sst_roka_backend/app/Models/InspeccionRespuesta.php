@@ -12,7 +12,13 @@ class InspeccionRespuesta extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'inspeccion_id', 'pregunta_id', 'resultado', 'nota', 'foto_path',
+        'inspeccion_id', 'pregunta_id', 'resultado', 'nota',
+        'foto_path', 'cantidad', 'fecha_vencimiento_item',
+    ];
+
+    protected $casts = [
+        'cantidad'              => 'decimal:2',
+        'fecha_vencimiento_item'=> 'date',
     ];
 
     public function inspeccion(): BelongsTo

@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\EppCategoria;
 use App\Models\EppInventario;
 use App\Models\EppEntrega;
+use App\Models\EppMovimiento;
+use App\Models\PersonalTalla;
 use App\Services\AuditoriaService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -24,7 +26,10 @@ class EppController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = EppInventario::where('empresa_id', $request->user()->empresa_id)
-            ->with('categoria:id,nombre,requiere_talla');
+            ->with('categoria:id,nombre,requiere_talla')
+            ->withCount(['entregas as total_entregas_activas' => function ($q) {
+                $q->where('estado', 'entregado');
+            }]);
 
         if ($request->filled('categoria_id')) {
             $query->where('categoria_id', $request->categoria_id);
@@ -128,6 +133,7 @@ class EppController extends Controller
             'stock_total'      => 'sometimes|integer|min:0',
             'stock_disponible' => 'sometimes|integer|min:0',
             'stock_minimo'     => 'sometimes|integer|min:0',
+            'consumo_anual'    => 'nullable|integer|min:0',
             'unidad'           => 'sometimes|string|max:20',
             'costo_unitario'   => 'nullable|numeric|min:0',
             'proveedor'        => 'nullable|string|max:150',
@@ -221,37 +227,74 @@ class EppController extends Controller
             'fecha_vencimiento' => 'nullable|date|after:fecha_entrega',
             'motivo_entrega'    => 'required|in:ingreso,reposicion,deterioro,talla,perdida',
             'observaciones'     => 'nullable|string',
+            'firma'             => 'nullable|string|regex:/^data:image\/(png|jpeg|jpg);base64,/',
         ]);
 
-        $inventario = EppInventario::where('empresa_id', $request->user()->empresa_id)
-            ->findOrFail($validated['inventario_id']);
+        // MEJORA CRÍTICA 1: Bloqueo pesimista para evitar race conditions
+        $entrega = DB::transaction(function () use ($validated, $request) {
+            // Bloquear el registro para evitar entregas simultáneas
+            $inventario = EppInventario::where('empresa_id', $request->user()->empresa_id)
+                ->with('categoria')
+                ->lockForUpdate()
+                ->findOrFail($validated['inventario_id']);
 
-        if ($inventario->stock_disponible < $validated['cantidad']) {
-            return response()->json([
-                'message' => "Stock insuficiente. Disponible: {$inventario->stock_disponible}",
-            ], 422);
-        }
+            // Validar stock DESPUÉS del bloqueo
+            if ($inventario->stock_disponible < $validated['cantidad']) {
+                throw new \Exception("Stock insuficiente. Disponible: {$inventario->stock_disponible}");
+            }
 
-        $entrega = DB::transaction(function () use ($validated, $request, $inventario) {
+            // Guardar firma si existe
+            $firmaPath = null;
+            if (!empty($validated['firma'])) {
+                $firmaBase64 = preg_replace('/^data:image\/\w+;base64,/', '', $validated['firma']);
+                $firmaPath = 'firmas/epps/' . uniqid() . '_' . time() . '.png';
+                \Storage::disk('public')->put($firmaPath, base64_decode($firmaBase64));
+            }
+
+            // FASE 6: Calcular fecha_vencimiento automáticamente
+            $fechaVencimiento = $validated['fecha_vencimiento'];
+            if (!$fechaVencimiento && $inventario->categoria && $inventario->categoria->vida_util_meses) {
+                $fechaVencimiento = \Carbon\Carbon::parse($validated['fecha_entrega'])
+                    ->addMonths($inventario->categoria->vida_util_meses)
+                    ->toDateString();
+            }
+
+            // Crear entrega
             $entrega = EppEntrega::create([
-                ...$validated,
-                'empresa_id'    => $request->user()->empresa_id,
-                'entregado_por' => $request->user()->id,
-                'estado'        => 'entregado',
+                'empresa_id'        => $request->user()->empresa_id,
+                'personal_id'       => $validated['personal_id'],
+                'inventario_id'     => $validated['inventario_id'],
+                'cantidad'          => $validated['cantidad'],
+                'fecha_entrega'     => $validated['fecha_entrega'],
+                'fecha_vencimiento' => $fechaVencimiento,
+                'motivo_entrega'    => $validated['motivo_entrega'],
+                'observaciones'     => $validated['observaciones'] ?? null,
+                'entregado_por'     => $request->user()->id,
+                'estado'            => 'entregado',
+                'firma_path'        => $firmaPath,
+                'firmado_en'        => $firmaPath ? now() : null,
             ]);
 
-            $inventario->decrement('stock_disponible', $validated['cantidad']);
+            // Decrementar stock de forma segura
+            $inventario->decrementarStock($validated['cantidad']);
 
             return $entrega;
         });
 
+        // MEJORA CRÍTICA 2: Auditoría completa
         $this->auditoria->registrar(
             modulo: 'epps',
             accion: 'entrega',
             usuario: $request->user(),
             modelo: 'EppEntrega',
             modeloId: $entrega->id,
-            valorNuevo: ['personal_id' => $entrega->personal_id, 'inventario_id' => $entrega->inventario_id],
+            valorNuevo: [
+                'personal_id'    => $entrega->personal_id,
+                'inventario_id'  => $entrega->inventario_id,
+                'cantidad'       => $entrega->cantidad,
+                'motivo'         => $entrega->motivo_entrega,
+                'tiene_firma'    => !empty($entrega->firma_path),
+            ],
             request: $request
         );
 
@@ -276,8 +319,14 @@ class EppController extends Controller
             'observaciones'    => 'nullable|string',
         ]);
 
-        DB::transaction(function () use ($entrega, $validated) {
+        $estadoAnterior = $entrega->estado;
+
+        // MEJORA CRÍTICA 3: Bloqueo pesimista en devolución
+        DB::transaction(function () use ($entrega, $validated, $request) {
             $nuevoEstado = $validated['estado'] ?? 'devuelto';
+
+            // Bloquear inventario para evitar race conditions
+            $inventario = EppInventario::lockForUpdate()->findOrFail($entrega->inventario_id);
 
             $entrega->update([
                 'estado'           => $nuevoEstado,
@@ -285,12 +334,33 @@ class EppController extends Controller
                 'observaciones'    => $validated['observaciones'] ?? $entrega->observaciones,
             ]);
 
+            // CORRECCIÓN: Retornar stock solo si está en buen estado
             if ($nuevoEstado === 'devuelto') {
-                $entrega->inventario->increment('stock_disponible', $entrega->cantidad);
+                $inventario->incrementarStock($entrega->cantidad);
             }
+            // Si está perdido, NO se retorna stock (ya implementado correctamente)
         });
 
-        return response()->json(['message' => 'Devolución registrada correctamente']);
+        // MEJORA CRÍTICA 4: Auditoría en devoluciones
+        $this->auditoria->registrar(
+            modulo: 'epps',
+            accion: 'devolucion',
+            usuario: $request->user(),
+            modelo: 'EppEntrega',
+            modeloId: $entrega->id,
+            valorAnterior: ['estado' => $estadoAnterior],
+            valorNuevo: [
+                'estado'           => $validated['estado'] ?? 'devuelto',
+                'fecha_devolucion' => $validated['fecha_devolucion'] ?? now()->toDateString(),
+                'stock_retornado'  => ($validated['estado'] ?? 'devuelto') === 'devuelto',
+            ],
+            request: $request
+        );
+
+        return response()->json([
+            'message' => 'Devolución registrada correctamente',
+            'entrega' => $entrega->fresh(),
+        ]);
     }
 
     /**
@@ -304,6 +374,55 @@ class EppController extends Controller
             ->with('personal:id,nombres,apellidos,dni')
             ->orderByDesc('fecha_entrega')
             ->paginate(20);
+
+        return response()->json($entregas);
+    }
+
+    /**
+     * GET /api/epps/entregas/todas
+     */
+    public function todasEntregas(Request $request): JsonResponse
+    {
+        $query = EppEntrega::where('empresa_id', $request->user()->empresa_id)
+            ->with([
+                'inventario' => function($q) {
+                    $q->select('id', 'nombre', 'codigo_interno', 'categoria_id')
+                      ->with('categoria:id,nombre');
+                },
+                'personal' => function($q) {
+                    $q->select('id', 'nombres', 'apellidos', 'dni', 'cargo_id')
+                      ->with('cargo:id,nombre');
+                }
+            ]);
+
+        // Filtro por búsqueda (EPP o Personal)
+        if ($request->filled('buscar')) {
+            $buscar = $request->buscar;
+            $query->where(function($q) use ($buscar) {
+                // Buscar en EPP (nombre o código)
+                $q->whereHas('inventario', function($sq) use ($buscar) {
+                    $sq->where(function($innerQ) use ($buscar) {
+                        $innerQ->where('nombre', 'like', "%{$buscar}%")
+                               ->orWhere('codigo_interno', 'like', "%{$buscar}%");
+                    });
+                })
+                // Buscar en Personal (nombres, apellidos o DNI)
+                ->orWhereHas('personal', function($sq) use ($buscar) {
+                    $sq->where(function($innerQ) use ($buscar) {
+                        $innerQ->where('nombres', 'like', "%{$buscar}%")
+                               ->orWhere('apellidos', 'like', "%{$buscar}%")
+                               ->orWhere('dni', 'like', "%{$buscar}%");
+                    });
+                });
+            });
+        }
+
+        if ($request->filled('estado')) {
+            $query->where('estado', $request->estado);
+        }
+
+        $entregas = $query->orderByDesc('fecha_entrega')
+            ->paginate(min($request->integer('per_page', 9), 100));
 
         return response()->json($entregas);
     }
@@ -325,9 +444,24 @@ class EppController extends Controller
             ->whereMonth('updated_at', now()->month)->whereYear('updated_at', now()->year)->count();
 
         $porCategoria = EppInventario::where('epps_inventario.empresa_id', $empresaId)
+            ->where('epps_inventario.activo', true)
             ->join('epps_categorias', 'epps_categorias.id', '=', 'epps_inventario.categoria_id')
             ->selectRaw('epps_categorias.nombre as name, COUNT(*) as value, SUM(stock_disponible) as stock')
             ->groupBy('epps_categorias.id', 'epps_categorias.nombre')
+            ->get();
+
+        // Breakdown por categoría y talla para la tabla
+        $porCategoriaTalla = EppInventario::where('epps_inventario.empresa_id', $empresaId)
+            ->where('epps_inventario.activo', true)
+            ->join('epps_categorias', 'epps_categorias.id', '=', 'epps_inventario.categoria_id')
+            ->selectRaw('
+                epps_categorias.nombre as categoria,
+                COALESCE(NULLIF(epps_inventario.talla, ""), "Sin talla") as talla,
+                SUM(epps_inventario.stock_disponible) as stock_disponible
+            ')
+            ->groupBy('epps_categorias.nombre', 'talla')
+            ->orderBy('epps_categorias.nombre')
+            ->orderBy('talla')
             ->get();
 
         $porMes = DB::table('epps_entregas')
@@ -353,15 +487,39 @@ class EppController extends Controller
             ->limit(5)
             ->get();
 
+        // Resumen por trabajador y categoría
+        $porTrabajador = DB::select("
+            SELECT
+                p.id as personal_id,
+                CONCAT(p.nombres, ' ', p.apellidos) as trabajador,
+                SUM(CASE WHEN cat.nombre = 'Casco de seguridad' AND e.estado = 'entregado' THEN e.cantidad ELSE 0 END) as casco,
+                SUM(CASE WHEN cat.nombre = 'Lentes de seguridad' AND e.estado = 'entregado' THEN e.cantidad ELSE 0 END) as lentes,
+                SUM(CASE WHEN cat.nombre LIKE 'Guantes%' AND e.estado = 'entregado' THEN e.cantidad ELSE 0 END) as guantes,
+                SUM(CASE WHEN cat.nombre LIKE 'Zapatos%' AND e.estado = 'entregado' THEN e.cantidad ELSE 0 END) as zapatos,
+                SUM(CASE WHEN cat.nombre LIKE 'Chaleco%' AND e.estado = 'entregado' THEN e.cantidad ELSE 0 END) as chaleco,
+                SUM(CASE WHEN e.estado = 'entregado' THEN e.cantidad ELSE 0 END) as total
+            FROM epps_entregas e
+            JOIN personal p ON e.personal_id = p.id
+            JOIN epps_inventario inv ON e.inventario_id = inv.id
+            JOIN epps_categorias cat ON inv.categoria_id = cat.id
+            WHERE e.empresa_id = ?
+            GROUP BY p.id, p.nombres, p.apellidos
+            HAVING total > 0
+            ORDER BY p.apellidos, p.nombres
+            LIMIT 15
+        ", [$empresaId]);
+
         return response()->json([
-            'total_items'       => $totalItems,
-            'stock_critico'     => $stockCritico,
-            'entregas_mes'      => $entregasMes,
-            'devoluciones_mes'  => $devolucionesMes,
-            'por_categoria'     => $porCategoria,
-            'por_mes'           => $porMes,
-            'top_entregados'    => $topEntregados,
-            'ultimas_entregas'  => $ultimasEntregas,
+            'total_items'         => $totalItems,
+            'stock_critico'       => $stockCritico,
+            'entregas_mes'        => $entregasMes,
+            'devoluciones_mes'    => $devolucionesMes,
+            'por_categoria'       => $porCategoria,
+            'por_categoria_talla' => $porCategoriaTalla,
+            'por_mes'             => $porMes,
+            'top_entregados'      => $topEntregados,
+            'ultimas_entregas'    => $ultimasEntregas,
+            'por_trabajador'      => $porTrabajador,
         ]);
     }
 
@@ -589,5 +747,528 @@ class EppController extends Controller
         $cat = EppCategoria::where('empresa_id', $request->user()->empresa_id)->findOrFail($id);
         $cat->delete();
         return response()->json(['message' => 'Categoría eliminada']);
+    }
+
+    /**
+     * POST /api/epps/importar
+     * Importación masiva de EPPs desde Excel
+     */
+    public function importar(Request $request): JsonResponse
+    {
+        $request->validate([
+            'registros' => 'required|array|min:1',
+        ]);
+
+        $empresaId = $request->user()->empresa_id;
+        $ok = 0;
+        $errores = [];
+        $idsCreados = [];
+        $eppsCreados = [];
+
+        foreach ($request->registros as $idx => $reg) {
+            try {
+                // Validaciones
+                $nombre = trim($reg['nombre'] ?? '');
+                if (!$nombre) {
+                    $errores[] = ['fila' => $idx + 2, 'error' => 'Nombre requerido'];
+                    continue;
+                }
+
+                // Resolver categoría por nombre
+                $categoriaInput = trim($reg['categoria'] ?? '');
+                if (!$categoriaInput) {
+                    $errores[] = ['fila' => $idx + 2, 'nombre' => $nombre, 'error' => 'Categoría requerida'];
+                    continue;
+                }
+
+                $categoria = EppCategoria::where('empresa_id', $empresaId)
+                    ->where('nombre', 'LIKE', '%' . $categoriaInput . '%')
+                    ->first();
+
+                if (!$categoria) {
+                    $errores[] = ['fila' => $idx + 2, 'nombre' => $nombre, 'error' => 'Categoría no encontrada: ' . $categoriaInput];
+                    continue;
+                }
+
+                // Validar stock_total
+                $stockTotal = $reg['stock_total'] ?? '';
+                if ($stockTotal === '' || !is_numeric($stockTotal)) {
+                    $errores[] = ['fila' => $idx + 2, 'nombre' => $nombre, 'error' => 'Stock total requerido y debe ser numérico'];
+                    continue;
+                }
+
+                // Validar combinación única: código + talla (si se proporciona código)
+                $codigoInterno = trim($reg['codigo_interno'] ?? '');
+                $talla = trim($reg['talla'] ?? '');
+
+                if ($codigoInterno) {
+                    $query = EppInventario::where('empresa_id', $empresaId)
+                        ->where('codigo_interno', $codigoInterno);
+
+                    // Si hay talla, validar código + talla
+                    // Si no hay talla, validar solo código
+                    if ($talla) {
+                        $query->where('talla', $talla);
+                    } else {
+                        $query->where(function($q) {
+                            $q->whereNull('talla')->orWhere('talla', '');
+                        });
+                    }
+
+                    $existe = $query->exists();
+
+                    if ($existe) {
+                        if ($talla) {
+                            $errores[] = ['fila' => $idx + 2, 'nombre' => $nombre, 'error' => 'El código "' . $codigoInterno . '" con talla "' . $talla . '" ya existe'];
+                        } else {
+                            $errores[] = ['fila' => $idx + 2, 'nombre' => $nombre, 'error' => 'El código interno "' . $codigoInterno . '" ya existe'];
+                        }
+                        continue;
+                    }
+                }
+
+                // Crear EPP
+                $epp = EppInventario::create([
+                    'empresa_id'       => $empresaId,
+                    'categoria_id'     => $categoria->id,
+                    'nombre'           => $nombre,
+                    'marca'            => trim($reg['marca'] ?? '') ?: null,
+                    'modelo'           => trim($reg['modelo'] ?? '') ?: null,
+                    'codigo_interno'   => trim($reg['codigo_interno'] ?? '') ?: null,
+                    'talla'            => trim($reg['talla'] ?? '') ?: null,
+                    'unidad'           => trim($reg['unidad'] ?? 'unidad'),
+                    'stock_total'      => (int) $stockTotal,
+                    'stock_disponible' => (int) ($reg['stock_disponible'] ?? $stockTotal),
+                    'stock_minimo'     => (int) ($reg['stock_minimo'] ?? 0),
+                    'costo_unitario'   => !empty($reg['costo_unitario']) ? (float) $reg['costo_unitario'] : null,
+                    'proveedor'        => trim($reg['proveedor'] ?? '') ?: null,
+                    'activo'           => true,
+                ]);
+                $idsCreados[] = $epp->id;
+                $eppsCreados[] = $epp->load('categoria');
+                $ok++;
+            } catch (\Exception $e) {
+                $errores[] = ['fila' => $idx + 2, 'nombre' => $nombre ?? '', 'error' => $e->getMessage()];
+            }
+        }
+
+        return response()->json([
+            'ok'          => $ok,
+            'errores'     => $errores,
+            'total'       => count($request->registros),
+            'ids_creados' => $idsCreados,
+            'epps_creados'=> $eppsCreados,
+        ]);
+    }
+
+    /**
+     * POST /api/epps/eliminar-multiple
+     * Eliminar múltiples EPPs por IDs
+     */
+    public function eliminarMultiple(Request $request): JsonResponse
+    {
+        $request->validate([
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'required|integer',
+        ]);
+
+        $empresaId = $request->user()->empresa_id;
+        $eliminados = EppInventario::where('empresa_id', $empresaId)
+            ->whereIn('id', $request->ids)
+            ->delete();
+
+        return response()->json([
+            'eliminados' => $eliminados,
+            'message'    => "$eliminados EPP(s) eliminado(s) correctamente",
+        ]);
+    }
+
+    /**
+     * DELETE /api/epps/eliminar-todo
+     * Eliminar TODO el inventario de EPPs de la empresa
+     */
+    public function eliminarTodo(Request $request): JsonResponse
+    {
+        $empresaId = $request->user()->empresa_id;
+
+        // Contar antes de eliminar
+        $total = EppInventario::where('empresa_id', $empresaId)->count();
+
+        // Eliminar todo
+        EppInventario::where('empresa_id', $empresaId)->delete();
+
+        return response()->json([
+            'eliminados' => $total,
+            'message'    => "Inventario completo eliminado: $total EPP(s)",
+        ]);
+    }
+
+    /**
+     * GET /api/epps/alertas
+     * Dashboard de alertas de EPPs
+     */
+    public function alertas(Request $request): JsonResponse
+    {
+        $empresaId = $request->user()->empresa_id;
+        $hoy = \Carbon\Carbon::today();
+
+        // 1. EPPs entregados VENCIDOS
+        $vencidos = EppEntrega::where('empresa_id', $empresaId)
+            ->where('estado', 'entregado')
+            ->whereNotNull('fecha_vencimiento')
+            ->where('fecha_vencimiento', '<', $hoy)
+            ->with(['personal:id,nombres,apellidos,dni', 'inventario:id,nombre,codigo_interno'])
+            ->get()
+            ->map(function($entrega) use ($hoy) {
+                $fechaVenc = \Carbon\Carbon::parse($entrega->fecha_vencimiento);
+                return [
+                    'id'                => $entrega->id,
+                    'epp_nombre'        => $entrega->inventario->nombre ?? 'N/A',
+                    'epp_codigo'        => $entrega->inventario->codigo_interno ?? '',
+                    'personal_nombre'   => ($entrega->personal->nombres ?? '') . ' ' . ($entrega->personal->apellidos ?? ''),
+                    'personal_dni'      => $entrega->personal->dni ?? '',
+                    'fecha_vencimiento' => $entrega->fecha_vencimiento,
+                    'dias_vencido'      => abs($hoy->diffInDays($fechaVenc)),
+                    'cantidad'          => $entrega->cantidad,
+                ];
+            });
+
+        // 2. EPPs entregados PRÓXIMOS A VENCER (30 días)
+        $proximosVencer = EppEntrega::where('empresa_id', $empresaId)
+            ->where('estado', 'entregado')
+            ->whereNotNull('fecha_vencimiento')
+            ->whereBetween('fecha_vencimiento', [$hoy, $hoy->copy()->addDays(30)])
+            ->with(['personal:id,nombres,apellidos,dni', 'inventario:id,nombre,codigo_interno'])
+            ->orderBy('fecha_vencimiento')
+            ->get()
+            ->map(function($entrega) use ($hoy) {
+                $fechaVenc = \Carbon\Carbon::parse($entrega->fecha_vencimiento);
+                return [
+                    'id'                => $entrega->id,
+                    'epp_nombre'        => $entrega->inventario->nombre ?? 'N/A',
+                    'epp_codigo'        => $entrega->inventario->codigo_interno ?? '',
+                    'personal_nombre'   => ($entrega->personal->nombres ?? '') . ' ' . ($entrega->personal->apellidos ?? ''),
+                    'personal_dni'      => $entrega->personal->dni ?? '',
+                    'fecha_vencimiento' => $entrega->fecha_vencimiento,
+                    'dias_restantes'    => $hoy->diffInDays($fechaVenc),
+                    'cantidad'          => $entrega->cantidad,
+                ];
+            });
+
+        // 3. Stock BAJO (disponible <= mínimo)
+        $stockBajo = EppInventario::where('empresa_id', $empresaId)
+            ->where('activo', true)
+            ->stockBajo()
+            ->with('categoria:id,nombre')
+            ->get()
+            ->map(function($epp) {
+                return [
+                    'id'                => $epp->id,
+                    'nombre'            => $epp->nombre,
+                    'codigo_interno'    => $epp->codigo_interno,
+                    'categoria'         => $epp->categoria->nombre ?? 'N/A',
+                    'talla'             => $epp->talla,
+                    'stock_disponible'  => $epp->stock_disponible,
+                    'stock_minimo'      => $epp->stock_minimo,
+                    'diferencia'        => $epp->stock_disponible - $epp->stock_minimo,
+                ];
+            });
+
+        // 4. Stock CRÍTICO (disponible <= mínimo * 0.5)
+        $stockCritico = EppInventario::where('empresa_id', $empresaId)
+            ->where('activo', true)
+            ->stockCritico()
+            ->with('categoria:id,nombre')
+            ->get()
+            ->map(function($epp) {
+                return [
+                    'id'                => $epp->id,
+                    'nombre'            => $epp->nombre,
+                    'codigo_interno'    => $epp->codigo_interno,
+                    'categoria'         => $epp->categoria->nombre ?? 'N/A',
+                    'talla'             => $epp->talla,
+                    'stock_disponible'  => $epp->stock_disponible,
+                    'stock_minimo'      => $epp->stock_minimo,
+                    'stock_critico'     => (int)($epp->stock_minimo * 0.5),
+                ];
+            });
+
+        return response()->json([
+            'vencidos'          => $vencidos,
+            'proximos_vencer'   => $proximosVencer,
+            'stock_bajo'        => $stockBajo,
+            'stock_critico'     => $stockCritico,
+            'resumen' => [
+                'total_vencidos'        => $vencidos->count(),
+                'total_por_vencer'      => $proximosVencer->count(),
+                'total_stock_bajo'      => $stockBajo->count(),
+                'total_stock_critico'   => $stockCritico->count(),
+            ],
+        ]);
+    }
+
+    /**
+     * POST /api/epps/ingresos
+     * Registrar ingreso de EPPs al inventario
+     */
+    public function registrarIngreso(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'inventario_id'         => 'required|exists:epps_inventario,id',
+            'cantidad'              => 'required|integer|min:1',
+            'tipo'                  => 'required|in:compra,donacion,devolucion_proveedor,ajuste,transferencia',
+            'proveedor_id'          => 'nullable|exists:epps_proveedores,id',
+            'documento_referencia'  => 'nullable|string|max:100',
+            'fecha_ingreso'         => 'required|date',
+            'observaciones'         => 'nullable|string|max:500',
+        ]);
+
+        $empresaId = $request->user()->empresa_id;
+
+        DB::transaction(function () use ($empresaId, $validated, $request) {
+            // Bloquear inventario
+            $inventario = EppInventario::where('empresa_id', $empresaId)
+                ->lockForUpdate()
+                ->findOrFail($validated['inventario_id']);
+
+            $stockAnterior = $inventario->stock_disponible;
+            $stockNuevo = $stockAnterior + $validated['cantidad'];
+
+            // Incrementar stock
+            $inventario->incrementarStock($validated['cantidad']);
+            $inventario->increment('stock_total', $validated['cantidad']);
+
+            // Registrar movimiento
+            EppMovimiento::registrar(
+                empresaId: $empresaId,
+                inventarioId: $inventario->id,
+                tipo: 'ingreso',
+                cantidad: $validated['cantidad'],
+                stockAnterior: $stockAnterior,
+                stockNuevo: $stockNuevo,
+                motivo: $this->getTipoIngresoLabel($validated['tipo']),
+                documentoReferencia: $validated['documento_referencia'] ?? null,
+                observaciones: $validated['observaciones'] ?? null,
+                usuarioId: $request->user()->id
+            );
+
+            // Auditoría
+            $this->auditoria->registrar(
+                modulo: 'epps',
+                accion: 'ingreso_inventario',
+                usuario: $request->user(),
+                modelo: 'EppInventario',
+                modeloId: $inventario->id,
+                valorNuevo: [
+                    'tipo'          => $validated['tipo'],
+                    'cantidad'      => $validated['cantidad'],
+                    'stock_nuevo'   => $stockNuevo,
+                    'documento'     => $validated['documento_referencia'] ?? null,
+                ],
+                request: $request
+            );
+        });
+
+        return response()->json([
+            'message' => 'Ingreso registrado correctamente',
+        ], 201);
+    }
+
+    /**
+     * GET /api/epps/movimientos
+     * Historial de movimientos de inventario
+     */
+    public function movimientos(Request $request): JsonResponse
+    {
+        $query = EppMovimiento::where('empresa_id', $request->user()->empresa_id)
+            ->with(['inventario:id,nombre', 'usuario:id,nombre']);
+
+        // Filtros
+        if ($request->has('tipo')) {
+            $query->where('tipo', $request->tipo);
+        }
+
+        if ($request->has('inventario_id')) {
+            $query->where('inventario_id', $request->inventario_id);
+        }
+
+        if ($request->has('limit')) {
+            $query->limit((int)$request->limit);
+        }
+
+        $movimientos = $query->orderByDesc('created_at')->get();
+
+        return response()->json($movimientos);
+    }
+
+    /**
+     * Helper: Traducir tipo de ingreso
+     */
+    private function getTipoIngresoLabel(string $tipo): string
+    {
+        return match($tipo) {
+            'compra' => 'Compra',
+            'donacion' => 'Donación',
+            'devolucion_proveedor' => 'Devolución de proveedor',
+            'ajuste' => 'Ajuste de inventario',
+            'transferencia' => 'Transferencia',
+            default => 'Ingreso',
+        };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // GESTIÓN DE TALLAS POR PERSONAL
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * GET /api/epps/tallas/personal/{personalId}
+     * Obtener tallas de un trabajador
+     */
+    public function tallasPersonal(Request $request, int $personalId): JsonResponse
+    {
+        $tallas = PersonalTalla::where('empresa_id', $request->user()->empresa_id)
+            ->where('personal_id', $personalId)
+            ->with(['categoria', 'actualizadoPor:id,nombre'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json($tallas);
+    }
+
+    /**
+     * POST /api/epps/tallas
+     * Guardar o actualizar talla de un trabajador
+     */
+    public function storeTalla(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'personal_id'       => 'required|exists:personal,id',
+            'categoria_epp_id'  => 'required|exists:epps_categorias,id',
+            'talla'             => 'required|string|max:20',
+            'observaciones'     => 'nullable|string|max:500',
+        ]);
+
+        $empresaId = $request->user()->empresa_id;
+
+        // Usar updateOrCreate para evitar duplicados
+        $talla = PersonalTalla::updateOrCreate(
+            [
+                'empresa_id'       => $empresaId,
+                'personal_id'      => $validated['personal_id'],
+                'categoria_epp_id' => $validated['categoria_epp_id'],
+            ],
+            [
+                'talla'            => $validated['talla'],
+                'observaciones'    => $validated['observaciones'] ?? null,
+                'actualizado_por'  => $request->user()->id,
+            ]
+        );
+
+        // Cargar relaciones INMEDIATAMENTE antes de usarlas
+        $talla->load(['categoria', 'actualizadoPor:id,nombre']);
+
+        // Auditoría
+        $this->auditoria->registrar(
+            modulo: 'epps',
+            accion: 'actualizar_talla',
+            usuario: $request->user(),
+            modelo: 'PersonalTalla',
+            modeloId: $talla->id,
+            valorNuevo: [
+                'personal_id'      => $talla->personal_id,
+                'categoria'        => $talla->categoria->nombre ?? null,
+                'talla'            => $talla->talla,
+            ],
+            request: $request
+        );
+
+        return response()->json($talla, 201);
+    }
+
+    /**
+     * DELETE /api/epps/tallas/{id}
+     * Eliminar registro de talla
+     */
+    public function deleteTalla(Request $request, int $id): JsonResponse
+    {
+        $talla = PersonalTalla::where('empresa_id', $request->user()->empresa_id)
+            ->findOrFail($id);
+
+        $talla->delete();
+
+        return response()->json(['message' => 'Talla eliminada correctamente']);
+    }
+
+    /**
+     * GET /api/epps/tallas/sugerencia
+     * Sugerir talla para una entrega (usado en el formulario de entregas)
+     */
+    public function sugerirTalla(Request $request): JsonResponse
+    {
+        $personalId = $request->input('personal_id');
+        $categoriaId = $request->input('categoria_id');
+
+        if (!$personalId || !$categoriaId) {
+            return response()->json(['talla_sugerida' => null]);
+        }
+
+        $talla = PersonalTalla::where('empresa_id', $request->user()->empresa_id)
+            ->where('personal_id', $personalId)
+            ->where('categoria_epp_id', $categoriaId)
+            ->first();
+
+        return response()->json([
+            'talla_sugerida' => $talla->talla ?? null,
+            'observaciones'  => $talla->observaciones ?? null,
+        ]);
+    }
+
+    /**
+     * GET /api/epps/tallas/matriz
+     * Obtener matriz de todos los trabajadores con sus tallas por categoría
+     */
+    public function matrizTallas(Request $request): JsonResponse
+    {
+        $empresaId = $request->user()->empresa_id;
+
+        // Obtener todas las categorías
+        $categorias = EppCategoria::where('empresa_id', $empresaId)
+            ->orderBy('nombre')
+            ->get(['id', 'nombre']);
+
+        // Obtener todo el personal con sus tallas
+        $personal = \App\Models\Personal::where('empresa_id', $empresaId)
+            ->with(['cargo', 'area'])
+            ->orderBy('apellidos')
+            ->orderBy('nombres')
+            ->get();
+
+        // Obtener todas las tallas de la empresa
+        $tallas = PersonalTalla::where('empresa_id', $empresaId)
+            ->get(['personal_id', 'categoria_epp_id', 'talla']);
+
+        // Organizar tallas por personal_id y categoria_id
+        $tallasMap = [];
+        foreach ($tallas as $talla) {
+            $tallasMap[$talla->personal_id][$talla->categoria_epp_id] = $talla->talla;
+        }
+
+        // Construir resultado
+        $personalConTallas = $personal->map(function ($p) use ($tallasMap) {
+            return [
+                'id' => $p->id,
+                'nombres' => $p->nombres,
+                'apellidos' => $p->apellidos,
+                'dni' => $p->dni,
+                'cargo' => $p->cargo->nombre ?? '—',
+                'area' => $p->area->nombre ?? '—',
+                'tallas' => $tallasMap[$p->id] ?? [],
+            ];
+        });
+
+        return response()->json([
+            'categorias' => $categorias,
+            'personal' => $personalConTallas,
+        ]);
     }
 }

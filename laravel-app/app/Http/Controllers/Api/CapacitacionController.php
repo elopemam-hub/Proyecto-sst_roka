@@ -796,4 +796,34 @@ class CapacitacionController extends Controller
             ], 500);
         }
     }
+
+    /** GET /api/capacitaciones/{id}/formato-rm050 */
+    public function formatoRM050(Request $request, int $id): JsonResponse
+    {
+        $capacitacion = Capacitacion::where('empresa_id', $request->user()->empresa_id)
+            ->with([
+                'area:id,nombre',
+                'asistentes',
+                'asistentes.personal:id,nombres,apellidos,dni,cargo_id,area_id',
+                'asistentes.personal.cargo:id,nombre',
+                'asistentes.personal.area:id,nombre',
+            ])
+            ->findOrFail($id);
+
+        $empresa = $request->user()->empresa;
+        $nroTrabajadores = Personal::where('empresa_id', $empresa->id)->count();
+
+        return response()->json([
+            'capacitacion' => $capacitacion,
+            'empresa' => [
+                'razon_social'     => $empresa->razon_social,
+                'ruc'              => $empresa->ruc,
+                'direccion'        => $empresa->direccion,
+                'actividad'        => $empresa->ciiu,
+                'nro_trabajadores' => $nroTrabajadores,
+                'representante'    => $empresa->representante_legal,
+                'logo_url'         => $empresa->logo_url,
+            ],
+        ]);
+    }
 }

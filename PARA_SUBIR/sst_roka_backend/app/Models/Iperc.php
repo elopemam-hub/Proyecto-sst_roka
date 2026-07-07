@@ -69,7 +69,12 @@ class Iperc extends Model
     // Calcular nivel total de riesgos
     public function getResumenRiesgosAttribute(): array
     {
-        $peligros = IpercPeligro::whereIn('iperc_proceso_id', $this->procesos->pluck('id'))->get();
+        $ids = $this->procesos->pluck('id');
+        if ($ids->isEmpty()) {
+            return ['total' => 0, 'trivial' => 0, 'tolerable' => 0,
+                    'moderado' => 0, 'importante' => 0, 'intolerable' => 0, 'significativos' => 0];
+        }
+        $peligros = IpercPeligro::whereIn('iperc_proceso_id', $ids)->get();
 
         $resumen = [
             'total'       => $peligros->count(),

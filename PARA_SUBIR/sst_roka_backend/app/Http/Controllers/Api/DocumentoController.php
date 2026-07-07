@@ -348,6 +348,21 @@ class DocumentoController extends Controller
         );
     }
 
+    public function ver(Request $request, int $id): mixed
+    {
+        $documento = Documento::where('empresa_id', $request->user()->empresa_id)
+            ->findOrFail($id);
+
+        if (!$documento->archivo_path || !Storage::disk('local')->exists($documento->archivo_path)) {
+            return response()->json(['message' => 'No hay archivo disponible.'], 404);
+        }
+
+        return Storage::disk('local')->response(
+            $documento->archivo_path,
+            $documento->archivo_nombre ?? basename($documento->archivo_path)
+        );
+    }
+
     // ─── Helpers privados ──────────────────────────────────────────────
 
     private function generarCodigo(int $empresaId): string

@@ -8,6 +8,7 @@ use App\Models\InspeccionItem;
 use App\Models\InspeccionHallazgo;
 use App\Models\AccionSeguimiento;
 use App\Services\AuditoriaService;
+use App\Services\FirmaService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -17,20 +18,309 @@ use Illuminate\Validation\Rule;
 class InspeccionController extends Controller
 {
     public function __construct(
-        private AuditoriaService $auditoria
+        private AuditoriaService $auditoria,
+        private FirmaService $firmaService,
     ) {}
 
     /**
      * GET /api/inspecciones
      */
+    // ── Programa mensual: estado de todos los catálogos ────────────────────
+    public function programaMensual(Request $request): JsonResponse
+    {
+        $eid  = $request->user()->empresa_id;
+        $anio = $request->integer('anio', now()->year);
+        $mes  = $request->integer('mes',  now()->month);
+
+        $desde = sprintf('%04d-%02d-01', $anio, $mes);
+        $hasta = date('Y-m-t', strtotime($desde));
+
+        // Catálogos NO diarios
+        $catsDiarios = DB::table('equipos_catalogo')
+            ->where('frecuencia_inspeccion', 'diaria')->pluck('id');
+
+        $catalogos = DB::table('equipos_catalogo as ec')
+            ->leftJoin('inspeccion_submodulos as sm', 'sm.id', '=', 'ec.submodulo_id')
+            ->where('ec.activo', true)
+            ->whereNotIn('ec.id', $catsDiarios)
+            ->orderBy('sm.codigo')
+            ->orderBy('ec.orden')
+            ->get(['ec.id','ec.codigo','ec.nombre','ec.submodulo_id','sm.codigo as submod_codigo','sm.nombre as submod_nombre']);
+
+        // Inspecciones existentes en el mes para estos catálogos
+        $inspExistentes = DB::table('inspecciones')
+            ->where('empresa_id', $eid)
+            ->whereIn('equipo_catalogo_id', $catalogos->pluck('id'))
+            ->whereBetween('planificada_para', [$desde, $hasta])
+            ->whereNull('deleted_at')
+            ->get(['id','codigo','equipo_catalogo_id','equipo_id','estado','planificada_para','porcentaje_cumplimiento','area_id'])
+            ->groupBy('equipo_catalogo_id');
+
+        // Equipos físicos por catálogo
+        $equiposPorCat = DB::table('equipos')
+            ->where('empresa_id', $eid)
+            ->whereIn('equipo_catalogo_id', $catalogos->pluck('id'))
+            ->whereNull('deleted_at')
+            ->get(['id','codigo','nombre','area_id','equipo_catalogo_id'])
+            ->groupBy('equipo_catalogo_id');
+
+        // Índice de equipos por ID para lookup rápido
+        $equiposPorId = DB::table('equipos')
+            ->where('empresa_id', $eid)
+            ->whereIn('equipo_catalogo_id', $catalogos->pluck('id'))
+            ->whereNull('deleted_at')
+            ->pluck('codigo', 'id');
+
+        // Áreas
+        $areas = DB::table('areas')->pluck('nombre','id');
+
+        $resultado = $catalogos->map(function ($cat) use ($inspExistentes, $equiposPorCat, $equiposPorId, $areas) {
+            $insps   = $inspExistentes->get($cat->id, collect());
+            $equipos = $equiposPorCat->get($cat->id, collect());
+
+            // Crear índice de inspecciones por equipo_id
+            $inspeccionesPorEquipo = $insps->keyBy('equipo_id');
+
+            // Contar equipos con inspecciones completadas (basado en equipos, no en total de inspecciones)
+            $totalEquipos = $equipos->count();
+            $equiposCompletados = 0;
+            $equiposProgramados = 0;
+
+            // Si NO hay equipos físicos, contar inspecciones directamente
+            if ($totalEquipos === 0) {
+                $totalEquipos = $insps->count();
+                $equiposCompletados = $insps->whereIn('estado', ['ejecutada','con_hallazgos','cerrada'])->count();
+                $equiposProgramados = $insps->where('estado', 'programada')->count();
+            } else {
+                // Para catálogos con 1 solo equipo, si hay inspecciones sin equipo_id, asignarlas al único equipo
+                if ($totalEquipos === 1 && $inspeccionesPorEquipo->has(null)) {
+                    $inspSinEquipo = $inspeccionesPorEquipo->get(null);
+                    $inspeccionesPorEquipo->put($equipos->first()->id, $inspSinEquipo);
+                }
+
+                foreach ($equipos as $eq) {
+                    $insp = $inspeccionesPorEquipo->get($eq->id);
+                    if ($insp) {
+                        if (in_array($insp->estado, ['ejecutada','con_hallazgos','cerrada'])) {
+                            $equiposCompletados++;
+                        } elseif ($insp->estado === 'programada') {
+                            $equiposProgramados++;
+                        }
+                    }
+                }
+            }
+
+            // Porcentaje basado en equipos/inspecciones completados
+            $pctCumpl = $totalEquipos > 0 ? round(($equiposCompletados / $totalEquipos) * 100, 1) : null;
+
+            // Estado basado en equipos
+            $estado = 'sin_programar';
+            if ($equiposCompletados + $equiposProgramados > 0) {
+                if ($equiposCompletados === $totalEquipos) $estado = 'completada';
+                elseif ($equiposCompletados > 0)           $estado = 'en_progreso';
+                else                                       $estado = 'programada';
+            }
+
+            return [
+                'catalogo_id'      => $cat->id,
+                'catalogo_codigo'  => $cat->codigo,
+                'catalogo_nombre'  => $cat->nombre,
+                'submodulo'        => $cat->submod_codigo ?? '?',
+                'submodulo_nombre' => $cat->submod_nombre ?? 'General',
+                'equipos_count'    => $equipos->count(),
+                'equipos'          => $equipos->map(fn($eq) => [
+                    'id'           => $eq->id,
+                    'codigo'       => $eq->codigo,
+                    'nombre'       => $eq->nombre,
+                    'area'         => $areas[$eq->area_id] ?? '—',
+                    'area_id'      => $eq->area_id,
+                    'inspeccion'   => $inspeccionesPorEquipo->get($eq->id) ? [
+                        'id'     => $inspeccionesPorEquipo[$eq->id]->id,
+                        'codigo' => $inspeccionesPorEquipo[$eq->id]->codigo,
+                        'estado' => $inspeccionesPorEquipo[$eq->id]->estado,
+                        'fecha'  => $inspeccionesPorEquipo[$eq->id]->planificada_para,
+                        'pct'    => $inspeccionesPorEquipo[$eq->id]->porcentaje_cumplimiento,
+                    ] : null,
+                ])->values(),
+                'inspecciones'     => $insps->map(fn($i) => [
+                    'id'           => $i->id,
+                    'codigo'       => $i->codigo,
+                    'estado'       => $i->estado,
+                    'fecha'        => $i->planificada_para,
+                    'pct'          => $i->porcentaje_cumplimiento,
+                    'area'         => $areas[$i->area_id] ?? '—',
+                    'equipo_codigo'=> $i->equipo_id ? ($equiposPorId[$i->equipo_id] ?? null) : null,
+                ])->values(),
+                'total_programadas' => $totalEquipos,
+                'ejecutadas'        => $equiposCompletados,
+                'pendientes'        => $equiposProgramados,
+                'pct_cumplimiento'  => $pctCumpl,
+                'estado'            => $estado,
+            ];
+        });
+
+        // KPIs por sub-módulo
+        $porSubmod = $resultado->groupBy('submodulo')->map(fn($g) => [
+            'total'      => $g->count(),
+            'completadas'=> $g->where('estado','completada')->count(),
+            'programadas'=> $g->whereIn('estado',['programada','en_progreso'])->count(),
+            'sin_prog'   => $g->where('estado','sin_programar')->count(),
+            'pct'        => $g->where('pct_cumplimiento','!=',null)->avg('pct_cumplimiento'),
+        ]);
+
+        return response()->json([
+            'anio'       => $anio,
+            'mes'        => $mes,
+            'catalogos'  => $resultado->values(),
+            'por_submodulo' => $porSubmod,
+            'resumen'    => [
+                'total'       => $resultado->count(),
+                'completadas' => $resultado->where('estado','completada')->count(),
+                'en_progreso' => $resultado->where('estado','en_progreso')->count(),
+                'programadas' => $resultado->where('estado','programada')->count(),
+                'sin_prog'    => $resultado->where('estado','sin_programar')->count(),
+            ],
+        ]);
+    }
+
+    // ── Generar programa mensual masivo ──────────────────────────────────────
+    public function generarPrograma(Request $request): JsonResponse
+    {
+        $eid  = $request->user()->empresa_id;
+        $anio = $request->integer('anio', now()->year);
+        $mes  = $request->integer('mes',  now()->month);
+        $sobreescribir = $request->boolean('sobreescribir', false);
+
+        $desde = sprintf('%04d-%02d-01', $anio, $mes);
+        $hasta = date('Y-m-t', strtotime($desde));
+
+        // Catálogos activos NO diarios
+        $catsDiarios = DB::table('equipos_catalogo')
+            ->where('frecuencia_inspeccion','diaria')->pluck('id');
+
+        $catalogos = \App\Models\EquipoCatalogo::where('activo', true)
+            ->whereNotIn('id', $catsDiarios)
+            ->with('submodulo')
+            ->get();
+
+        $creadas = 0; $omitidas = 0;
+
+        foreach ($catalogos as $cat) {
+            // Verificar si ya existe una inspección este mes
+            $existe = Inspeccion::where('empresa_id', $eid)
+                ->where('equipo_catalogo_id', $cat->id)
+                ->whereBetween('planificada_para', [$desde, $hasta])
+                ->whereNull('deleted_at')
+                ->exists();
+
+            if ($existe && !$sobreescribir) { $omitidas++; continue; }
+
+            // Buscar primer equipo físico para obtener area_id
+            $equipo = DB::table('equipos')
+                ->where('empresa_id', $eid)
+                ->where('equipo_catalogo_id', $cat->id)
+                ->whereNull('deleted_at')
+                ->first();
+
+            $areaId = $equipo?->area_id
+                ?? DB::table('areas')->where('empresa_id', $eid)->value('id');
+
+            if (!$areaId) { $omitidas++; continue; }
+
+            $tipo = $cat->submodulo?->tipo_inspeccion ?? 'equipos';
+
+            Inspeccion::create([
+                'empresa_id'         => $eid,
+                'sede_id'            => 1,
+                'area_id'            => $areaId,
+                'tipo'               => $tipo,
+                'titulo'             => $cat->nombre,
+                'planificada_para'   => $desde,
+                'equipo_catalogo_id' => $cat->id,
+                'submodulo_id'       => $cat->submodulo_id,
+                'estado'             => 'programada',
+                'codigo'             => Inspeccion::generarCodigo($eid, $tipo),
+                'elaborado_por'      => $request->user()->id,
+            ]);
+            $creadas++;
+        }
+
+        return response()->json([
+            'creadas'  => $creadas,
+            'omitidas' => $omitidas,
+            'mes'      => $mes,
+            'anio'     => $anio,
+            'message'  => "$creadas inspecciones creadas para " . date('F Y', strtotime($desde)),
+        ]);
+    }
+
+    // ── Tabla inspecciones DIARIAS (frecuencia=diaria) ─────────────────────
+    public function tablaDiaria(Request $request): JsonResponse
+    {
+        $eid = $request->user()->empresa_id;
+        $catsDiarios = DB::table('equipos_catalogo')
+            ->where('frecuencia_inspeccion', 'diaria')
+            ->pluck('id');
+
+        $query = Inspeccion::where('empresa_id', $eid)
+            ->whereIn('equipo_catalogo_id', $catsDiarios)
+            ->with(['area:id,nombre', 'equipoCatalogo:id,nombre,codigo']);
+
+        if ($request->filled('estado'))       $query->where('estado', $request->estado);
+        if ($request->filled('equipo_catalogo_id')) $query->where('equipo_catalogo_id', $request->equipo_catalogo_id);
+        if ($request->filled('fecha_desde'))  $query->where('planificada_para', '>=', $request->fecha_desde);
+        if ($request->filled('fecha_hasta'))  $query->where('planificada_para', '<=', $request->fecha_hasta);
+        if ($request->filled('search')) {
+            $q = $request->search;
+            $query->where(fn($s) => $s->where('codigo','like',"%{$q}%")->orWhere('titulo','like',"%{$q}%"));
+        }
+
+        return response()->json(
+            $query->orderByDesc('planificada_para')
+                ->paginate(min($request->integer('per_page', 20), 100))
+        );
+    }
+
+    // ── Tabla inspecciones MENSUALES (no-diarias) ───────────────────────────
+    public function tablaMensual(Request $request): JsonResponse
+    {
+        $eid = $request->user()->empresa_id;
+        $catsDiarios = DB::table('equipos_catalogo')
+            ->where('frecuencia_inspeccion', 'diaria')
+            ->pluck('id');
+
+        $query = Inspeccion::where('empresa_id', $eid)
+            ->where(fn($q) =>
+                $q->whereNotIn('equipo_catalogo_id', $catsDiarios)
+                  ->orWhereNull('equipo_catalogo_id')
+            )
+            ->with(['area:id,nombre', 'sede:id,nombre']);
+
+        if ($request->filled('estado'))      $query->where('estado', $request->estado);
+        if ($request->filled('tipo'))        $query->where('tipo', $request->tipo);
+        if ($request->filled('fecha_desde')) $query->where('planificada_para', '>=', $request->fecha_desde);
+        if ($request->filled('fecha_hasta')) $query->where('planificada_para', '<=', $request->fecha_hasta);
+        if ($request->filled('search')) {
+            $q = $request->search;
+            $query->where(fn($s) => $s->where('codigo','like',"%{$q}%")->orWhere('titulo','like',"%{$q}%"));
+        }
+
+        return response()->json(
+            $query->withCount(['hallazgos'])
+                ->orderByDesc('planificada_para')
+                ->paginate(min($request->integer('per_page', 20), 100))
+        );
+    }
+
     public function index(Request $request): JsonResponse
     {
         $query = Inspeccion::where('empresa_id', $request->user()->empresa_id)
-            ->with(['area:id,nombre', 'sede:id,nombre', 'inspector:id,nombres,apellidos']);
+            ->with(['area:id,nombre', 'sede:id,nombre', 'inspector:id,nombres,apellidos', 'equipo:id,codigo,nombre,serie']);
 
         if ($request->filled('estado'))    $query->where('estado', $request->estado);
         if ($request->filled('tipo'))      $query->where('tipo', $request->tipo);
         if ($request->filled('area_id'))   $query->where('area_id', $request->area_id);
+        if ($request->filled('anio'))      $query->whereYear('planificada_para', $request->integer('anio'));
         if ($request->filled('fecha_desde')) $query->where('planificada_para', '>=', $request->fecha_desde);
         if ($request->filled('fecha_hasta')) $query->where('planificada_para', '<=', $request->fecha_hasta);
         if ($request->filled('search')) {
@@ -62,13 +352,14 @@ class InspeccionController extends Controller
         $validated = $request->validate([
             'sede_id'              => 'nullable|exists:sedes,id',
             'area_id'              => 'nullable|exists:areas,id',
-            'tipo'                 => ['required', Rule::in(['equipos','infraestructura','emergencias','epps','orden_limpieza','higiene','general'])],
+            'tipo'                 => ['required', Rule::in(['equipos','infraestructura','emergencias','epps','orden_limpieza','higiene','general','taller','almacen','oficinas'])],
             'titulo'               => 'required|string|max:255',
             'descripcion'          => 'nullable|string',
             'planificada_para'     => 'required|date',
             'inspector_id'         => 'nullable|exists:personal,id',
             'supervisor_id'        => 'nullable|exists:personal,id',
             'equipo_catalogo_id'   => 'nullable|exists:equipos_catalogo,id',
+            'equipo_id'            => 'nullable|exists:equipos,id',
             'submodulo_id'         => 'nullable|exists:inspeccion_submodulos,id',
             'turno'                => 'nullable|in:mañana,tarde,noche',
             'requiere_firma'       => 'boolean',
@@ -116,7 +407,7 @@ class InspeccionController extends Controller
         );
 
         return response()->json(
-            $inspeccion->load(['items', 'area', 'sede', 'inspector']),
+            $inspeccion->load(['items', 'area', 'sede', 'inspector', 'equipo:id,codigo,nombre']),
             201
         );
     }
@@ -131,6 +422,8 @@ class InspeccionController extends Controller
                 'area', 'sede', 'inspector:id,nombres,apellidos,dni',
                 'supervisor:id,nombres,apellidos',
                 'elaborador:id,nombre',
+                'equipo:id,codigo,nombre',
+                'equipoCatalogo:id,nombre,frecuencia_inspeccion',
                 'items.hallazgo',
                 'hallazgos.responsable:id,nombres,apellidos',
                 'hallazgos.area:id,nombre',
@@ -140,6 +433,32 @@ class InspeccionController extends Controller
 
         $inspeccion->tipo_label = $inspeccion->tipo_label;
         $inspeccion->total_hallazgos_criticos = $inspeccion->total_hallazgos_criticos;
+
+        // Para inspecciones de checklist, cargar respuestas con pregunta
+        if ($inspeccion->equipo_catalogo_id) {
+            $inspeccion->respuestas_checklist = \App\Models\InspeccionRespuesta::where('inspeccion_id', $inspeccion->id)
+                ->with(['pregunta:id,texto,tipo_respuesta,orden,permite_nota,permite_cantidad,permite_fecha_vencimiento'])
+                ->orderBy('pregunta_id')
+                ->get()
+                ->map(fn($r) => [
+                    'id'                   => $r->id,
+                    'pregunta_id'          => $r->pregunta_id,
+                    'texto'                => $r->pregunta?->texto,
+                    'tipo_respuesta'       => $r->pregunta?->tipo_respuesta,
+                    'orden'                => $r->pregunta?->orden,
+                    'resultado'            => $r->resultado,
+                    'nota'                 => $r->nota,
+                    'cantidad'             => $r->cantidad,
+                    'fecha_vencimiento_item' => $r->fecha_vencimiento_item?->format('Y-m-d'),
+                ]);
+
+            // Enriquecer con datos del equipo_catalogo
+            $catalogo = \App\Models\EquipoCatalogo::find($inspeccion->equipo_catalogo_id);
+            if ($catalogo) {
+                $inspeccion->equipo_catalogo_nombre = $catalogo->nombre;
+                $inspeccion->frecuencia_inspeccion = $catalogo->frecuencia_inspeccion; // diaria, mensual, etc.
+            }
+        }
 
         return response()->json($inspeccion);
     }
@@ -156,17 +475,39 @@ class InspeccionController extends Controller
         }
 
         $validated = $request->validate([
-            'titulo'       => 'sometimes|string|max:255',
-            'descripcion'  => 'nullable|string',
-            'planificada_para' => 'sometimes|date',
-            'inspector_id' => 'sometimes|exists:personal,id',
-            'supervisor_id'=> 'nullable|exists:personal,id',
-            'estado'       => ['sometimes', Rule::in(['programada','en_ejecucion','ejecutada','con_hallazgos','cerrada','anulada'])],
+            'titulo'               => 'sometimes|string|max:255',
+            'descripcion'          => 'nullable|string',
+            'planificada_para'     => 'sometimes|date',
+            'inspector_id'         => 'sometimes|exists:personal,id',
+            'supervisor_id'        => 'nullable|exists:personal,id',
+            'estado'               => ['sometimes', Rule::in(['programada','en_ejecucion','ejecutada','con_hallazgos','cerrada','anulada'])],
             'observaciones_generales' => 'nullable|string',
+            'items'                => 'sometimes|array',
+            'items.*.categoria'    => 'nullable|string|max:150',
+            'items.*.descripcion'  => 'required_with:items|string',
+            'items.*.es_critico'   => 'boolean',
+            'items.*.puntaje_maximo' => 'integer|min:1|max:10',
         ]);
 
         $anterior = $inspeccion->toArray();
-        $inspeccion->update($validated);
+        $inspeccion->update(collect($validated)->except('items')->toArray());
+
+        // Reemplazar ítems solo si la inspección aún no ha sido ejecutada
+        if ($request->has('items') && in_array($inspeccion->estado, ['programada', 'en_ejecucion'])) {
+            $inspeccion->items()->delete();
+            foreach ($request->input('items', []) as $idx => $itemData) {
+                if (empty(trim($itemData['descripcion'] ?? ''))) continue;
+                InspeccionItem::create([
+                    'inspeccion_id'  => $inspeccion->id,
+                    'numero_item'    => $idx + 1,
+                    'categoria'      => $itemData['categoria'] ?? '',
+                    'descripcion'    => $itemData['descripcion'],
+                    'es_critico'     => $itemData['es_critico'] ?? false,
+                    'aplica'         => true,
+                    'puntaje_maximo' => $itemData['puntaje_maximo'] ?? 1,
+                ]);
+            }
+        }
 
         $this->auditoria->registrarCambioModelo(
             modulo: 'inspecciones',
@@ -179,7 +520,7 @@ class InspeccionController extends Controller
             request: $request
         );
 
-        return response()->json($inspeccion);
+        return response()->json($inspeccion->fresh(['items', 'area', 'sede', 'inspector']));
     }
 
     /**
@@ -390,39 +731,86 @@ class InspeccionController extends Controller
     public function estadisticas(Request $request): JsonResponse
     {
         $empresaId = $request->user()->empresa_id;
+        $base      = Inspeccion::where('empresa_id', $empresaId);
 
-        $stats = Inspeccion::where('empresa_id', $empresaId)
-            ->selectRaw('estado, tipo, COUNT(*) as total')
-            ->groupBy('estado', 'tipo')
-            ->get();
+        // Totales por estado (sin agrupar por tipo para obtener el total real)
+        $porEstado = (clone $base)
+            ->selectRaw('estado, COUNT(*) as total')
+            ->groupBy('estado')
+            ->pluck('total', 'estado');
 
-        $porcentajePromedio = Inspeccion::where('empresa_id', $empresaId)
-            ->where('estado', 'cerrada')
+        // Totales por tipo
+        $porTipo = (clone $base)
+            ->selectRaw('tipo, COUNT(*) as total')
+            ->groupBy('tipo')
+            ->pluck('total', 'tipo');
+
+        // % cumplimiento = tasa de ejecución (inspecciones ejecutadas / total programadas)
+        // Métrica estándar SST: cuántas de las inspecciones programadas se llevaron a cabo
+        $totalInspecciones  = (clone $base)->count();
+        $totalEjecutadas    = (clone $base)
+            ->whereIn('estado', ['ejecutada', 'con_hallazgos', 'cerrada'])
+            ->count();
+        $pctEjecucion = $totalInspecciones > 0
+            ? round($totalEjecutadas / $totalInspecciones * 100, 1)
+            : 0;
+
+        // También calcular el promedio de calidad de las inspeccionadas (para referencia)
+        $promCalidad = (clone $base)
+            ->whereIn('estado', ['ejecutada', 'con_hallazgos', 'cerrada'])
+            ->whereNotNull('porcentaje_cumplimiento')
             ->avg('porcentaje_cumplimiento');
 
         return response()->json([
-            'por_estado' => $stats->groupBy('estado'),
-            'por_tipo'   => $stats->groupBy('tipo'),
-            'porcentaje_cumplimiento_promedio' => round($porcentajePromedio ?? 0, 1),
+            'por_estado' => [
+                'programada'    => [['total' => $porEstado['programada']    ?? 0]],
+                'en_ejecucion'  => [['total' => $porEstado['en_ejecucion']  ?? 0]],
+                'ejecutada'     => [['total' => $porEstado['ejecutada']     ?? 0]],
+                'con_hallazgos' => [['total' => $porEstado['con_hallazgos'] ?? 0]],
+                'cerrada'       => [['total' => $porEstado['cerrada']       ?? 0]],
+                'anulada'       => [['total' => $porEstado['anulada']       ?? 0]],
+            ],
+            'por_tipo'                        => $porTipo,
+            'total'                           => $totalInspecciones,
+            'ejecutadas'                      => $totalEjecutadas,
+            // % ejecución = inspeccionadas/total (métrica SST correcta)
+            'porcentaje_cumplimiento_promedio' => $pctEjecucion,
+            // % calidad = promedio de notas de las ejecutadas (dato adicional)
+            'promedio_calidad_ejecutadas'      => round($promCalidad ?? 0, 1),
         ]);
     }
 
     public function dashboard(Request $request): JsonResponse
     {
-        $empresaId = $request->user()->empresa_id;
+        $empresaId  = $request->user()->empresa_id;
+        $equipoId   = $request->filled('equipo_id')  ? (int)$request->equipo_id  : null;
+        $resultado  = $request->filled('resultado')   ? $request->resultado       : null; // conforme|regular|no_conforme|sin_resultado
+        $meses      = max(3, min(12, $request->integer('meses', 6)));
+
+        // Base con filtros opcionales
+        $base = Inspeccion::where('empresa_id', $empresaId);
+        if ($equipoId) $base->where('equipo_catalogo_id', $equipoId);
+        if ($resultado) {
+            match($resultado) {
+                'conforme'      => $base->where('porcentaje_cumplimiento', '>=', 80),
+                'regular'       => $base->whereBetween('porcentaje_cumplimiento', [50, 79.99]),
+                'no_conforme'   => $base->where('porcentaje_cumplimiento', '<', 50)->whereNotNull('porcentaje_cumplimiento'),
+                'sin_resultado' => $base->whereNull('porcentaje_cumplimiento'),
+                default         => null,
+            };
+        }
 
         // KPIs generales
-        $base = Inspeccion::where('empresa_id', $empresaId);
-        $total        = (clone $base)->count();
-        $porEstado    = (clone $base)->selectRaw('estado, COUNT(*) as total')->groupBy('estado')->pluck('total','estado');
-        $pctPromedio  = (clone $base)->whereIn('estado',['ejecutada','con_hallazgos','cerrada'])->avg('porcentaje_cumplimiento');
+        $total       = (clone $base)->count();
+        $porEstado   = (clone $base)->selectRaw('estado, COUNT(*) as total')->groupBy('estado')->pluck('total','estado');
+        $pctPromedio = (clone $base)->whereIn('estado',['ejecutada','con_hallazgos','cerrada'])->avg('porcentaje_cumplimiento');
 
         // Checklist KPIs
-        $baseChk = Inspeccion::where('empresa_id', $empresaId)->whereNotNull('equipo_catalogo_id');
-        $chkTotal     = (clone $baseChk)->count();
-        $chkComplet   = (clone $baseChk)->whereIn('estado',['ejecutada','con_hallazgos','cerrada'])->count();
-        $chkPct       = (clone $baseChk)->avg('porcentaje_cumplimiento');
-        $accionesAb   = DB::table('inspeccion_acciones_checklist as a')
+        $baseChk = (clone $base)->whereNotNull('equipo_catalogo_id');
+        $chkTotal   = (clone $baseChk)->count();
+        $chkComplet = (clone $baseChk)->whereIn('estado',['ejecutada','con_hallazgos','cerrada'])->count();
+        $chkPct     = (clone $baseChk)->avg('porcentaje_cumplimiento');
+        $accionesAb = DB::table('inspeccion_acciones_checklist as a')
             ->join('inspecciones as i','a.inspeccion_id','=','i.id')
             ->where('i.empresa_id', $empresaId)->where('a.estado','!=','cerrado')->count();
 
@@ -434,28 +822,37 @@ class InspeccionController extends Controller
                 DB::raw('ROUND(AVG(inspecciones.porcentaje_cumplimiento),1) as puntaje_prom'))
             ->groupBy('s.id','s.nombre','s.codigo')->get();
 
-        // Últimos 6 meses
-        $porMes = Inspeccion::where('empresa_id', $empresaId)
-            ->where('planificada_para', '>=', now()->subMonths(5)->startOfMonth())
+        // Últimos N meses
+        $porMes = (clone $base)
+            ->where('planificada_para', '>=', now()->subMonths($meses - 1)->startOfMonth())
             ->selectRaw("DATE_FORMAT(planificada_para,'%Y-%m') as mes, COUNT(*) as total, ROUND(AVG(porcentaje_cumplimiento),1) as pct_prom")
             ->groupBy('mes')->orderBy('mes')->get();
 
-        // Por tipo
-        $porTipo = (clone $base)->selectRaw('tipo, COUNT(*) as total')->groupBy('tipo')->get();
+        // Por tipo con promedio de cumplimiento
+        $porTipo = (clone $base)
+            ->selectRaw('tipo, COUNT(*) as total, ROUND(AVG(porcentaje_cumplimiento),1) as pct_prom')
+            ->groupBy('tipo')
+            ->get();
 
         // Top NC equipos
         $topNC = DB::table('inspeccion_respuestas as r')
             ->join('inspecciones as i','r.inspeccion_id','=','i.id')
             ->join('equipos_catalogo as e','i.equipo_catalogo_id','=','e.id')
             ->where('i.empresa_id', $empresaId)->where('r.resultado','N')
+            ->when($equipoId, fn($q) => $q->where('i.equipo_catalogo_id', $equipoId))
             ->select('e.nombre as equipo', DB::raw('COUNT(*) as nc_total'))
             ->groupBy('e.id','e.nombre')->orderByDesc('nc_total')->limit(5)->get();
 
-        // Últimas 5 inspecciones
-        $ultimas = Inspeccion::where('empresa_id', $empresaId)
+        // Últimas 5 inspecciones (con filtros)
+        $ultimas = (clone $base)
             ->with(['area:id,nombre','equipoCatalogo:id,nombre'])
             ->orderByDesc('created_at')->limit(5)
             ->get(['id','codigo','titulo','tipo','estado','porcentaje_cumplimiento','planificada_para','area_id','equipo_catalogo_id']);
+
+        // Lista de equipos disponibles para filtro (solo los que tienen inspecciones)
+        $equiposDisponibles = \App\Models\EquipoCatalogo::whereIn('id',
+            Inspeccion::where('empresa_id', $empresaId)->whereNotNull('equipo_catalogo_id')->pluck('equipo_catalogo_id')
+        )->orderBy('nombre')->get(['id','nombre','codigo']);
 
         return response()->json([
             'total'           => $total,
@@ -467,11 +864,410 @@ class InspeccionController extends Controller
                 'pct_prom'   => round($chkPct ?? 0, 1),
                 'acciones_abiertas' => $accionesAb,
             ],
-            'por_submodulo'   => $porSubmodulo,
-            'por_mes'         => $porMes,
-            'por_tipo'        => $porTipo,
-            'top_nc'          => $topNC,
-            'ultimas'         => $ultimas,
+            'por_submodulo'        => $porSubmodulo,
+            'por_mes'              => $porMes,
+            'por_tipo'             => $porTipo,
+            'top_nc'               => $topNC,
+            'ultimas'              => $ultimas,
+            'equipos_disponibles'  => $equiposDisponibles,
+            'filtros_activos'      => [
+                'equipo_id' => $equipoId,
+                'resultado' => $resultado,
+                'meses'     => $meses,
+            ],
         ]);
+    }
+
+    // ── Listar inspecciones de checklist programadas ─────────────────────
+
+    public function programadasChecklist(Request $request): JsonResponse
+    {
+        $eid = $request->user()->empresa_id;
+
+        $inspecciones = Inspeccion::where('empresa_id', $eid)
+            ->whereNotNull('equipo_catalogo_id')
+            ->with([
+                'area:id,nombre',
+                'inspector:id,nombres,apellidos',
+                'equipoCatalogo:id,nombre,codigo,frecuencia_inspeccion',
+            ])
+            ->orderBy('planificada_para')
+            ->get(['id','codigo','titulo','estado','planificada_para','porcentaje_cumplimiento',
+                   'equipo_catalogo_id','area_id','inspector_id','turno','submodulo_id']);
+
+        // Agrupar por equipo_catalogo
+        $porEquipo = $inspecciones->groupBy('equipo_catalogo_id')->map(function ($items, $catId) {
+            $ultimo = $items->whereIn('estado',['ejecutada','con_hallazgos','cerrada'])->sortByDesc('planificada_para')->first();
+            $proxima = $items->where('estado','programada')->sortBy('planificada_para')->first();
+            $cat = $items->first()->equipoCatalogo;
+
+            return [
+                'catalogo_id'       => $catId,
+                'catalogo_nombre'   => $cat?->nombre,
+                'catalogo_codigo'   => $cat?->codigo,
+                'frecuencia'        => $cat?->frecuencia_inspeccion,
+                'total'             => $items->count(),
+                'programadas'       => $items->where('estado','programada')->count(),
+                'completadas'       => $items->whereIn('estado',['ejecutada','con_hallazgos','cerrada'])->count(),
+                'pct_prom'          => round($items->whereNotNull('porcentaje_cumplimiento')->avg('porcentaje_cumplimiento') ?? 0, 1),
+                'ultima_inspeccion' => $ultimo ? [
+                    'id'              => $ultimo->id,
+                    'codigo'          => $ultimo->codigo,
+                    'fecha'           => $ultimo->planificada_para,
+                    'estado'          => $ultimo->estado,
+                    'porcentaje'      => $ultimo->porcentaje_cumplimiento,
+                ] : null,
+                'proxima_programada'=> $proxima ? [
+                    'id'     => $proxima->id,
+                    'codigo' => $proxima->codigo,
+                    'fecha'  => $proxima->planificada_para,
+                    'turno'  => $proxima->turno,
+                ] : null,
+                'inspecciones'      => $items->map(fn($i) => [
+                    'id'          => $i->id,
+                    'codigo'      => $i->codigo,
+                    'estado'      => $i->estado,
+                    'fecha'       => $i->planificada_para,
+                    'porcentaje'  => $i->porcentaje_cumplimiento,
+                    'inspector'   => $i->inspector ? "{$i->inspector->nombres} {$i->inspector->apellidos}" : null,
+                    'area'        => $i->area?->nombre,
+                    'turno'       => $i->turno,
+                ])->values(),
+            ];
+        })->values();
+
+        // KPIs rápidos
+        $totalProgramadas = $inspecciones->where('estado','programada')->count();
+        $vencidas = $inspecciones->where('estado','programada')
+            ->where('planificada_para','<', now()->toDateString())->count();
+
+        return response()->json([
+            'por_equipo'        => $porEquipo,
+            'total_programadas' => $totalProgramadas,
+            'total_vencidas'    => $vencidas,
+            'total_equipos'     => $porEquipo->count(),
+        ]);
+    }
+
+    // ── Programar nueva inspección de checklist ───────────────────────────
+
+    public function programarChecklist(Request $request): JsonResponse
+    {
+        $eid = $request->user()->empresa_id;
+
+        $data = $request->validate([
+            'equipo_catalogo_id' => 'required|exists:equipos_catalogo,id',
+            'equipo_id'          => 'nullable|exists:equipos,id',
+            'planificada_para'   => 'required|date|after_or_equal:today',
+            'inspector_id'       => 'nullable|exists:personal,id',
+            'turno'              => 'nullable|in:mañana,tarde,noche',
+            'area_id'            => 'nullable|exists:areas,id',
+            'observaciones'      => 'nullable|string',
+            'foto_base64'        => 'nullable|string',
+        ]);
+
+        $catalogo = \App\Models\EquipoCatalogo::findOrFail($data['equipo_catalogo_id']);
+
+        // Buscar sub-módulo del catálogo
+        $submodulo = \App\Models\InspeccionSubmodulo::find($catalogo->submodulo_id);
+        $tipo = $submodulo?->tipo_inspeccion ?? 'equipos';
+
+        // Si no se provee area_id, tomarlo del equipo específico o del primer equipo del catálogo
+        $areaId = $data['area_id'] ?? null;
+        if (!$areaId) {
+            // Si se especifica equipo_id, usar su área
+            if (!empty($data['equipo_id'])) {
+                $equipo = \App\Models\Equipo::find($data['equipo_id']);
+                $areaId = $equipo?->area_id;
+            }
+            // Si no, tomar área del primer equipo del catálogo
+            if (!$areaId) {
+                $equipo = \App\Models\Equipo::where('equipo_catalogo_id', $data['equipo_catalogo_id'])
+                    ->where('empresa_id', $eid)
+                    ->whereNull('deleted_at')
+                    ->first();
+                $areaId = $equipo?->area_id;
+            }
+        }
+
+        // Fallback: usar la primera área disponible si aún es null
+        if (!$areaId) {
+            $areaId = \App\Models\Area::whereNull('deleted_at')->value('id') ?? 1;
+        }
+
+        // Si no se especifica inspector, asignar automáticamente el usuario actual
+        $inspectorId = $data['inspector_id'] ?? $request->user()->personal_id;
+
+        // Guardar foto de inicio si se envía
+        $fotoPath = null;
+        if (!empty($data['foto_base64'])) {
+            $b64 = preg_replace('/^data:image\/\w+;base64,/', '', $data['foto_base64']);
+            $decoded = base64_decode($b64);
+            if ($decoded !== false) {
+                $fname = 'inspecciones/inicio/' . uniqid() . '_' . time() . '.jpg';
+                \Illuminate\Support\Facades\Storage::disk('public')->put($fname, $decoded);
+                $fotoPath = $fname;
+            }
+        }
+
+        $inspeccion = Inspeccion::create([
+            'empresa_id'         => $eid,
+            'sede_id'            => 1,
+            'area_id'            => $areaId,
+            'tipo'               => $tipo,
+            'titulo'             => $catalogo->nombre,
+            'planificada_para'   => $data['planificada_para'],
+            'inspector_id'       => $inspectorId,
+            'turno'              => $data['turno'] ?? 'mañana',
+            'equipo_catalogo_id' => $data['equipo_catalogo_id'],
+            'equipo_id'          => $data['equipo_id'] ?? null,
+            'submodulo_id'       => $catalogo->submodulo_id,
+            'estado'             => 'programada',
+            'foto_inicio_path'   => $fotoPath,
+            'codigo'             => Inspeccion::generarCodigo($eid, $tipo),
+            'elaborado_por'      => $request->user()->id,
+            'observaciones_generales' => $data['observaciones'] ?? null,
+        ]);
+
+        return response()->json($inspeccion->load(['area:id,nombre','equipoCatalogo:id,nombre,codigo','equipo:id,codigo,nombre']), 201);
+    }
+
+    /**
+     * GET /api/inspecciones/pendientes-firma
+     * Inspecciones con estado de firmas. tipo=diaria|mensual
+     */
+    public function pendientesFirma(Request $request): JsonResponse
+    {
+        $eid  = $request->user()->empresa_id;
+        $tipo = $request->input('tipo', 'diaria'); // diaria | mensual
+        $dias = max(1, min(90, $request->integer('dias', $tipo === 'mensual' ? 60 : 7)));
+        $desde = now()->subDays($dias)->toDateString();
+
+        $catsDiarios = DB::table('equipos_catalogo')
+            ->where('frecuencia_inspeccion', 'diaria')
+            ->pluck('id');
+
+        $query = Inspeccion::where('empresa_id', $eid)
+            ->where('planificada_para', '>=', $desde)
+            ->with(['area:id,nombre', 'equipoCatalogo:id,nombre,codigo'])
+            ->orderByDesc('planificada_para');
+
+        if ($tipo === 'diaria') {
+            $query->whereIn('equipo_catalogo_id', $catsDiarios);
+        } else {
+            // mensual: excluir diarios, incluir inspeciones con catálogo mensual o sin catálogo
+            $query->where(fn($q) =>
+                $q->whereNotIn('equipo_catalogo_id', $catsDiarios)
+                  ->orWhereNull('equipo_catalogo_id')
+            );
+        }
+
+        $inspecciones = $query->get();
+
+        $ids = $inspecciones->pluck('id');
+
+        // Firmas del checklist (canvas: inspector + responsable_area)
+        $firmasCanvas = DB::table('inspeccion_firmas_canvas')
+            ->whereIn('inspeccion_id', $ids)
+            ->get(['inspeccion_id', 'rol_firma', 'nombre_firmante', 'firmado_at'])
+            ->groupBy('inspeccion_id');
+
+        // Firma de APROBACIÓN (tabla firmas, accion_firma = 'aprueba')
+        $firmasAprueba = DB::table('firmas')
+            ->where('documento_tipo', 'App\\Models\\Inspeccion')
+            ->whereIn('documento_id', $ids)
+            ->where('accion_firma', 'aprueba')
+            ->get(['documento_id', 'firmante_nombre', 'firmante_rol', 'firmado_en'])
+            ->keyBy('documento_id');
+
+        $resultado = $inspecciones->map(function ($i) use ($firmasCanvas, $firmasAprueba) {
+            $fc          = $firmasCanvas->get($i->id, collect());
+            $inspector   = $fc->firstWhere('rol_firma', 'inspector');
+            $responsable = $fc->firstWhere('rol_firma', 'responsable_area');
+            $aprobacion  = $firmasAprueba->get($i->id);
+
+            $estadoEjecutado = in_array($i->estado, ['ejecutada', 'con_hallazgos', 'cerrada']);
+
+            return [
+                'id'                      => $i->id,
+                'codigo'                  => $i->codigo,
+                'titulo'                  => $i->equipoCatalogo?->nombre ?? $i->titulo,
+                'equipo_codigo'           => $i->equipoCatalogo?->codigo,
+                'area'                    => $i->area?->nombre ?? 'Sin área',
+                'turno'                   => $i->turno,
+                'estado'                  => $i->estado,
+                'planificada_para'        => $i->planificada_para,
+                'porcentaje_cumplimiento' => $i->porcentaje_cumplimiento,
+                'firma_inspector'         => $inspector  ? ['nombre' => $inspector->nombre_firmante,  'fecha' => $inspector->firmado_at]  : null,
+                'firma_responsable'       => $responsable ? ['nombre' => $responsable->nombre_firmante, 'fecha' => $responsable->firmado_at] : null,
+                'firma_aprobacion'        => $aprobacion  ? ['nombre' => $aprobacion->firmante_nombre, 'fecha' => $aprobacion->firmado_en, 'rol' => $aprobacion->firmante_rol] : null,
+                // Pendiente de aprobación: ejecutada/cerrada sin firma de aprobación
+                'pendiente_aprobacion'    => $estadoEjecutado && !$aprobacion,
+                'pendiente_firma'         => !$inspector || !$responsable,
+            ];
+        });
+
+        return response()->json([
+            'total'               => $resultado->count(),
+            'pendientes'          => $resultado->where('pendiente_aprobacion', true)->count(),
+            'inspecciones'        => $resultado->values(),
+        ]);
+    }
+
+    /**
+     * GET /api/inspecciones/alertas
+     */
+    public function alertas(Request $request): JsonResponse
+    {
+        $empresaId = $request->user()->empresa_id;
+
+        // Inspecciones programadas que vencen en ≤7 días sin ejecutar
+        $proximas = Inspeccion::where('empresa_id', $empresaId)
+            ->where('estado', 'programada')
+            ->whereBetween('planificada_para', [now()->toDateString(), now()->addDays(7)->toDateString()])
+            ->with(['area:id,nombre', 'inspector:id,nombres,apellidos'])
+            ->orderBy('planificada_para')
+            ->get(['id', 'codigo', 'titulo', 'tipo', 'estado', 'planificada_para', 'area_id', 'inspector_id']);
+
+        // Inspecciones vencidas (programada, planificada_para < hoy)
+        $vencidas = Inspeccion::where('empresa_id', $empresaId)
+            ->where('estado', 'programada')
+            ->where('planificada_para', '<', now()->toDateString())
+            ->with(['area:id,nombre', 'inspector:id,nombres,apellidos'])
+            ->orderBy('planificada_para')
+            ->get(['id', 'codigo', 'titulo', 'tipo', 'estado', 'planificada_para', 'area_id', 'inspector_id']);
+
+        // Inspecciones en ejecución sin cerrar por más de 3 días
+        $enEjecucionAntiguas = Inspeccion::where('empresa_id', $empresaId)
+            ->where('estado', 'en_ejecucion')
+            ->where('updated_at', '<', now()->subDays(3))
+            ->with(['area:id,nombre', 'inspector:id,nombres,apellidos'])
+            ->orderBy('updated_at')
+            ->get(['id', 'codigo', 'titulo', 'tipo', 'estado', 'planificada_para', 'area_id', 'inspector_id', 'updated_at']);
+
+        // Hallazgos vencidos sin cerrar
+        $hallazgosVencidos = InspeccionHallazgo::whereHas('inspeccion', fn($q) => $q->where('empresa_id', $empresaId))
+            ->whereNotIn('estado', ['subsanado', 'verificado'])
+            ->whereNotNull('fecha_limite_correccion')
+            ->where('fecha_limite_correccion', '<', now()->toDateString())
+            ->with([
+                'inspeccion:id,codigo,titulo',
+                'responsable:id,nombres,apellidos',
+                'area:id,nombre',
+            ])
+            ->orderBy('fecha_limite_correccion')
+            ->limit(50)
+            ->get();
+
+        $totalAlertas = $proximas->count() + $vencidas->count()
+                      + $enEjecucionAntiguas->count() + $hallazgosVencidos->count();
+
+        return response()->json([
+            'total_alertas'          => $totalAlertas,
+            'proximas_a_vencer'      => $proximas,
+            'vencidas'               => $vencidas,
+            'en_ejecucion_antiguas'  => $enEjecucionAntiguas,
+            'hallazgos_vencidos'     => $hallazgosVencidos,
+        ]);
+    }
+
+    /**
+     * POST /api/inspecciones/{id}/enviar-a-firma
+     */
+    public function enviarAFirma(Request $request, int $id): JsonResponse
+    {
+        $inspeccion = Inspeccion::where('empresa_id', $request->user()->empresa_id)->findOrFail($id);
+
+        $estadosPermitidos = ['programada', 'ejecutada', 'con_hallazgos', 'en_ejecucion'];
+        if (!in_array($inspeccion->estado, $estadosPermitidos)) {
+            return response()->json(['message' => 'La inspección no puede enviarse a firma en su estado actual.'], 422);
+        }
+
+        $solicitud = $this->firmaService->crearSolicitud(
+            documento: $inspeccion,
+            solicitadoPor: $request->user(),
+            titulo: "Inspección {$inspeccion->codigo} — {$inspeccion->titulo}",
+            diasLimite: 3
+        );
+
+        $inspeccion->update(['requiere_firma' => true]);
+
+        return response()->json(['message' => 'Solicitud de firma enviada.', 'solicitud' => $solicitud], 201);
+    }
+
+    /**
+     * POST /api/inspecciones/{id}/rechazar
+     * Rechazar inspección y devolverla al inspector (permite reabrir cerradas)
+     */
+    public function rechazar(Request $request, int $id): JsonResponse
+    {
+        $inspeccion = Inspeccion::where('empresa_id', $request->user()->empresa_id)->findOrFail($id);
+
+        $validated = $request->validate([
+            'motivo' => 'required|string|min:10|max:500',
+        ]);
+
+        // Permitir rechazar inspecciones ejecutadas, con hallazgos o cerradas
+        if (!in_array($inspeccion->estado, ['ejecutada', 'con_hallazgos', 'cerrada'])) {
+            return response()->json([
+                'message' => 'Solo se pueden rechazar inspecciones ejecutadas o cerradas.'
+            ], 422);
+        }
+
+        // Agregar motivo de rechazo a observaciones
+        $observacionesAnteriores = $inspeccion->observaciones_generales ?? '';
+        $nuevasObservaciones = "🔴 RECHAZADA - " . $validated['motivo'] . "\n\n" . $observacionesAnteriores;
+
+        $inspeccion->update([
+            'estado' => 'en_ejecucion',
+            'observaciones_generales' => $nuevasObservaciones,
+        ]);
+
+        $this->auditoria->registrar(
+            modulo: 'inspecciones',
+            accion: 'rechazar',
+            usuario: $request->user(),
+            modelo: 'Inspeccion',
+            modeloId: $inspeccion->id,
+            valorNuevo: ['motivo' => $validated['motivo']],
+            request: $request
+        );
+
+        return response()->json([
+            'message' => 'Inspección rechazada y devuelta al inspector',
+            'inspeccion' => $inspeccion->fresh(),
+        ]);
+    }
+
+    /**
+     * PUT /api/inspecciones/{inspeccionId}/hallazgos/{hallazgoId}
+     */
+    public function actualizarHallazgo(Request $request, int $inspeccionId, int $hallazgoId): JsonResponse
+    {
+        $inspeccion = Inspeccion::where('empresa_id', $request->user()->empresa_id)->findOrFail($inspeccionId);
+        $hallazgo   = InspeccionHallazgo::where('inspeccion_id', $inspeccion->id)->findOrFail($hallazgoId);
+
+        $validated = $request->validate([
+            'estado'                  => ['sometimes', Rule::in(['pendiente','en_proceso','subsanado','verificado','vencido'])],
+            'responsable_id'          => 'nullable|exists:personal,id',
+            'fecha_limite_correccion' => 'nullable|date',
+            'observaciones'           => 'nullable|string',
+            'foto_despues_base64'     => 'nullable|string',
+        ]);
+
+        if (!empty($validated['foto_despues_base64'])) {
+            $b64 = preg_replace('/^data:image\/\w+;base64,/', '', $validated['foto_despues_base64']);
+            $decoded = base64_decode($b64);
+            if ($decoded !== false) {
+                $fname = 'inspecciones/hallazgos/after_' . $hallazgo->id . '_' . time() . '.jpg';
+                Storage::disk('public')->put($fname, $decoded);
+                $validated['evidencia_despues_path'] = $fname;
+            }
+            unset($validated['foto_despues_base64']);
+        }
+
+        $hallazgo->update($validated);
+
+        return response()->json($hallazgo->fresh(['responsable:id,nombres,apellidos', 'area:id,nombre']));
     }
 }

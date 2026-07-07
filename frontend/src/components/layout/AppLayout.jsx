@@ -11,7 +11,7 @@ import {
   LogOut, Bell, RefreshCw, Building2, LayoutGrid,
   UserCog, Truck, Wrench, CalendarRange, BellRing, ScrollText,
   PanelLeftClose, PanelLeftOpen, FlaskConical, ShieldCheck, Zap,
-  BookOpen,
+  BookOpen, ClipboardCheck, Settings2,
 } from 'lucide-react'
 import { logout } from '../../store/slices/authSlice'
 import api from '../../services/api'
@@ -96,6 +96,9 @@ const menu = [
   { to: '/equipos/preguntas',       label: 'Equipos · Checklists', icon: Wrench,       group: 'activos', hidden: true },
   { to: '/equipos/emergencia',      label: 'Equipos · Emergencia', icon: Wrench,       group: 'activos', hidden: true },
   { to: '/equipos/inventario-area', label: 'Equipos · Por Área',   icon: Wrench,       group: 'activos', hidden: true },
+  { to: '/equipos/mis-equipos',          label: 'Mis equipos hoy',      icon: ClipboardCheck, group: 'activos', roles: ['administrador', 'supervisor_sst', 'tecnico_sst', 'operativo', 'trabajador_tercero'] },
+  { to: '/equipos/asignaciones',         label: 'Asignaciones checklist',icon: ClipboardList,  group: 'activos', roles: ['administrador', 'supervisor_sst', 'tecnico_sst'] },
+  { to: '/equipos/asignaciones/config',  label: 'Config. asignaciones', icon: Settings2,       group: 'activos', roles: ['administrador'] },
   { to: '/programa',                label: 'Programa SST',     icon: CalendarRange,   group: 'planeacion' },
   { to: '/configuracion/empresa',   label: 'Empresa',          icon: Building2,       group: 'configuracion', modulo: 'empresa' },
   { to: '/configuracion/areas',     label: 'Áreas y Cargos',   icon: LayoutGrid,      group: 'configuracion' },
@@ -239,6 +242,7 @@ export default function AppLayout() {
                   <div className="space-y-px">
                     {items.filter(i => {
                       if (i.hidden) return false
+                      if (i.roles && !i.roles.includes(user?.rol)) return false
                       if (!tieneAccesoRuta(user?.rol, i.to)) return false
                       // Verificar permiso de módulo si el item tiene campo modulo
                       if (i.modulo && user?.rol !== 'administrador') {

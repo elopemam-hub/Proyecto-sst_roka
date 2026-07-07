@@ -1,0 +1,580 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\EquipoAsignacion;
+use App\Models\EquipoAsignacionRegla;
+use App\Models\Equipo;
+use App\Models\Usuario;
+use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
+
+class EquipoAsignacionController extends Controller
+{
+    // ──────────────────────────────────────────────────────────────────────────
+    // GET /api/equipo-asignaciones
+    // Lista filtrada por fecha, turno, usuario, equipo, estado
+    // ──────────────────────────────────────────────────────────────────────────
+    public function index(Request $request): JsonResponse
+    {
+        $empresaId = $request->user()->empresa_id;
+
+        EquipoAsignacion::marcarVencidas($empresaId);
+
+        $query = EquipoAsignacion::where('empresa_id', $empresaId)
+            ->with([
+                'equipo:id,codigo,nombre,tipo,area_id,estado',
+                'equipo.area:id,nombre',
+                'equipo.equipoTipo:id,nombre,icono',
+                'usuario:id,nombre,email,rol',
+                'usuario.personal:id,nombres,apellidos,foto_path',
+                'inspeccion:id,codigo,estado,porcentaje_cumplimiento',
+            ]);
+
+        if ($request->filled('fecha'))       $query->whereDate('fecha', $request->fecha);
+        if ($request->filled('fecha_desde')) $query->where('fecha', '>=', $request->fecha_desde);
+        if ($request->filled('fecha_hasta')) $query->where('fecha', '<=', $request->fecha_hasta);
+        if ($request->filled('turno'))       $query->where('turno', $request->turno);
+        if ($request->filled('estado'))      $query->where('estado', $request->estado);
+        if ($request->filled('usuario_id'))  $query->where('usuario_id', $request->usuario_id);
+        if ($request->filled('equipo_id'))   $query->where('equipo_id', $request->equipo_id);
+        if ($request->filled('area_id')) {
+            $query->whereHas('equipo', fn($q) => $q->where('area_id', $request->area_id));
+        }
+        if ($request->filled('periodo')) {
+            $hoy = Carbon::today();
+            match ($request->periodo) {
+                'hoy'    => $query->whereDate('fecha', $hoy),
+                'semana' => $query->whereBetween('fecha', [$hoy->startOfWeek(), $hoy->copy()->endOfWeek()]),
+                'mes'    => $query->whereMonth('fecha', $hoy->month)->whereYear('fecha', $hoy->year),
+                default  => null,
+            };
+        }
+
+        $perPage = min($request->integer('per_page', 20), 100);
+
+        return response()->json(
+            $query->orderBy('fecha')->orderBy('turno')->orderBy('equipo_id')->paginate($perPage)
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // GET /api/equipo-asignaciones/mis-equipos
+    // Vista del operador: sus asignaciones de hoy
+    // ──────────────────────────────────────────────────────────────────────────
+    public function misEquipos(Request $request): JsonResponse
+    {
+        $usuario   = $request->user();
+        $empresaId = $usuario->empresa_id;
+
+        EquipoAsignacion::marcarVencidas($empresaId);
+
+        $fecha = $request->filled('fecha') ? Carbon::parse($request->fecha) : Carbon::today();
+
+        $asignaciones = EquipoAsignacion::where('empresa_id', $empresaId)
+            ->where('usuario_id', $usuario->id)
+            ->whereDate('fecha', $fecha)
+            ->with([
+                'equipo:id,codigo,nombre,tipo,marca,modelo,ubicacion,area_id,estado',
+                'equipo.area:id,nombre',
+                'equipo.equipoTipo:id,nombre,icono',
+                'equipo.plantillas:id,nombre,codigo,submodulo_id',
+                'inspeccion:id,codigo,estado,porcentaje_cumplimiento,ejecutada_en',
+            ])
+            ->orderBy('turno')
+            ->orderBy('equipo_id')
+            ->get();
+
+        $resumen = [
+            'total'      => $asignaciones->count(),
+            'pendiente'  => $asignaciones->where('estado', 'pendiente')->count(),
+            'en_proceso' => $asignaciones->where('estado', 'en_proceso')->count(),
+            'completado' => $asignaciones->where('estado', 'completado')->count(),
+            'omitido'    => $asignaciones->where('estado', 'omitido')->count(),
+        ];
+
+        return response()->json([
+            'fecha'       => $fecha->toDateString(),
+            'resumen'     => $resumen,
+            'asignaciones'=> $asignaciones,
+        ]);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // GET /api/equipo-asignaciones/dashboard
+    // KPIs globales para supervisor/administrador
+    // ──────────────────────────────────────────────────────────────────────────
+    public function dashboard(Request $request): JsonResponse
+    {
+        $empresaId = $request->user()->empresa_id;
+
+        EquipoAsignacion::marcarVencidas($empresaId);
+
+        $hoy       = Carbon::today();
+        $inicioMes = $hoy->copy()->startOfMonth();
+        $finMes    = $hoy->copy()->endOfMonth();
+
+        $base = fn() => EquipoAsignacion::where('empresa_id', $empresaId);
+
+        $hoyTotal      = $base()->whereDate('fecha', $hoy)->count();
+        $hoyCompletado = $base()->whereDate('fecha', $hoy)->where('estado', 'completado')->count();
+        $hoyPendiente  = $base()->whereDate('fecha', $hoy)->where('estado', 'pendiente')->count();
+        $hoyOmitido    = $base()->whereDate('fecha', $hoy)->where('estado', 'omitido')->count();
+
+        $cumplimientoHoy = $hoyTotal > 0 ? round(($hoyCompletado / $hoyTotal) * 100, 1) : null;
+
+        // Cumplimiento por área (hoy)
+        $porArea = DB::table('equipo_asignaciones as ea')
+            ->join('equipos as e', 'ea.equipo_id', '=', 'e.id')
+            ->join('areas as a', 'e.area_id', '=', 'a.id')
+            ->where('ea.empresa_id', $empresaId)
+            ->whereDate('ea.fecha', $hoy)
+            ->whereNull('ea.deleted_at')
+            ->selectRaw('a.nombre as area, ea.estado, count(*) as total')
+            ->groupBy('a.nombre', 'ea.estado')
+            ->get()
+            ->groupBy('area')
+            ->map(fn($rows) => [
+                'total'      => $rows->sum('total'),
+                'completado' => $rows->where('estado', 'completado')->sum('total'),
+                'pendiente'  => $rows->where('estado', 'pendiente')->sum('total'),
+                'omitido'    => $rows->where('estado', 'omitido')->sum('total'),
+            ]);
+
+        // Cumplimiento por usuario (hoy)
+        $porUsuario = EquipoAsignacion::where('empresa_id', $empresaId)
+            ->whereDate('fecha', $hoy)
+            ->with('usuario:id,nombre,email')
+            ->selectRaw('usuario_id, estado, count(*) as total')
+            ->groupBy('usuario_id', 'estado')
+            ->get()
+            ->groupBy('usuario_id')
+            ->map(fn($rows) => [
+                'usuario'    => $rows->first()->usuario?->only('id', 'nombre', 'email'),
+                'total'      => $rows->sum('total'),
+                'completado' => $rows->where('estado', 'completado')->sum('total'),
+                'pendiente'  => $rows->where('estado', 'pendiente')->sum('total'),
+            ]);
+
+        // Tendencia de la semana
+        $inicioSemana = $hoy->copy()->startOfWeek();
+        $tendenciaSemana = [];
+        for ($i = 0; $i < 7; $i++) {
+            $dia = $inicioSemana->copy()->addDays($i);
+            $total = $base()->whereDate('fecha', $dia)->count();
+            $comp  = $base()->whereDate('fecha', $dia)->where('estado', 'completado')->count();
+            $tendenciaSemana[] = [
+                'fecha'      => $dia->toDateString(),
+                'dia'        => $dia->locale('es')->isoFormat('ddd'),
+                'total'      => $total,
+                'completado' => $comp,
+                'porcentaje' => $total > 0 ? round(($comp / $total) * 100) : null,
+            ];
+        }
+
+        return response()->json([
+            'hoy' => [
+                'total'      => $hoyTotal,
+                'completado' => $hoyCompletado,
+                'pendiente'  => $hoyPendiente,
+                'omitido'    => $hoyOmitido,
+                'porcentaje' => $cumplimientoHoy,
+            ],
+            'por_area'        => $porArea,
+            'por_usuario'     => $porUsuario->values(),
+            'tendencia_semana'=> $tendenciaSemana,
+        ]);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // POST /api/equipo-asignaciones
+    // Crear asignación individual
+    // ──────────────────────────────────────────────────────────────────────────
+    public function store(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'equipo_id'     => 'required|exists:equipos,id',
+            'usuario_id'    => 'required|exists:usuarios,id',
+            'fecha'         => 'required|date',
+            'turno'         => 'required|in:mañana,tarde,noche,dia_completo',
+            'observaciones' => 'nullable|string|max:500',
+        ]);
+
+        $empresaId = $request->user()->empresa_id;
+
+        $existe = EquipoAsignacion::where('empresa_id', $empresaId)
+            ->where('equipo_id', $validated['equipo_id'])
+            ->where('usuario_id', $validated['usuario_id'])
+            ->whereDate('fecha', $validated['fecha'])
+            ->where('turno', $validated['turno'])
+            ->exists();
+
+        if ($existe) {
+            return response()->json(['message' => 'Ya existe una asignación para este equipo, usuario, fecha y turno.'], 422);
+        }
+
+        $asignacion = EquipoAsignacion::create(array_merge($validated, [
+            'empresa_id' => $empresaId,
+            'creado_por' => $request->user()->id,
+            'estado'     => 'pendiente',
+        ]));
+
+        return response()->json(
+            $asignacion->load([
+                'equipo:id,codigo,nombre,tipo,area_id',
+                'equipo.area:id,nombre',
+                'usuario:id,nombre,email',
+            ]),
+            201
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // POST /api/equipo-asignaciones/batch
+    // Asignar múltiples equipos a un usuario (o múltiples usuarios)
+    // ──────────────────────────────────────────────────────────────────────────
+    public function storeBatch(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'usuario_id'     => 'required|exists:usuarios,id',
+            'equipo_ids'     => 'required|array|min:1',
+            'equipo_ids.*'   => 'integer|exists:equipos,id',
+            'fecha'          => 'required|date',
+            'turno'          => 'required|in:mañana,tarde,noche,dia_completo',
+            'observaciones'  => 'nullable|string|max:500',
+        ]);
+
+        $empresaId = $request->user()->empresa_id;
+        $ahora     = now();
+        $insertadas = 0;
+
+        foreach ($validated['equipo_ids'] as $equipoId) {
+            $existe = EquipoAsignacion::where('empresa_id', $empresaId)
+                ->where('equipo_id', $equipoId)
+                ->where('usuario_id', $validated['usuario_id'])
+                ->whereDate('fecha', $validated['fecha'])
+                ->where('turno', $validated['turno'])
+                ->exists();
+
+            if (!$existe) {
+                EquipoAsignacion::create([
+                    'empresa_id'    => $empresaId,
+                    'equipo_id'     => $equipoId,
+                    'usuario_id'    => $validated['usuario_id'],
+                    'fecha'         => $validated['fecha'],
+                    'turno'         => $validated['turno'],
+                    'estado'        => 'pendiente',
+                    'observaciones' => $validated['observaciones'] ?? null,
+                    'creado_por'    => $request->user()->id,
+                ]);
+                $insertadas++;
+            }
+        }
+
+        return response()->json([
+            'message'    => "{$insertadas} asignación(es) creadas.",
+            'insertadas' => $insertadas,
+            'omitidas'   => count($validated['equipo_ids']) - $insertadas,
+        ], 201);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // PUT /api/equipo-asignaciones/{id}
+    // Editar asignación (reasignar usuario, cambiar turno/fecha)
+    // ──────────────────────────────────────────────────────────────────────────
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $asignacion = EquipoAsignacion::where('empresa_id', $request->user()->empresa_id)->findOrFail($id);
+
+        $validated = $request->validate([
+            'usuario_id'    => 'sometimes|exists:usuarios,id',
+            'fecha'         => 'sometimes|date',
+            'turno'         => 'sometimes|in:mañana,tarde,noche,dia_completo',
+            'estado'        => 'sometimes|in:pendiente,en_proceso,completado,omitido',
+            'observaciones' => 'nullable|string|max:500',
+        ]);
+
+        $asignacion->update($validated);
+
+        return response()->json($asignacion->load([
+            'equipo:id,codigo,nombre',
+            'usuario:id,nombre,email',
+        ]));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // POST /api/equipo-asignaciones/{id}/iniciar
+    // Marca en_proceso y devuelve (o crea) la inspección del día para el equipo
+    // ──────────────────────────────────────────────────────────────────────────
+    public function iniciar(Request $request, int $id): JsonResponse
+    {
+        $asignacion = EquipoAsignacion::where('empresa_id', $request->user()->empresa_id)
+            ->where('usuario_id', $request->user()->id)
+            ->with(['equipo.plantillas:id,nombre,codigo,submodulo_id', 'equipo.area:id,nombre'])
+            ->findOrFail($id);
+
+        // Marcar en_proceso si aún está pendiente
+        if ($asignacion->estado === 'pendiente') {
+            $asignacion->update(['estado' => 'en_proceso']);
+        }
+
+        $inspeccionId = $asignacion->inspeccion_id;
+
+        // Buscar o crear la inspección del día
+        if (!$inspeccionId) {
+            $plantilla = $asignacion->equipo?->plantillas?->first();
+
+            if ($plantilla) {
+                $hoy = Carbon::today();
+
+                $findExistente = fn () => \App\Models\Inspeccion::where('empresa_id', $asignacion->empresa_id)
+                    ->where('equipo_catalogo_id', $plantilla->id)
+                    ->whereDate('planificada_para', $hoy)
+                    ->whereNotIn('estado', ['completada', 'cancelada', 'cerrada'])
+                    ->first();
+
+                $inspeccion = $findExistente();
+
+                if (!$inspeccion) {
+                    $turno = in_array($asignacion->turno, ['mañana', 'tarde', 'noche'])
+                        ? $asignacion->turno : null;
+
+                    try {
+                        $inspeccion = \App\Models\Inspeccion::create([
+                            'empresa_id'         => $asignacion->empresa_id,
+                            'sede_id'            => 1,
+                            'area_id'            => $asignacion->equipo->area_id ?? null,
+                            'tipo'               => 'equipos',
+                            'titulo'             => $asignacion->equipo->nombre,
+                            'planificada_para'   => $hoy,
+                            'equipo_catalogo_id' => $plantilla->id,
+                            'equipo_id'          => $asignacion->equipo_id,
+                            'submodulo_id'       => $plantilla->submodulo_id,
+                            'turno'              => $turno,
+                            'codigo'             => \App\Models\Inspeccion::generarCodigo($asignacion->empresa_id, 'equipos'),
+                            'elaborado_por'      => $request->user()->id,
+                            'estado'             => 'programada',
+                        ]);
+                    } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+                        // Carrera: otra petición simultánea creó la inspección primero
+                        $inspeccion = $findExistente();
+                    }
+                }
+
+                if ($inspeccion) {
+                    $inspeccionId = $inspeccion->id;
+                    // Vincular a la asignación para evitar recrear en el futuro
+                    $asignacion->update(['inspeccion_id' => $inspeccionId]);
+                }
+            }
+        }
+
+        return response()->json([
+            'asignacion'    => $asignacion->fresh()->load('equipo:id,codigo,nombre,tipo'),
+            'inspeccion_id' => $inspeccionId,
+        ]);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // POST /api/equipo-asignaciones/{id}/completar
+    // Vincula la inspección realizada y marca la asignación como completada
+    // ──────────────────────────────────────────────────────────────────────────
+    public function completar(Request $request, int $id): JsonResponse
+    {
+        $asignacion = EquipoAsignacion::where('empresa_id', $request->user()->empresa_id)->findOrFail($id);
+
+        $validated = $request->validate([
+            'inspeccion_id' => 'required|exists:inspecciones,id',
+            'observaciones' => 'nullable|string|max:500',
+        ]);
+
+        $asignacion->update([
+            'estado'        => 'completado',
+            'inspeccion_id' => $validated['inspeccion_id'],
+            'observaciones' => $validated['observaciones'] ?? $asignacion->observaciones,
+        ]);
+
+        return response()->json($asignacion->load([
+            'equipo:id,codigo,nombre',
+            'inspeccion:id,codigo,estado,porcentaje_cumplimiento',
+        ]));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // POST /api/equipo-asignaciones/{id}/omitir
+    // ──────────────────────────────────────────────────────────────────────────
+    public function omitir(Request $request, int $id): JsonResponse
+    {
+        $asignacion = EquipoAsignacion::where('empresa_id', $request->user()->empresa_id)->findOrFail($id);
+
+        $validated = $request->validate([
+            'observaciones' => 'required|string|max:500',
+        ]);
+
+        $asignacion->update([
+            'estado'        => 'omitido',
+            'observaciones' => $validated['observaciones'],
+        ]);
+
+        return response()->json($asignacion);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // DELETE /api/equipo-asignaciones/{id}
+    // ──────────────────────────────────────────────────────────────────────────
+    public function destroy(Request $request, int $id): JsonResponse
+    {
+        $asignacion = EquipoAsignacion::where('empresa_id', $request->user()->empresa_id)->findOrFail($id);
+        $asignacion->delete();
+
+        return response()->json(['message' => 'Asignación eliminada.']);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // REGLAS (Administrador)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    public function reglas(Request $request): JsonResponse
+    {
+        $empresaId = $request->user()->empresa_id;
+
+        $reglas = EquipoAsignacionRegla::where('empresa_id', $empresaId)
+            ->with([
+                'area:id,nombre',
+                'equipo:id,codigo,nombre',
+                'tipo:id,nombre',
+            ])
+            ->orderBy('area_id')
+            ->orderBy('equipo_id')
+            ->get();
+
+        return response()->json($reglas);
+    }
+
+    public function storeRegla(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'area_id'       => 'nullable|exists:areas,id',
+            'equipo_id'     => 'nullable|exists:equipos,id',
+            'tipo_id'       => 'nullable|exists:equipos_tipos,id',
+            'turno'         => 'required|in:mañana,tarde,noche,dia_completo',
+            'dias_semana'   => 'required|array|min:1',
+            'dias_semana.*' => 'integer|between:1,7',
+            'activo'        => 'boolean',
+            'observaciones' => 'nullable|string|max:300',
+        ]);
+
+        $regla = EquipoAsignacionRegla::create(array_merge($validated, [
+            'empresa_id' => $request->user()->empresa_id,
+            'creado_por' => $request->user()->id,
+        ]));
+
+        return response()->json($regla->load(['area:id,nombre', 'equipo:id,codigo,nombre', 'tipo:id,nombre']), 201);
+    }
+
+    public function updateRegla(Request $request, int $id): JsonResponse
+    {
+        $regla = EquipoAsignacionRegla::where('empresa_id', $request->user()->empresa_id)->findOrFail($id);
+
+        $validated = $request->validate([
+            'area_id'       => 'nullable|exists:areas,id',
+            'equipo_id'     => 'nullable|exists:equipos,id',
+            'tipo_id'       => 'nullable|exists:equipos_tipos,id',
+            'turno'         => 'sometimes|in:mañana,tarde,noche,dia_completo',
+            'dias_semana'   => 'sometimes|array|min:1',
+            'dias_semana.*' => 'integer|between:1,7',
+            'activo'        => 'boolean',
+            'observaciones' => 'nullable|string|max:300',
+        ]);
+
+        $regla->update($validated);
+
+        return response()->json($regla->load(['area:id,nombre', 'equipo:id,codigo,nombre', 'tipo:id,nombre']));
+    }
+
+    public function destroyRegla(Request $request, int $id): JsonResponse
+    {
+        $regla = EquipoAsignacionRegla::where('empresa_id', $request->user()->empresa_id)->findOrFail($id);
+        $regla->delete();
+
+        return response()->json(['message' => 'Regla eliminada.']);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // POST /api/equipo-asignaciones/generar-desde-reglas
+    // Administrador: genera asignaciones automáticas para un período
+    // basándose en las reglas activas + usuarios disponibles
+    // ──────────────────────────────────────────────────────────────────────────
+    public function generarDesdeReglas(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'fecha_inicio'   => 'required|date',
+            'fecha_fin'      => 'required|date|after_or_equal:fecha_inicio',
+            'usuario_ids'    => 'required|array|min:1',
+            'usuario_ids.*'  => 'integer|exists:usuarios,id',
+        ]);
+
+        $empresaId = $request->user()->empresa_id;
+        $inicio    = Carbon::parse($validated['fecha_inicio']);
+        $fin       = Carbon::parse($validated['fecha_fin']);
+
+        if ($fin->diffInDays($inicio) > 31) {
+            return response()->json(['message' => 'El período no puede superar 31 días.'], 422);
+        }
+
+        $reglas = EquipoAsignacionRegla::where('empresa_id', $empresaId)
+            ->where('activo', true)
+            ->with('equipo:id,nombre,area_id,estado')
+            ->get();
+
+        if ($reglas->isEmpty()) {
+            return response()->json(['message' => 'No hay reglas activas configuradas.', 'insertadas' => 0]);
+        }
+
+        $usuarioIds = $validated['usuario_ids'];
+        $insertadas = 0;
+        $cursor     = $inicio->copy();
+        $usuarioIdx = 0;
+
+        while ($cursor->lte($fin)) {
+            $diaSemana = (int) $cursor->isoFormat('E'); // 1=lun … 7=dom
+
+            foreach ($reglas as $regla) {
+                if (!in_array($diaSemana, $regla->dias_semana)) continue;
+                if (!$regla->equipo || $regla->equipo->estado !== 'operativo') continue;
+
+                $usuarioId = $usuarioIds[$usuarioIdx % count($usuarioIds)];
+                $usuarioIdx++;
+
+                $existe = EquipoAsignacion::where('empresa_id', $empresaId)
+                    ->where('equipo_id', $regla->equipo_id)
+                    ->whereDate('fecha', $cursor)
+                    ->where('turno', $regla->turno)
+                    ->exists();
+
+                if (!$existe) {
+                    EquipoAsignacion::create([
+                        'empresa_id' => $empresaId,
+                        'equipo_id'  => $regla->equipo_id,
+                        'usuario_id' => $usuarioId,
+                        'fecha'      => $cursor->toDateString(),
+                        'turno'      => $regla->turno,
+                        'estado'     => 'pendiente',
+                        'creado_por' => $request->user()->id,
+                    ]);
+                    $insertadas++;
+                }
+            }
+
+            $cursor->addDay();
+        }
+
+        return response()->json([
+            'message'    => "{$insertadas} asignación(es) generadas para el período.",
+            'insertadas' => $insertadas,
+        ]);
+    }
+}

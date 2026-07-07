@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Upload, Search, Download, Trash2, Edit2,
   FileText, File, Eye, X, Loader2, FolderOpen,
-  LayoutGrid, LayoutList, Filter, HardDrive, TrendingDown,
+  LayoutGrid, LayoutList, HardDrive, ExternalLink,
 } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
@@ -237,7 +237,7 @@ function ModalEditar({ archivo, onClose, onGuardado }) {
 }
 
 // ── Tarjeta de archivo ────────────────────────────────────────────
-function ArchivoCard({ archivo, onDescargar, onEditar, onEliminar }) {
+function ArchivoCard({ archivo, onDescargar, onVer, onEditar, onEliminar }) {
   const cfg = extCfg(archivo.archivo_extension)
   const cat = CATEGORIAS[archivo.categoria] || CATEGORIAS.otro
 
@@ -283,7 +283,7 @@ function ArchivoCard({ archivo, onDescargar, onEditar, onEliminar }) {
           className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-roka-500 hover:bg-roka-600 text-white py-2 rounded-lg font-medium transition-colors">
           <Download size={13} /> Descargar
         </button>
-        <button onClick={() => window.open(archivo.archivo_url, '_blank')}
+        <button onClick={() => onVer(archivo)}
           className="p-2 border border-gray-200 text-gray-500 hover:border-gray-400 hover:text-gray-700 rounded-lg transition-colors" title="Previsualizar">
           <Eye size={14} />
         </button>
@@ -301,7 +301,7 @@ function ArchivoCard({ archivo, onDescargar, onEditar, onEliminar }) {
 }
 
 // ── Fila de lista ─────────────────────────────────────────────────
-function ArchivoFila({ archivo, onDescargar, onEditar, onEliminar }) {
+function ArchivoFila({ archivo, onDescargar, onVer, onEditar, onEliminar }) {
   const cfg = extCfg(archivo.archivo_extension)
   const cat = CATEGORIAS[archivo.categoria] || CATEGORIAS.otro
 
@@ -336,7 +336,7 @@ function ArchivoFila({ archivo, onDescargar, onEditar, onEliminar }) {
             className="p-1.5 text-roka-500 hover:bg-roka-50 rounded-lg transition-colors" title="Descargar">
             <Download size={14} />
           </button>
-          <button onClick={() => window.open(archivo.archivo_url, '_blank')}
+          <button onClick={() => onVer(archivo)}
             className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg" title="Ver">
             <Eye size={14} />
           </button>
@@ -351,6 +351,60 @@ function ArchivoFila({ archivo, onDescargar, onEditar, onEliminar }) {
         </div>
       </td>
     </tr>
+  )
+}
+
+// ── Visor de documento ────────────────────────────────────────────
+function VisorModal({ visorUrl, visorNombre, visorEsPdf, onCerrar }) {
+  if (!visorUrl && !visorNombre) return null
+  return (
+    <div
+      style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.65)', display:'flex', alignItems:'center', justifyContent:'center', padding:'24px' }}
+      onClick={onCerrar}
+    >
+      <div
+        style={{ background:'#1e293b', borderRadius:'12px', width:'100%', maxWidth:'860px', height:'90vh', display:'flex', flexDirection:'column', overflow:'hidden', border:'1px solid #334155' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{ padding:'14px 20px', borderBottom:'1px solid #334155', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            <FileText size={18} style={{ color:'#60a5fa' }} />
+            <span style={{ color:'#e2e8f0', fontSize:'14px', fontWeight:'600', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'500px' }}>{visorNombre}</span>
+          </div>
+          <button onClick={onCerrar} style={{ color:'#94a3b8', background:'none', border:'none', cursor:'pointer', padding:'4px', display:'flex', borderRadius:'6px' }}>
+            <X size={18} />
+          </button>
+        </div>
+        <div style={{ flex:1, overflow:'hidden', background:'#0f172a' }}>
+          {!visorUrl ? (
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%' }}>
+              <Loader2 size={28} style={{ color:'#60a5fa', animation:'spin 1s linear infinite' }} />
+            </div>
+          ) : visorEsPdf ? (
+            <iframe src={visorUrl} style={{ width:'100%', height:'100%', border:'none' }} title={visorNombre} />
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100%', gap:'16px' }}>
+              <File size={48} style={{ color:'#475569' }} />
+              <p style={{ color:'#94a3b8', fontSize:'14px' }}>Este tipo de archivo no se puede previsualizar.</p>
+              <a href={visorUrl} download={visorNombre} style={{ background:'#2563eb', color:'white', padding:'10px 20px', borderRadius:'8px', fontSize:'13px', fontWeight:'600', textDecoration:'none' }}>
+                Descargar archivo
+              </a>
+            </div>
+          )}
+        </div>
+        <div style={{ padding:'12px 20px', borderTop:'1px solid #334155', display:'flex', justifyContent:'flex-end', gap:'8px', flexShrink:0 }}>
+          {visorUrl && visorEsPdf && (
+            <a href={visorUrl} target="_blank" rel="noreferrer"
+              style={{ display:'flex', alignItems:'center', gap:'6px', background:'#1e40af', color:'white', padding:'8px 16px', borderRadius:'8px', fontSize:'13px', fontWeight:'600', textDecoration:'none' }}>
+              <ExternalLink size={13} /> Abrir en nueva pestaña
+            </a>
+          )}
+          <button onClick={onCerrar} style={{ background:'#334155', color:'#e2e8f0', border:'none', padding:'8px 16px', borderRadius:'8px', fontSize:'13px', fontWeight:'600', cursor:'pointer' }}>
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -369,10 +423,35 @@ export default function FormatoBibliotecaPage() {
   const [filtroCategoria, setFC]  = useState('')
   const [filtroExt, setFE]        = useState('')
   const [filtroTipo, setFT]       = useState('')
+  const [visorUrl, setVisorUrl]   = useState(null)
+  const [visorNombre, setVisorNombre] = useState('')
+  const [visorEsPdf, setVisorEsPdf]   = useState(false)
 
   useEffect(() => { cargarStats() }, [])
   useEffect(() => { setPagina(1) }, [search, filtroCategoria, filtroExt, filtroTipo])
   useEffect(() => { cargar() }, [pagina, search, filtroCategoria, filtroExt, filtroTipo])
+
+  const abrirVisor = async (archivo) => {
+    const esPdf = archivo.archivo_extension?.toLowerCase() === 'pdf'
+    setVisorNombre(archivo.nombre || archivo.archivo_nombre_orig || 'Documento')
+    setVisorEsPdf(esPdf)
+    setVisorUrl(null)
+    try {
+      const response = await api.get(`/formato-archivos/${archivo.id}/ver`, { responseType: 'blob' })
+      const blob = new Blob([response.data], { type: esPdf ? 'application/pdf' : response.data.type })
+      setVisorUrl(URL.createObjectURL(blob))
+    } catch {
+      toast.error('No se pudo abrir el archivo')
+      setVisorNombre('')
+    }
+  }
+
+  const cerrarVisor = () => {
+    if (visorUrl) URL.revokeObjectURL(visorUrl)
+    setVisorUrl(null)
+    setVisorNombre('')
+    setVisorEsPdf(false)
+  }
 
   const cargarStats = async () => {
     try { const { data } = await api.get('/formato-archivos/estadisticas'); setStats(data) } catch {}
@@ -518,6 +597,7 @@ export default function FormatoBibliotecaPage() {
           {archivos.map(a => (
             <ArchivoCard key={a.id} archivo={a}
               onDescargar={handleDescargar}
+              onVer={abrirVisor}
               onEditar={setEditando}
               onEliminar={handleEliminar} />
           ))}
@@ -536,6 +616,7 @@ export default function FormatoBibliotecaPage() {
               {archivos.map(a => (
                 <ArchivoFila key={a.id} archivo={a}
                   onDescargar={handleDescargar}
+                  onVer={abrirVisor}
                   onEditar={setEditando}
                   onEliminar={handleEliminar} />
               ))}
@@ -571,6 +652,14 @@ export default function FormatoBibliotecaPage() {
           archivo={editando}
           onClose={() => setEditando(null)}
           onGuardado={() => { setEditando(null); cargar() }}
+        />
+      )}
+      {visorNombre && (
+        <VisorModal
+          visorUrl={visorUrl}
+          visorNombre={visorNombre}
+          visorEsPdf={visorEsPdf}
+          onCerrar={cerrarVisor}
         />
       )}
     </div>

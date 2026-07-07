@@ -12,7 +12,7 @@ class Capacitacion extends Model
     protected $table = 'capacitaciones';
 
     protected $fillable = [
-        'empresa_id', 'area_id', 'titulo', 'tema', 'tipo', 'modalidad',
+        'empresa_id', 'area_id', 'titulo', 'tema', 'bloque', 'tipo', 'modalidad',
         'fecha_programada', 'fecha_ejecutada', 'duracion_horas', 'expositor',
         'expositor_cargo', 'lugar', 'max_participantes', 'estado',
         'observaciones', 'archivo_material',

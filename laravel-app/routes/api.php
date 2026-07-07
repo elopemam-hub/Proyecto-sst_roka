@@ -28,6 +28,7 @@ use App\Http\Controllers\Api\VehiculoController;
 use App\Http\Controllers\Api\EquipoController;
 use App\Http\Controllers\Api\EquipoTipoController;
 use App\Http\Controllers\Api\InspeccionProgramadaController;
+use App\Http\Controllers\Api\EquipoAsignacionController;
 use App\Http\Controllers\Api\InspeccionSubmoduloController;
 use App\Http\Controllers\Api\EquipoQrController;
 use App\Http\Controllers\Api\EquipoPdfController;
@@ -308,6 +309,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{id}/ejecutar',             [CapacitacionController::class, 'ejecutar']);
         Route::post('/{id}/evaluacion',           [CapacitacionController::class, 'guardarEvaluacion']);
         Route::post('/{id}/evaluacion/responder', [CapacitacionController::class, 'responderEvaluacion']);
+        Route::get('/{id}/formato-rm050',         [CapacitacionController::class, 'formatoRM050']);
     });
     Route::get('/personal/{id}/capacitaciones',   [CapacitacionController::class, 'capacitacionesTrabajador']);
     Route::apiResource('capacitaciones', CapacitacionController::class);
@@ -332,6 +334,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('formato-archivos')->group(function () {
         Route::get('/estadisticas',          [\App\Http\Controllers\Api\FormatoArchivoController::class, 'estadisticas']);
         Route::get('/{id}/descargar',        [\App\Http\Controllers\Api\FormatoArchivoController::class, 'descargar']);
+        Route::get('/{id}/ver',              [\App\Http\Controllers\Api\FormatoArchivoController::class, 'ver']);
     });
     Route::apiResource('formato-archivos', \App\Http\Controllers\Api\FormatoArchivoController::class);
 
@@ -351,6 +354,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{id}/obsoleto',        [DocumentoController::class, 'obsoleto']);
         Route::get('/{id}/versiones',        [DocumentoController::class, 'versiones']);
         Route::get('/{id}/descargar',        [DocumentoController::class, 'descargar']);
+        Route::get('/{id}/ver',              [DocumentoController::class, 'ver']);
     });
     Route::apiResource('documentos', DocumentoController::class);
 
@@ -402,6 +406,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('equipos-certificados')->group(function () {
         Route::get('/alertas', [EquipoCertificadoController::class, 'alertas']);
         Route::get('/areas', [EquipoCertificadoController::class, 'areas']);
+        Route::get('/{id}/documento', [EquipoCertificadoController::class, 'documento']);
         Route::get('/', [EquipoCertificadoController::class, 'index']);
         Route::post('/', [EquipoCertificadoController::class, 'store']);
         Route::put('/{id}', [EquipoCertificadoController::class, 'update']);
@@ -468,6 +473,28 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('auditoria-log')->group(function () {
         Route::get('/',      [AuditoriaLogController::class, 'index']);
         Route::get('/{id}',  [AuditoriaLogController::class, 'show']);
+    });
+
+    // ─── ASIGNACIONES DE EQUIPOS (checklist diario por turno) ─────────────
+    Route::prefix('equipo-asignaciones')->group(function () {
+        // Operador
+        Route::get('/mis-equipos',              [EquipoAsignacionController::class, 'misEquipos']);
+        Route::post('/{id}/iniciar',            [EquipoAsignacionController::class, 'iniciar']);
+        Route::post('/{id}/completar',          [EquipoAsignacionController::class, 'completar']);
+        Route::post('/{id}/omitir',             [EquipoAsignacionController::class, 'omitir']);
+        // Supervisor / Administrador
+        Route::get('/dashboard',                [EquipoAsignacionController::class, 'dashboard']);
+        Route::post('/batch',                   [EquipoAsignacionController::class, 'storeBatch']);
+        Route::get('/',                         [EquipoAsignacionController::class, 'index']);
+        Route::post('/',                        [EquipoAsignacionController::class, 'store']);
+        Route::put('/{id}',                     [EquipoAsignacionController::class, 'update']);
+        Route::delete('/{id}',                  [EquipoAsignacionController::class, 'destroy']);
+        // Administrador — Reglas
+        Route::get('/reglas',                   [EquipoAsignacionController::class, 'reglas']);
+        Route::post('/reglas',                  [EquipoAsignacionController::class, 'storeRegla']);
+        Route::put('/reglas/{id}',              [EquipoAsignacionController::class, 'updateRegla']);
+        Route::delete('/reglas/{id}',           [EquipoAsignacionController::class, 'destroyRegla']);
+        Route::post('/generar-desde-reglas',    [EquipoAsignacionController::class, 'generarDesdeReglas']);
     });
 
 });

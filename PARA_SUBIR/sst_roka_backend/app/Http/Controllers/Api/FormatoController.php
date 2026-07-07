@@ -396,24 +396,26 @@ class FormatoController extends Controller
 
         if ($mes) $query->whereMonth('fecha_programada', $mes);
 
-        $inspecciones = $query->with(['area:id,nombre', 'responsable:id,nombres,apellidos'])
-            ->orderBy('fecha_programada')
-            ->get(['id', 'numero', 'tipo', 'area_id', 'responsable_id', 'fecha_programada',
-                   'fecha_ejecucion', 'estado', 'porcentaje_cumplimiento', 'total_hallazgos']);
+        $inspecciones = $query->with(['area:id,nombre', 'inspector:id,nombres,apellidos'])
+            ->orderBy('planificada_para')
+            ->get(['id', 'codigo', 'titulo', 'tipo', 'area_id', 'inspector_id',
+                   'planificada_para', 'ejecutada_en', 'estado',
+                   'porcentaje_cumplimiento', 'items_nc', 'items_conformes']);
 
         return [
-            'total'            => $inspecciones->count(),
-            'ejecutadas'       => $inspecciones->where('estado', 'cerrada')->count(),
-            'registros'        => $inspecciones->map(fn($i) => [
-                'numero'               => $i->numero,
-                'tipo'                 => $i->tipo,
-                'area'                 => $i->area?->nombre,
-                'responsable'          => $i->responsable?->nombres . ' ' . $i->responsable?->apellidos,
-                'fecha_programada'     => $i->fecha_programada?->format('d/m/Y'),
-                'fecha_ejecucion'      => $i->fecha_ejecucion?->format('d/m/Y'),
-                'estado'               => $i->estado,
-                'cumplimiento'         => $i->porcentaje_cumplimiento,
-                'total_hallazgos'      => $i->total_hallazgos,
+            'total'     => $inspecciones->count(),
+            'ejecutadas'=> $inspecciones->whereIn('estado', ['ejecutada','con_hallazgos','cerrada'])->count(),
+            'registros' => $inspecciones->map(fn($i) => [
+                'codigo'           => $i->codigo,
+                'titulo'           => $i->titulo,
+                'tipo'             => $i->tipo,
+                'area'             => $i->area?->nombre,
+                'inspector'        => trim(($i->inspector?->nombres ?? '') . ' ' . ($i->inspector?->apellidos ?? '')),
+                'fecha_programada' => $i->planificada_para?->format('d/m/Y'),
+                'fecha_ejecutada'  => $i->ejecutada_en?->format('d/m/Y'),
+                'estado'           => $i->estado,
+                'cumplimiento'     => $i->porcentaje_cumplimiento,
+                'items_nc'         => $i->items_nc ?? 0,
             ])->values()->toArray(),
             'generado_en' => now()->toDateTimeString(),
         ];
@@ -426,22 +428,24 @@ class FormatoController extends Controller
 
         if ($mes) $query->whereMonth('fecha_programada', $mes);
 
-        $auditorias = $query->with(['auditor:id,nombres,apellidos'])
+        $auditorias = $query->with(['area:id,nombre'])
             ->orderBy('fecha_programada')
-            ->get(['id', 'numero', 'tipo', 'alcance', 'auditor_id',
-                   'fecha_programada', 'fecha_ejecucion', 'estado', 'total_hallazgos']);
+            ->get(['id', 'tipo', 'norma_referencia', 'auditor_lider', 'alcance',
+                   'area_id', 'fecha_programada', 'fecha_ejecutada', 'estado', 'conclusion']);
 
         return [
             'total'      => $auditorias->count(),
+            'completadas'=> $auditorias->where('estado', 'completada')->count(),
             'registros'  => $auditorias->map(fn($a) => [
-                'numero'           => $a->numero,
                 'tipo'             => $a->tipo,
+                'norma'            => $a->norma_referencia,
+                'auditor_lider'    => $a->auditor_lider,
                 'alcance'          => $a->alcance,
-                'auditor'          => $a->auditor?->nombres . ' ' . $a->auditor?->apellidos,
+                'area'             => $a->area?->nombre,
                 'fecha_programada' => $a->fecha_programada?->format('d/m/Y'),
-                'fecha_ejecucion'  => $a->fecha_ejecucion?->format('d/m/Y'),
+                'fecha_ejecutada'  => $a->fecha_ejecutada?->format('d/m/Y'),
                 'estado'           => $a->estado,
-                'total_hallazgos'  => $a->total_hallazgos,
+                'conclusion'       => $a->conclusion,
             ])->values()->toArray(),
             'generado_en' => now()->toDateTimeString(),
         ];
@@ -459,8 +463,8 @@ class FormatoController extends Controller
 
         $caps = $qCap->get(['id', 'titulo', 'tipo', 'modalidad', 'fecha_programada', 'fecha_ejecutada',
                              'duracion_horas', 'expositor', 'estado']);
-        $sims = $qSim->get(['id', 'nombre', 'tipo_emergencia', 'fecha_programada', 'fecha_ejecucion',
-                             'estado', 'duracion_minutos']);
+        $sims = $qSim->get(['id', 'nombre', 'tipo', 'fecha_programada', 'fecha_ejecutada',
+                             'estado', 'tiempo_respuesta_min']);
 
         return [
             'capacitaciones' => [
@@ -481,9 +485,9 @@ class FormatoController extends Controller
                 'ejecutados'=> $sims->where('estado', 'ejecutado')->count(),
                 'registros' => $sims->map(fn($s) => [
                     'nombre'          => $s->nombre,
-                    'tipo_emergencia' => $s->tipo_emergencia,
-                    'fecha'           => $s->fecha_ejecucion?->format('d/m/Y') ?? $s->fecha_programada?->format('d/m/Y'),
-                    'duracion_min'    => $s->duracion_minutos,
+                    'tipo'            => $s->tipo,
+                    'fecha'           => $s->fecha_ejecutada?->format('d/m/Y') ?? $s->fecha_programada?->format('d/m/Y'),
+                    'duracion_min'    => $s->tiempo_respuesta_min,
                     'estado'          => $s->estado,
                 ])->values()->toArray(),
             ],

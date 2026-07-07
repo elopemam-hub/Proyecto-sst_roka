@@ -18,17 +18,21 @@ class Ats extends Model
         'empresa_id', 'area_id', 'iperc_id',
         'codigo', 'titulo_trabajo', 'descripcion', 'ubicacion',
         'fecha_ejecucion', 'hora_inicio', 'hora_fin',
-        'nivel_riesgo', 'requiere_permiso_especial',
+        'nivel_riesgo', 'requiere_permiso_especial', 'tipos_permiso', 'epps_requeridos',
         'supervisor_id', 'elaborado_por',
         'estado', 'autorizado_en', 'cerrado_en', 'cerrado_por',
         'observaciones_cierre',
     ];
+
+    protected $appends = ['puede_ejecutarse'];
 
     protected $casts = [
         'fecha_ejecucion'           => 'date',
         'autorizado_en'             => 'datetime',
         'cerrado_en'                => 'datetime',
         'requiere_permiso_especial' => 'boolean',
+        'tipos_permiso'             => 'array',
+        'epps_requeridos'           => 'array',
     ];
 
     // Relaciones
@@ -47,11 +51,14 @@ class Ats extends Model
     }
 
     // Generar código
-    public static function generarCodigo(int $empresaId, int $areaId): string
+    public static function generarCodigo(int $empresaId, ?int $areaId): string
     {
-        $area = Area::find($areaId);
-        $codigoArea = strtoupper(substr($area->codigo ?? $area->tipo, 0, 3));
-        $anio = now()->year;
+        $codigoArea = 'GEN';
+        if ($areaId) {
+            $area = Area::find($areaId);
+            if ($area) $codigoArea = strtoupper(substr($area->codigo ?? $area->tipo ?? 'GEN', 0, 3));
+        }
+        $anio   = now()->year;
         $ultimo = self::where('empresa_id', $empresaId)
             ->where('codigo', 'like', "ATS-{$anio}-{$codigoArea}-%")
             ->count() + 1;
@@ -61,8 +68,12 @@ class Ats extends Model
     // ¿Puede ser ejecutado?
     public function getPuedeEjecutarseAttribute(): bool
     {
-        return $this->estado === 'autorizado'
-            && $this->participantes()->whereNotNull('firmado_en')->count() === $this->participantes()->count();
+        if ($this->estado !== 'autorizado') return false;
+        $parts = $this->relationLoaded('participantes')
+            ? $this->participantes
+            : $this->participantes()->get();
+        return $parts->count() > 0
+            && $parts->whereNotNull('firmado_en')->count() === $parts->count();
     }
 
     // Duración en minutos

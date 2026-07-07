@@ -27,8 +27,8 @@
     RewriteCond %{REQUEST_FILENAME} -f
     RewriteRule ^ - [L]
 
-    # Todo lo demás → Laravel index.php
+    # Todo lo demás → Laravel index.php (ruta absoluta para LiteSpeed)
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteRule ^ index.php [L]
+    RewriteRule ^ /api/index.php [L]
 </IfModule>

@@ -317,12 +317,13 @@ class InspeccionController extends Controller
         $query = Inspeccion::where('empresa_id', $request->user()->empresa_id)
             ->with(['area:id,nombre', 'sede:id,nombre', 'inspector:id,nombres,apellidos', 'equipo:id,codigo,nombre,serie']);
 
-        if ($request->filled('estado'))    $query->where('estado', $request->estado);
-        if ($request->filled('tipo'))      $query->where('tipo', $request->tipo);
-        if ($request->filled('area_id'))   $query->where('area_id', $request->area_id);
-        if ($request->filled('anio'))      $query->whereYear('planificada_para', $request->integer('anio'));
-        if ($request->filled('fecha_desde')) $query->where('planificada_para', '>=', $request->fecha_desde);
-        if ($request->filled('fecha_hasta')) $query->where('planificada_para', '<=', $request->fecha_hasta);
+        if ($request->filled('estado'))             $query->where('estado', $request->estado);
+        if ($request->filled('tipo'))               $query->where('tipo', $request->tipo);
+        if ($request->filled('area_id'))            $query->where('area_id', $request->area_id);
+        if ($request->filled('equipo_catalogo_id')) $query->where('equipo_catalogo_id', $request->equipo_catalogo_id);
+        if ($request->filled('anio'))               $query->whereYear('planificada_para', $request->integer('anio'));
+        if ($request->filled('fecha_desde'))        $query->where('planificada_para', '>=', $request->fecha_desde);
+        if ($request->filled('fecha_hasta'))        $query->where('planificada_para', '<=', $request->fecha_hasta);
         if ($request->filled('search')) {
             $q = $request->search;
             $query->where(fn($sub) =>

@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Edit, CheckCircle, XCircle, Printer, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Edit, CheckCircle, XCircle, Printer, ExternalLink, Trash2 } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
 
@@ -70,6 +70,19 @@ export default function FormatoDetailPage() {
 
   const handleImprimir = () => window.print()
 
+  const handleEliminar = async () => {
+    if (!confirm(`¿Eliminar el registro "${formato.correlativo}"? Esta acción no se puede deshacer.`)) return
+    setAccionando(true)
+    try {
+      await api.delete(`/formatos/${id}`)
+      toast.success('Registro eliminado')
+      navigate('/formatos')
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Error al eliminar')
+      setAccionando(false)
+    }
+  }
+
   if (loading) return <div className="p-12 text-center text-slate-400">Cargando...</div>
   if (!formato) return null
 
@@ -101,6 +114,14 @@ export default function FormatoDetailPage() {
           </button>
           {formato.estado === 'borrador' && (
             <>
+              <button
+                onClick={handleEliminar}
+                disabled={accionando}
+                className="flex items-center gap-2 px-3 py-2 text-red-400 hover:bg-red-900/30 rounded-lg text-sm disabled:opacity-50"
+                title="Eliminar borrador"
+              >
+                <Trash2 size={15} />
+              </button>
               <button
                 onClick={() => navigate(`/formatos/${id}/editar`)}
                 className="flex items-center gap-2 px-3 py-2 text-slate-300 hover:bg-slate-700 rounded-lg text-sm"

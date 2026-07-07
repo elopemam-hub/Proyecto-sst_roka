@@ -13,9 +13,13 @@ Options -MultiViews
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
-    # No reescribir archivos o directorios reales
-    RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteCond %{REQUEST_FILENAME} !-d
+    # Archivos reales se sirven directamente (css, js, img, etc.)
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+
+    # Rutas API → Laravel (api/index.php)
+    RewriteCond %{REQUEST_URI} ^/api
+    RewriteRule .* /api/index.php [L]
 
     # Todo lo demás → React SPA (index.html)
     RewriteRule ^ /index.html [L]

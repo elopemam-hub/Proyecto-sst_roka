@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Zap, FileText, ChevronDown, Search, Filter, FolderOpen } from 'lucide-react'
+import { Plus, Zap, FileText, ChevronDown, Search, FolderOpen, Trash2, Eye, CheckCircle2, AlertCircle, CalendarDays, Layers } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
 
@@ -18,9 +18,16 @@ const TIPOS = [
 ]
 
 const ESTADOS_CONFIG = {
-  borrador: 'bg-slate-700 text-slate-300',
-  vigente:  'bg-green-900/50 text-green-400',
-  anulado:  'bg-red-900/50 text-red-400',
+  borrador: { cls: 'bg-slate-700 text-slate-300',       label: 'Borrador' },
+  vigente:  { cls: 'bg-green-900/50 text-green-400',    label: 'Vigente'  },
+  anulado:  { cls: 'bg-red-900/50 text-red-400',        label: 'Anulado'  },
+}
+
+const TIPO_COLOR = {
+  reg_01: 'text-red-400',    reg_02: 'text-orange-400',  reg_03: 'text-yellow-400',
+  reg_04: 'text-amber-400',  reg_05: 'text-lime-400',    reg_06: 'text-emerald-400',
+  reg_07: 'text-teal-400',   reg_08: 'text-cyan-400',    reg_09: 'text-blue-400',
+  reg_10: 'text-violet-400',
 }
 
 export default function FormatoListPage() {
@@ -89,6 +96,18 @@ export default function FormatoListPage() {
     setPage(1)
   }
 
+  const handleEliminar = async (r) => {
+    if (!confirm(`¿Eliminar el registro "${r.correlativo}"? Esta acción no se puede deshacer.`)) return
+    try {
+      await api.delete(`/formatos/${r.id}`)
+      toast.success('Registro eliminado')
+      cargar()
+      cargarEstadisticas()
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Error al eliminar')
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -152,21 +171,43 @@ export default function FormatoListPage() {
       {/* KPIs */}
       {estadisticas && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-slate-800 rounded-lg p-4">
-            <div className="text-2xl font-bold text-white">{estadisticas.vigentes}</div>
-            <div className="text-xs text-slate-400 mt-1">Registros vigentes</div>
+          <div className="bg-slate-800 rounded-xl p-4 flex items-center gap-3 border border-slate-700/50">
+            <div className="w-10 h-10 rounded-lg bg-green-900/40 flex items-center justify-center flex-shrink-0">
+              <CheckCircle2 size={20} className="text-green-400" />
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-white">{estadisticas.vigentes}</div>
+              <div className="text-xs text-slate-400">Registros vigentes</div>
+            </div>
           </div>
-          <div className="bg-slate-800 rounded-lg p-4">
-            <div className="text-2xl font-bold text-amber-400">{estadisticas.borradores}</div>
-            <div className="text-xs text-slate-400 mt-1">En borrador</div>
+          <div className="bg-slate-800 rounded-xl p-4 flex items-center gap-3 border border-slate-700/50">
+            <div className="w-10 h-10 rounded-lg bg-amber-900/40 flex items-center justify-center flex-shrink-0">
+              <AlertCircle size={20} className="text-amber-400" />
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-amber-400">{estadisticas.borradores}</div>
+              <div className="text-xs text-slate-400">En borrador</div>
+            </div>
           </div>
-          <div className="bg-slate-800 rounded-lg p-4">
-            <div className="text-2xl font-bold text-blue-400">{estadisticas.total_anio}</div>
-            <div className="text-xs text-slate-400 mt-1">Este año</div>
+          <div className="bg-slate-800 rounded-xl p-4 flex items-center gap-3 border border-slate-700/50">
+            <div className="w-10 h-10 rounded-lg bg-blue-900/40 flex items-center justify-center flex-shrink-0">
+              <CalendarDays size={20} className="text-blue-400" />
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-blue-400">{estadisticas.total_anio}</div>
+              <div className="text-xs text-slate-400">Este año</div>
+            </div>
           </div>
-          <div className="bg-slate-800 rounded-lg p-4">
-            <div className="text-2xl font-bold text-green-400">{estadisticas.tipos_con_registro}<span className="text-slate-500 text-lg">/10</span></div>
-            <div className="text-xs text-slate-400 mt-1">Tipos con registro vigente</div>
+          <div className="bg-slate-800 rounded-xl p-4 flex items-center gap-3 border border-slate-700/50">
+            <div className="w-10 h-10 rounded-lg bg-violet-900/40 flex items-center justify-center flex-shrink-0">
+              <Layers size={20} className="text-violet-400" />
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-green-400">
+                {estadisticas.tipos_con_registro}<span className="text-slate-500 text-base font-normal">/10</span>
+              </div>
+              <div className="text-xs text-slate-400">Tipos con registro</div>
+            </div>
           </div>
         </div>
       )}
@@ -234,34 +275,52 @@ export default function FormatoListPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700">
-              {registros.map(r => (
-                <tr key={r.id} className="hover:bg-slate-700/50 transition-colors">
-                  <td className="px-4 py-3 font-mono text-xs text-slate-300">{r.correlativo}</td>
-                  <td className="px-4 py-3 text-white">{r.tipo_label}</td>
-                  <td className="px-4 py-3 text-slate-300">
-                    {r.periodo_anio}{r.periodo_mes ? `/${String(r.periodo_mes).padStart(2, '0')}` : ''}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${ESTADOS_CONFIG[r.estado] || ''}`}>
-                      {r.estado}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-400 text-xs">
-                    {r.creado_por?.nombres} {r.creado_por?.apellidos}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400 text-xs">
-                    {new Date(r.created_at).toLocaleDateString('es-PE')}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => navigate(`/formatos/${r.id}`)}
-                      className="text-roka-400 hover:text-roka-300 text-xs font-medium"
-                    >
-                      Ver
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {registros.map(r => {
+                const est = ESTADOS_CONFIG[r.estado] || { cls: 'bg-slate-700 text-slate-300', label: r.estado }
+                return (
+                  <tr key={r.id} className="hover:bg-slate-700/40 transition-colors">
+                    <td className="px-4 py-3 font-mono text-xs text-slate-300">{r.correlativo}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-sm font-medium ${TIPO_COLOR[r.tipo_registro] || 'text-slate-300'}`}>
+                        {r.tipo_label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-300 text-sm">
+                      {r.periodo_anio}{r.periodo_mes ? `/${String(r.periodo_mes).padStart(2, '0')}` : ''}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${est.cls}`}>
+                        {est.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-400 text-xs">
+                      {r.creado_por?.nombres} {r.creado_por?.apellidos}
+                    </td>
+                    <td className="px-4 py-3 text-slate-400 text-xs">
+                      {new Date(r.created_at).toLocaleDateString('es-PE')}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => navigate(`/formatos/${r.id}`)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-roka-400 hover:text-white hover:bg-roka-600 rounded-lg transition-colors"
+                        >
+                          <Eye size={12} /> Ver
+                        </button>
+                        {r.estado === 'borrador' && (
+                          <button
+                            onClick={() => handleEliminar(r)}
+                            className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-900/30 rounded-lg transition-colors"
+                            title="Eliminar borrador"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}

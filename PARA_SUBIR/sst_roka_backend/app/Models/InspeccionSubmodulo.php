@@ -11,7 +11,7 @@ class InspeccionSubmodulo extends Model
 
     protected $table = 'inspeccion_submodulos';
 
-    protected $fillable = ['codigo', 'nombre', 'color', 'activo'];
+    protected $fillable = ['codigo', 'nombre', 'descripcion', 'color', 'tipo_inspeccion', 'activo', 'orden'];
 
     protected $casts = ['activo' => 'boolean'];
 

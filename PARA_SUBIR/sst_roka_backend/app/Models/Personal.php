@@ -15,20 +15,25 @@ class Personal extends Model
 
     protected $fillable = [
         'empresa_id', 'sede_id', 'area_id', 'cargo_id',
-        'nombres', 'apellidos', 'dni',
+        'nombres', 'apellidos', 'dni', 'dni_vencimiento', 'dni_foto_path',
         'fecha_nacimiento', 'genero',
-        'telefono', 'email', 'direccion', 'foto_path',
+        'telefono', 'licencia_conducir', 'licencia_categoria', 'licencia_vencimiento', 'licencia_foto_path', 'email', 'direccion', 'foto_path',
         'codigo_empleado', 'fecha_ingreso', 'fecha_cese',
         'tipo_contrato', 'estado', 'es_supervisor_sst',
         'contacto_emergencia_nombre', 'contacto_emergencia_telefono',
         'grupo_sanguineo',
+        'tipo_trabajador', 'empresa_tercera', 'certificaciones', 'vigencia_hasta',
     ];
 
     protected $casts = [
         'fecha_nacimiento' => 'date',
         'fecha_ingreso'    => 'date',
         'fecha_cese'       => 'date',
+        'dni_vencimiento'  => 'date',
+        'licencia_vencimiento' => 'date',
+        'vigencia_hasta'   => 'date',
         'es_supervisor_sst' => 'boolean',
+        'certificaciones'  => 'array',
     ];
 
     // Relaciones
@@ -55,6 +60,11 @@ class Personal extends Model
     public function usuario(): HasOne
     {
         return $this->hasOne(Usuario::class);
+    }
+
+    public function fichaMedica(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(SaludFichaMedica::class, 'personal_id');
     }
 
     // Nombre completo

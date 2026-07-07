@@ -463,8 +463,8 @@ class FormatoController extends Controller
 
         $caps = $qCap->get(['id', 'titulo', 'tipo', 'modalidad', 'fecha_programada', 'fecha_ejecutada',
                              'duracion_horas', 'expositor', 'estado']);
-        $sims = $qSim->get(['id', 'nombre', 'tipo_emergencia', 'fecha_programada', 'fecha_ejecucion',
-                             'estado', 'duracion_minutos']);
+        $sims = $qSim->get(['id', 'nombre', 'tipo', 'fecha_programada', 'fecha_ejecutada',
+                             'estado', 'tiempo_respuesta_min']);
 
         return [
             'capacitaciones' => [
@@ -485,9 +485,9 @@ class FormatoController extends Controller
                 'ejecutados'=> $sims->where('estado', 'ejecutado')->count(),
                 'registros' => $sims->map(fn($s) => [
                     'nombre'          => $s->nombre,
-                    'tipo_emergencia' => $s->tipo_emergencia,
-                    'fecha'           => $s->fecha_ejecucion?->format('d/m/Y') ?? $s->fecha_programada?->format('d/m/Y'),
-                    'duracion_min'    => $s->duracion_minutos,
+                    'tipo'            => $s->tipo,
+                    'fecha'           => $s->fecha_ejecutada?->format('d/m/Y') ?? $s->fecha_programada?->format('d/m/Y'),
+                    'duracion_min'    => $s->tiempo_respuesta_min,
                     'estado'          => $s->estado,
                 ])->values()->toArray(),
             ],

@@ -99,8 +99,8 @@ class Inspeccion extends Model
         $prefijo = strtoupper(substr($tipo, 0, 3));
         $anio    = now()->year;
 
-        // Buscar el último código existente y extraer el número
-        $ultimoCodigo = self::where('empresa_id', $empresaId)
+        // Buscar el último código existente (incluye soft-deleted para evitar colisión con índice único)
+        $ultimoCodigo = self::withTrashed()->where('empresa_id', $empresaId)
             ->where('codigo', 'like', "INS-{$anio}-{$prefijo}-%")
             ->orderByRaw('CAST(SUBSTRING(codigo, -3) AS UNSIGNED) DESC')
             ->value('codigo');

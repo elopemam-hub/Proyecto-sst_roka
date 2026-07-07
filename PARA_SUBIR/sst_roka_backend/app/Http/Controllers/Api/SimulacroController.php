@@ -24,6 +24,11 @@ class SimulacroController extends Controller
         $query = Simulacro::where('empresa_id', $request->user()->empresa_id)
             ->with(['area:id,nombre', 'coordinador:id,nombres,apellidos']);
 
+        // Filtro por año
+        if ($request->filled('anio')) {
+            $query->whereYear('fecha_programada', $request->integer('anio'));
+        }
+
         if ($request->filled('estado')) {
             $query->where('estado', $request->estado);
         }
@@ -59,7 +64,7 @@ class SimulacroController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'tipo'              => 'required|in:sismo,incendio,derrame,evacuacion,primeros_auxilios,otro',
+            'tipo'              => 'required|in:sismo,incendio,derrame,evacuacion,primeros_auxilios,violencia',
             'nombre'            => 'required|string|max:200',
             'descripcion'       => 'nullable|string',
             'fecha_programada'  => 'required|date',
@@ -119,7 +124,7 @@ class SimulacroController extends Controller
             ->findOrFail($id);
 
         $validated = $request->validate([
-            'tipo'                  => 'sometimes|in:sismo,incendio,derrame,evacuacion,primeros_auxilios,otro',
+            'tipo'                  => 'sometimes|in:sismo,incendio,derrame,evacuacion,primeros_auxilios,violencia',
             'nombre'                => 'sometimes|string|max:200',
             'descripcion'           => 'nullable|string',
             'fecha_programada'      => 'sometimes|date',
@@ -191,15 +196,52 @@ class SimulacroController extends Controller
             ->orderBy('fecha_programada')
             ->first(['id', 'nombre', 'tipo', 'fecha_programada']);
 
+        // Por mes
+        $porMes = Simulacro::where('empresa_id', $empresaId)
+            ->whereYear('fecha_programada', $anio)
+            ->selectRaw('MONTH(fecha_programada) as mes, estado, COUNT(*) as total')
+            ->groupByRaw('MONTH(fecha_programada), estado')
+            ->get()
+            ->groupBy('mes')
+            ->map(fn($items) => [
+                'programados' => $items->where('estado','programado')->sum('total'),
+                'ejecutados'  => $items->where('estado','ejecutado')->sum('total'),
+                'cancelados'  => $items->where('estado','cancelado')->sum('total'),
+                'total'       => $items->sum('total'),
+            ]);
+
+        // Por área
+        $porArea = Simulacro::where('empresa_id', $empresaId)
+            ->whereYear('fecha_programada', $anio)
+            ->whereNotNull('area_id')
+            ->with('area:id,nombre')
+            ->selectRaw('area_id, COUNT(*) as total, SUM(CASE WHEN estado="ejecutado" THEN 1 ELSE 0 END) as ejecutados')
+            ->groupBy('area_id')
+            ->orderByDesc('total')
+            ->limit(8)
+            ->get()
+            ->map(fn($s) => ['area' => $s->area?->nombre ?? '—', 'total' => $s->total, 'ejecutados' => $s->ejecutados]);
+
+        // Cronograma (todos los simulacros del año ordenados por fecha)
+        $cronograma = Simulacro::where('empresa_id', $empresaId)
+            ->whereYear('fecha_programada', $anio)
+            ->with('area:id,nombre')
+            ->orderBy('fecha_programada')
+            ->get(['id','nombre','tipo','estado','fecha_programada','fecha_ejecutada','lugar','area_id']);
+
         return response()->json([
             'total'                     => $total,
             'ejecutados'                => $ejecutados,
             'programados'               => $programados,
             'por_tipo'                  => $porTipo,
+            'por_mes'                   => $porMes,
+            'por_area'                  => $porArea,
+            'cronograma'                => $cronograma,
             'promedio_evaluacion'       => $promedioEvaluacion ? round($promedioEvaluacion, 1) : null,
             'promedio_tiempo_respuesta' => $promedioTiempoRespuesta ? round($promedioTiempoRespuesta, 1) : null,
             'proximo'                   => $proximo,
             'cumplimiento'              => $total > 0 ? round(($ejecutados / $total) * 100, 1) : 0,
+            'anio'                      => $anio,
         ]);
     }
 

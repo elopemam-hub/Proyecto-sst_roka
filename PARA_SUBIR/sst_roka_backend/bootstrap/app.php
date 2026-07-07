@@ -14,6 +14,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'auth.sanctum' => \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
+            'check.rol'    => \App\Http\Middleware\CheckRol::class,
+            'permiso'      => \App\Http\Middleware\CheckPermiso::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

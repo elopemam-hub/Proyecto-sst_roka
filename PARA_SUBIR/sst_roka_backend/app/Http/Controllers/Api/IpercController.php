@@ -27,7 +27,7 @@ class IpercController extends Controller
         $empresaId = $request->user()->empresa_id;
 
         $query = Iperc::where('empresa_id', $empresaId)
-            ->with(['area:id,nombre,tipo', 'sede:id,nombre', 'elaborador:id,nombre']);
+            ->with(['area:id,nombre,tipo', 'sede:id,nombre', 'elaborador:id,nombre', 'procesos']);
 
         // Filtros
         if ($request->filled('estado'))       $query->where('estado', $request->estado);
@@ -107,7 +107,9 @@ class IpercController extends Controller
                             'prob_capacitacion'       => $peligro['prob_capacitacion'],
                             'prob_exposicion'         => $peligro['prob_exposicion'],
                             'indice_severidad'        => $peligro['indice_severidad'],
-                            // Los campos calculados se llenan automáticamente en el modelo
+                            'ip_residual'             => !empty($peligro['ip_residual']) ? (int)$peligro['ip_residual'] : null,
+                            'is_residual'             => !empty($peligro['is_residual']) ? (int)$peligro['is_residual'] : null,
+                            // Los campos calculados se llenan automáticamente vía model hook
                             'indice_probabilidad'     => 0,
                             'nivel_riesgo_inicial'    => 0,
                             'clasificacion_inicial'   => 'trivial',
@@ -156,7 +158,6 @@ class IpercController extends Controller
                 'area', 'sede', 'elaborador:id,nombre',
                 'revisor:id,nombre', 'aprobador:id,nombre',
                 'procesos.peligros.controles',
-                'procesos.peligros.eppsRequeridos',
                 'firmas' => fn($q) => $q->where('rechazada', false),
             ])
             ->findOrFail($id);
@@ -181,15 +182,75 @@ class IpercController extends Controller
         }
 
         $validated = $request->validate([
+            'area_id'           => 'sometimes|exists:areas,id',
+            'sede_id'           => 'nullable|exists:sedes,id',
             'titulo'            => 'sometimes|string|max:255',
             'alcance'           => 'nullable|string',
+            'metodologia'       => ['sometimes', Rule::in(['IPERC_CONTINUO','IPERC_LINEA_BASE','IPERC_ESPECIFICO'])],
+            'fecha_elaboracion' => 'sometimes|date',
             'fecha_vigencia'    => 'nullable|date',
             'estado'            => ['sometimes', Rule::in(['borrador','en_revision','aprobado','vencido','archivado'])],
             'observaciones'     => 'nullable|string',
+            'procesos'          => 'nullable|array',
         ]);
 
         $anterior = $iperc->toArray();
-        $iperc->update($validated);
+
+        DB::transaction(function () use ($iperc, $validated) {
+            $iperc->update(collect($validated)->except('procesos')->toArray());
+
+            if (array_key_exists('procesos', $validated)) {
+                // Eliminar procesos existentes (en cascada: peligros y controles)
+                foreach ($iperc->procesos()->with('peligros.controles')->get() as $proc) {
+                    foreach ($proc->peligros as $pel) {
+                        $pel->controles()->delete();
+                    }
+                    $proc->peligros()->delete();
+                }
+                $iperc->procesos()->delete();
+
+                // Recrear procesos con los datos enviados
+                foreach ($validated['procesos'] ?? [] as $idx => $proceso) {
+                    $procModel = IpercProceso::create([
+                        'iperc_id'       => $iperc->id,
+                        'proceso'        => $proceso['proceso'],
+                        'actividad'      => $proceso['actividad'],
+                        'tarea'          => $proceso['tarea'] ?? null,
+                        'tipo_actividad' => $proceso['tipo_actividad'] ?? 'rutinaria',
+                        'orden'          => $idx,
+                    ]);
+
+                    foreach ($proceso['peligros'] ?? [] as $peligro) {
+                        $pelModel = IpercPeligro::create([
+                            'iperc_proceso_id'        => $procModel->id,
+                            'tipo_peligro'            => $peligro['tipo_peligro'],
+                            'descripcion_peligro'     => $peligro['descripcion_peligro'],
+                            'riesgo'                  => $peligro['riesgo'],
+                            'consecuencia'            => $peligro['consecuencia'] ?? null,
+                            'prob_personas_expuestas' => $peligro['prob_personas_expuestas'],
+                            'prob_procedimientos'     => $peligro['prob_procedimientos'],
+                            'prob_capacitacion'       => $peligro['prob_capacitacion'],
+                            'prob_exposicion'         => $peligro['prob_exposicion'],
+                            'indice_severidad'        => $peligro['indice_severidad'],
+                            'ip_residual'             => !empty($peligro['ip_residual']) ? (int)$peligro['ip_residual'] : null,
+                            'is_residual'             => !empty($peligro['is_residual']) ? (int)$peligro['is_residual'] : null,
+                            'indice_probabilidad'     => 0,
+                            'nivel_riesgo_inicial'    => 0,
+                            'clasificacion_inicial'   => 'trivial',
+                        ]);
+
+                        foreach ($peligro['controles'] ?? [] as $control) {
+                            IpercControl::create([
+                                'iperc_peligro_id'      => $pelModel->id,
+                                'tipo_control'          => $control['tipo_control'],
+                                'descripcion'           => $control['descripcion'],
+                                'estado_implementacion' => 'pendiente',
+                            ]);
+                        }
+                    }
+                }
+            }
+        });
 
         $this->auditoria->registrarCambioModelo(
             modulo: 'iperc',
@@ -198,11 +259,11 @@ class IpercController extends Controller
             modelo: 'Iperc',
             modeloId: $iperc->id,
             anterior: $anterior,
-            nuevo: $iperc->toArray(),
+            nuevo: $iperc->fresh()->toArray(),
             request: $request
         );
 
-        return response()->json($iperc);
+        return response()->json($iperc->load(['area', 'sede', 'procesos.peligros.controles']));
     }
 
     /**
@@ -379,7 +440,7 @@ class IpercController extends Controller
     }
 
     /**
-     * GET /api/iperc/riesgo-residual — Peligros con evaluación residual
+     * GET /api/iperc/riesgo-residual — Todos los peligros con su estado de evaluación residual
      */
     public function riesgoResidual(Request $request): JsonResponse
     {
@@ -389,8 +450,8 @@ class IpercController extends Controller
             ->join('iperc_procesos as pr', 'p.iperc_proceso_id', '=', 'pr.id')
             ->join('iperc', 'pr.iperc_id', '=', 'iperc.id')
             ->join('areas', 'iperc.area_id', '=', 'areas.id')
-            ->where('iperc.empresa_id', $empresaId)->whereNull('iperc.deleted_at')
-            ->whereNotNull('p.ip_residual')
+            ->where('iperc.empresa_id', $empresaId)
+            ->whereNull('iperc.deleted_at')
             ->select([
                 'p.id', 'p.descripcion_peligro', 'p.riesgo',
                 'p.clasificacion_inicial', 'p.nivel_riesgo_inicial',
@@ -400,10 +461,32 @@ class IpercController extends Controller
                 'areas.nombre as area_nombre',
             ]);
 
-        if ($request->filled('clasificacion')) $query->where('p.clasificacion_residual', $request->clasificacion);
+        // Filtrar por clasificación residual (o inicial si no tiene residual)
+        if ($request->filled('clasificacion')) {
+            $query->where(function ($q) use ($request) {
+                $q->where('p.clasificacion_residual', $request->clasificacion)
+                  ->orWhere(function ($q2) use ($request) {
+                      $q2->whereNull('p.clasificacion_residual')
+                         ->where('p.clasificacion_inicial', $request->clasificacion);
+                  });
+            });
+        }
+
+        // Filtrar solo evaluados o pendientes
+        if ($request->filled('estado_residual')) {
+            if ($request->estado_residual === 'evaluado') {
+                $query->whereNotNull('p.ip_residual');
+            } elseif ($request->estado_residual === 'pendiente') {
+                $query->whereNull('p.ip_residual');
+            }
+        }
 
         $per = min($request->get('per_page', 20), 100);
-        return response()->json($query->orderByRaw('p.nivel_riesgo_residual DESC')->paginate($per));
+        // Poner primero los no evaluados (ip_residual null) y luego por nivel inicial desc
+        return response()->json(
+            $query->orderByRaw('p.ip_residual IS NOT NULL ASC, p.nivel_riesgo_inicial DESC')
+                  ->paginate($per)
+        );
     }
 
     /**

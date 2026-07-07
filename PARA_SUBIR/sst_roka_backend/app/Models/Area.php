@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\Empresa;
 
 class Area extends Model
 {
@@ -14,6 +15,7 @@ class Area extends Model
     protected $table = 'areas';
 
     protected $fillable = [
+        'empresa_id',
         'sede_id',
         'nombre',
         'codigo',
@@ -25,6 +27,11 @@ class Area extends Model
     protected $casts = [
         'activa' => 'boolean',
     ];
+
+    public function empresa(): BelongsTo
+    {
+        return $this->belongsTo(Empresa::class);
+    }
 
     public function sede(): BelongsTo
     {

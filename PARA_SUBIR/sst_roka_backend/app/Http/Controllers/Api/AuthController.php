@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Usuario;
+use App\Models\RolModuloPermiso;
+use App\Models\UsuarioModuloPermiso;
 use App\Services\AuditoriaService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -87,12 +89,13 @@ class AuthController extends Controller
         return response()->json([
             'token' => $token,
             'user'  => [
-                'id'       => $usuario->id,
-                'nombre'   => $usuario->nombre,
-                'email'    => $usuario->email,
-                'rol'      => $usuario->rol,
-                'empresa'  => $usuario->empresa->razon_social,
-                'permisos' => Usuario::PERMISOS_ROL[$usuario->rol] ?? [],
+                'id'               => $usuario->id,
+                'nombre'           => $usuario->nombre,
+                'email'            => $usuario->email,
+                'rol'              => $usuario->rol,
+                'empresa'          => $usuario->empresa->razon_social,
+                'permisos'         => Usuario::PERMISOS_ROL[$usuario->rol] ?? [],
+                'permisos_modulos' => $this->getPermisosModulos($usuario),
             ],
         ]);
     }
@@ -131,6 +134,7 @@ class AuthController extends Controller
             'empresa_id'              => $usuario->empresa_id,
             'empresa'                 => $usuario->empresa->razon_social,
             'permisos'                => Usuario::PERMISOS_ROL[$usuario->rol] ?? [],
+            'permisos_modulos'        => $this->getPermisosModulos($usuario),
             'notificaciones_no_leidas' => $usuario->notificaciones_no_leidas,
             'ultimo_acceso'           => $usuario->ultimo_acceso?->toIso8601String(),
             'personal'                => $usuario->personal ? [
@@ -139,6 +143,41 @@ class AuthController extends Controller
                 'cargo'           => $usuario->personal->cargo?->nombre,
             ] : null,
         ]);
+    }
+
+    // ── Helper: obtener permisos por módulo del usuario ─────────────────────
+
+    private function getPermisosModulos(Usuario $usuario): array
+    {
+        if ($usuario->rol === 'administrador') {
+            $claves = \DB::table('modulos')->where('activo', true)->pluck('clave');
+            $resultado = [];
+            foreach ($claves as $clave) {
+                $resultado[$clave] = [
+                    'puede_ver'      => true, 'puede_crear'    => true,
+                    'puede_editar'   => true, 'puede_eliminar' => true,
+                    'puede_aprobar'  => true, 'puede_exportar' => true,
+                ];
+            }
+            return $resultado;
+        }
+
+        $rolPermisos   = RolModuloPermiso::where('rol', $usuario->rol)->get()->keyBy('modulo_clave');
+        $userOverrides = UsuarioModuloPermiso::where('usuario_id', $usuario->id)->get()->keyBy('modulo_clave');
+        $resultado     = [];
+
+        foreach ($rolPermisos as $clave => $p) {
+            $efectivo = $userOverrides->has($clave) ? $userOverrides[$clave] : $p;
+            $resultado[$clave] = [
+                'puede_ver'      => (bool)$efectivo->puede_ver,
+                'puede_crear'    => (bool)$efectivo->puede_crear,
+                'puede_editar'   => (bool)$efectivo->puede_editar,
+                'puede_eliminar' => (bool)$efectivo->puede_eliminar,
+                'puede_aprobar'  => (bool)$efectivo->puede_aprobar,
+                'puede_exportar' => (bool)$efectivo->puede_exportar,
+            ];
+        }
+        return $resultado;
     }
 
     /**

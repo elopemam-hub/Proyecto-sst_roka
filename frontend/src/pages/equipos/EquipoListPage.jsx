@@ -185,9 +185,17 @@ export default function EquipoListPage() {
     }
   }
 
-  const imprimirTodasEtiquetas = () => {
-    const printWindow = window.open('/api/equipos/todas-etiquetas', '_blank')
-    if (!printWindow) alert('Por favor, permite ventanas emergentes para imprimir')
+  const imprimirTodasEtiquetas = async () => {
+    try {
+      const { data } = await api.get('/equipos/todas-etiquetas', { responseType: 'text' })
+      const blob = new Blob([data], { type: 'text/html' })
+      const url = URL.createObjectURL(blob)
+      const w = window.open(url, '_blank')
+      if (!w) alert('Por favor, permite ventanas emergentes para imprimir')
+      setTimeout(() => URL.revokeObjectURL(url), 60000)
+    } catch {
+      alert('Error al generar etiquetas')
+    }
   }
 
   return (
