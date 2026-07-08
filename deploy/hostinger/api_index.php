@@ -1,37 +1,29 @@
 <?php
 /**
  * SST ROKA — Punto de entrada de Laravel para Hostinger
- *
- * Este archivo va en: public_html/api/index.php
- *
- * IMPORTANTE: Edita la variable $laravelRoot para que apunte
- * a la carpeta donde subiste el laravel-app en el servidor.
- *
- * Ejemplo Hostinger:
- *   Si subiste laravel-app a /home/u123456789/sst_roka_backend/
- *   entonces pon: $laravelRoot = '/home/u123456789/sst_roka_backend';
+ * Ubicación en servidor: public_html/sst/api/index.php
  */
 
-// ┌─────────────────────────────────────────────────────────────┐
-// │  CONFIGURA ESTA RUTA antes de subir el archivo              │
-// └─────────────────────────────────────────────────────────────┘
-$laravelRoot = '/home/u248634042/domains/roka50safety.online/sst_roka_backend';
-// ─────────────────────────────────────────────────────────────
+$laravelRoot = '/home/u248634042/sst_roka_backend';
+
+// Fix SCRIPT_NAME: evita que Laravel recorte /api/ del REQUEST_URI.
+// Sin esto, Laravel ve /auth/login en vez de /api/auth/login y la ruta
+// web GET /{any} intercepta las peticiones antes que las rutas API.
+$_SERVER['SCRIPT_NAME']     = '/index.php';
+$_SERVER['PHP_SELF']        = '/index.php';
+$_SERVER['SCRIPT_FILENAME'] = $laravelRoot . '/public/index.php';
 
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 
 define('LARAVEL_START', microtime(true));
 
-// Modo mantenimiento
 if (file_exists($maintenance = $laravelRoot . '/storage/framework/maintenance.php')) {
     require $maintenance;
 }
 
-// Autoloader de Composer
 require $laravelRoot . '/vendor/autoload.php';
 
-// Arrancar Laravel y procesar la petición
 /** @var Application $app */
 $app = require_once $laravelRoot . '/bootstrap/app.php';
 

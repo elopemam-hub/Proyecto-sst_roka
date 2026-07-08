@@ -1,4 +1,4 @@
-# ================================================================
+﻿# ================================================================
 # SST ROKA — Deploy a Hostinger via SSH + PowerShell
 # Ejecutar: .\deploy\deploy_hostinger.ps1
 # ================================================================
@@ -81,7 +81,7 @@ Write-Host "`n[5/5] Verificando..." -ForegroundColor Yellow
 $s5 = NewSession
 Run "ls -la ${PUBLIC}/index.html && ls -la ${PUBLIC}/api/index.php" $s5
 Run "cd ~/sst_roka_backend && php artisan --version" $s5
-Run "cd ~/sst_roka_backend && git log -1 --oneline" $s5
+Run "cd ~/sst_roka_repo && git log -1 --oneline" $s5
 Remove-SSHSession -SessionId $s5.SessionId | Out-Null
 
 Write-Host "`n=======================================" -ForegroundColor Cyan
