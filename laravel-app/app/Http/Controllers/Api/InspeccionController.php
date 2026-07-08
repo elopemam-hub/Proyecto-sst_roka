@@ -1271,14 +1271,9 @@ class InspeccionController extends Controller
     {
         $user = $request->user();
 
-        // Buscar por usuario_id directo O por personal_id vinculado
+        // Solo inspecciones asignadas explícitamente a este usuario
         $query = Inspeccion::where('empresa_id', $user->empresa_id)
-            ->where(function ($q) use ($user) {
-                $q->where('inspector_usuario_id', $user->id);
-                if ($user->personal_id) {
-                    $q->orWhere('inspector_id', $user->personal_id);
-                }
-            })
+            ->where('inspector_usuario_id', $user->id)
             ->whereNull('deleted_at')
             ->whereNotIn('estado', ['anulada'])
             ->with(['area:id,nombre', 'equipoCatalogo:id,nombre,codigo']);
@@ -1307,7 +1302,6 @@ class InspeccionController extends Controller
                 'en_progreso' => $inspecciones->whereIn('estado', ['en_ejecucion', 'con_hallazgos'])->count(),
                 'ejecutadas'  => $inspecciones->whereIn('estado', ['ejecutada', 'cerrada'])->count(),
             ],
-            'debug' => ['personal_id' => $user->personal_id, 'usuario_id' => $user->id],
         ]);
     }
 
