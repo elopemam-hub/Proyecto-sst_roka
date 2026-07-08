@@ -1306,6 +1306,228 @@ class InspeccionController extends Controller
     }
 
     /**
+     * GET /api/inspecciones/kpi-equipos?periodo=semana
+     * KPI de cumplimiento de inspecciones agrupado por tipo de equipo (catálogo).
+     * periodo: hoy | semana | mes
+     * Devuelve resumen general + array de equipos con pct_actual, pct_anterior, delta, hist[7].
+     */
+    public function kpiEquipos(Request $request): JsonResponse
+    {
+        $eid    = $request->user()->empresa_id;
+        $period = $request->input('periodo', 'semana');
+        if (!in_array($period, ['hoy', 'semana', 'mes'])) {
+            $period = 'semana';
+        }
+
+        $estados     = ['ejecutada', 'cerrada', 'con_hallazgos'];
+        $estadosSql  = "'ejecutada','cerrada','con_hallazgos'";
+        $pctExpr     = "AVG(CASE WHEN estado IN ({$estadosSql}) AND porcentaje_cumplimiento IS NOT NULL THEN porcentaje_cumplimiento END)";
+        $cntExpr     = "SUM(CASE WHEN estado IN ({$estadosSql}) THEN 1 ELSE 0 END)";
+
+        // ── Rangos del período actual y anterior ──────────────────────────────
+        [$desde, $hasta, $prevDesde, $prevHasta] = $this->_kpiRangos($period);
+
+        // ── Catálogos activos ─────────────────────────────────────────────────
+        $catalogos = DB::table('equipos_catalogo')
+            ->where('activo', true)
+            ->orderBy('orden')
+            ->get(['id', 'nombre', 'codigo']);
+
+        $catIds = $catalogos->pluck('id');
+
+        // ── Stats período actual por catálogo ─────────────────────────────────
+        $actual = DB::table('inspecciones')
+            ->whereNull('deleted_at')
+            ->where('empresa_id', $eid)
+            ->whereIn('equipo_catalogo_id', $catIds)
+            ->whereBetween('planificada_para', [$desde, $hasta])
+            ->selectRaw("equipo_catalogo_id,
+                COUNT(*) as total,
+                {$cntExpr} as realizadas,
+                {$pctExpr} as pct")
+            ->groupBy('equipo_catalogo_id')
+            ->get()
+            ->keyBy('equipo_catalogo_id');
+
+        // ── Stats período anterior por catálogo ───────────────────────────────
+        $prev = DB::table('inspecciones')
+            ->whereNull('deleted_at')
+            ->where('empresa_id', $eid)
+            ->whereIn('equipo_catalogo_id', $catIds)
+            ->whereBetween('planificada_para', [$prevDesde, $prevHasta])
+            ->selectRaw("equipo_catalogo_id, {$pctExpr} as pct")
+            ->groupBy('equipo_catalogo_id')
+            ->get()
+            ->keyBy('equipo_catalogo_id');
+
+        // ── Histórico (7 buckets) ─────────────────────────────────────────────
+        $buckets     = $this->_kpiBuckets($period);
+        $histData    = $this->_kpiHist($eid, $catIds, $period, $buckets, $estadosSql);
+
+        // ── Armar respuesta por equipo ────────────────────────────────────────
+        $equipos = [];
+        foreach ($catalogos as $cat) {
+            $a = $actual->get($cat->id);
+            if (!$a || $a->total == 0) {
+                continue; // sin inspecciones en el período → omitir
+            }
+            $p          = $prev->get($cat->id);
+            $pctActual  = $a->pct !== null  ? round((float) $a->pct, 1)  : null;
+            $pctAnterior= $p?->pct !== null ? round((float) $p->pct, 1) : null;
+
+            $hist = array_map(function ($b) use ($histData, $cat) {
+                $val = $histData[$cat->id][$b['key']] ?? null;
+                return $val !== null ? round((float) $val, 1) : null;
+            }, $buckets);
+
+            $equipos[] = [
+                'id'           => $cat->id,
+                'nombre'       => $cat->nombre,
+                'codigo'       => $cat->codigo,
+                'total'        => (int) $a->total,
+                'realizadas'   => (int) $a->realizadas,
+                'pct_actual'   => $pctActual,
+                'pct_anterior' => $pctAnterior,
+                'delta'        => $pctActual !== null && $pctAnterior !== null
+                    ? round($pctActual - $pctAnterior, 1)
+                    : null,
+                'hist'         => $hist,
+                'hist_labels'  => array_column($buckets, 'label'),
+            ];
+        }
+
+        // ── Resumen global ────────────────────────────────────────────────────
+        $col        = collect($equipos);
+        $pcts       = $col->whereNotNull('pct_actual')->pluck('pct_actual');
+        $prevPcts   = $col->whereNotNull('pct_anterior')->pluck('pct_anterior');
+
+        $cumActual  = $pcts->count()     > 0 ? round($pcts->avg(), 1)     : null;
+        $cumAnterior= $prevPcts->count() > 0 ? round($prevPcts->avg(), 1) : null;
+
+        return response()->json([
+            'periodo' => $period,
+            'desde'   => $desde,
+            'hasta'   => $hasta,
+            'resumen' => [
+                'cumplimiento_general'  => $cumActual,
+                'cumplimiento_anterior' => $cumAnterior,
+                'tendencia'             => $cumActual !== null && $cumAnterior !== null
+                    ? round($cumActual - $cumAnterior, 1) : null,
+                'realizadas'            => $col->sum('realizadas'),
+                'programadas'           => $col->sum('total'),
+                'criticos'              => $col->where('pct_actual', '<', 65)->count(),
+            ],
+            'equipos'      => $equipos,
+            'hist_labels'  => array_column($buckets, 'label'),
+        ]);
+    }
+
+    private function _kpiRangos(string $period): array
+    {
+        $hoy = now()->startOfDay();
+
+        return match ($period) {
+            'hoy' => [
+                $hoy->toDateTimeString(),
+                $hoy->copy()->endOfDay()->toDateTimeString(),
+                $hoy->copy()->subDay()->toDateTimeString(),
+                $hoy->copy()->subDay()->endOfDay()->toDateTimeString(),
+            ],
+            'semana' => [
+                $hoy->copy()->startOfWeek()->toDateString(),
+                $hoy->copy()->endOfWeek()->toDateString(),
+                $hoy->copy()->subWeek()->startOfWeek()->toDateString(),
+                $hoy->copy()->subWeek()->endOfWeek()->toDateString(),
+            ],
+            default => [
+                $hoy->copy()->startOfMonth()->toDateString(),
+                $hoy->copy()->endOfMonth()->toDateString(),
+                $hoy->copy()->subMonth()->startOfMonth()->toDateString(),
+                $hoy->copy()->subMonth()->endOfMonth()->toDateString(),
+            ],
+        };
+    }
+
+    private function _kpiBuckets(string $period): array
+    {
+        $now     = now();
+        $buckets = [];
+
+        if ($period === 'hoy') {
+            for ($i = 6; $i >= 0; $i--) {
+                $h = $now->copy()->subHours($i);
+                $buckets[] = [
+                    'key'   => $h->format('H'),
+                    'label' => $h->format('H:i'),
+                ];
+            }
+        } elseif ($period === 'semana') {
+            for ($i = 6; $i >= 0; $i--) {
+                $d = $now->copy()->subDays($i);
+                $buckets[] = [
+                    'key'   => $d->toDateString(),
+                    'label' => $d->locale('es')->isoFormat('ddd'),
+                ];
+            }
+        } else {
+            for ($i = 6; $i >= 0; $i--) {
+                $w = $now->copy()->subWeeks($i);
+                $buckets[] = [
+                    'key'   => $w->format('oW'), // ISO year+week e.g. "202527"
+                    'label' => 'S' . $w->isoWeek(),
+                ];
+            }
+        }
+
+        return $buckets;
+    }
+
+    private function _kpiHist($eid, $catIds, string $period, array $buckets, string $estadosSql): array
+    {
+        $pctExpr = "AVG(CASE WHEN estado IN ({$estadosSql}) AND porcentaje_cumplimiento IS NOT NULL THEN porcentaje_cumplimiento END)";
+
+        if ($period === 'hoy') {
+            $desde = now()->subHours(6)->startOfHour()->toDateTimeString();
+            $rows  = DB::table('inspecciones')
+                ->whereNull('deleted_at')
+                ->where('empresa_id', $eid)
+                ->whereIn('equipo_catalogo_id', $catIds)
+                ->where('planificada_para', '>=', $desde)
+                ->selectRaw("equipo_catalogo_id, LPAD(HOUR(planificada_para),2,'0') as bk, {$pctExpr} as pct")
+                ->groupBy('equipo_catalogo_id', 'bk')
+                ->get();
+        } elseif ($period === 'semana') {
+            $desde = now()->subDays(6)->startOfDay()->toDateString();
+            $rows  = DB::table('inspecciones')
+                ->whereNull('deleted_at')
+                ->where('empresa_id', $eid)
+                ->whereIn('equipo_catalogo_id', $catIds)
+                ->where('planificada_para', '>=', $desde)
+                ->selectRaw("equipo_catalogo_id, DATE(planificada_para) as bk, {$pctExpr} as pct")
+                ->groupBy('equipo_catalogo_id', 'bk')
+                ->get();
+        } else {
+            $desde = now()->subWeeks(6)->startOfWeek()->toDateString();
+            $rows  = DB::table('inspecciones')
+                ->whereNull('deleted_at')
+                ->where('empresa_id', $eid)
+                ->whereIn('equipo_catalogo_id', $catIds)
+                ->where('planificada_para', '>=', $desde)
+                ->selectRaw("equipo_catalogo_id, DATE_FORMAT(planificada_para, '%x%V') as bk, {$pctExpr} as pct")
+                ->groupBy('equipo_catalogo_id', 'bk')
+                ->get();
+        }
+
+        // Index: [catId][bucketKey] = pct
+        $map = [];
+        foreach ($rows as $row) {
+            $map[$row->equipo_catalogo_id][$row->bk] = $row->pct;
+        }
+
+        return $map;
+    }
+
+    /**
      * GET /api/inspecciones/pendientes-firma
      * Inspecciones con estado de firmas. tipo=diaria|mensual
      */
