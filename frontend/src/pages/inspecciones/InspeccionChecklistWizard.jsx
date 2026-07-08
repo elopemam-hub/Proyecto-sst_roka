@@ -1,5 +1,7 @@
 ﻿import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom'
+import { useSelector } from 'react-redux'
+import { selectUser } from '../../store/slices/authSlice'
 import {
   ChevronRight, ChevronLeft, Check, Camera, X, AlertTriangle,
   ClipboardCheck, PenLine, Info, Loader2, CheckCircle2, ArrowLeft
@@ -178,15 +180,28 @@ function PreguntaItem({ pregunta, respuesta, onChange }) {
   }
 
   return (
-    <div className={`p-4 rounded-xl border ${resultado === 'N' ? 'border-red-200 bg-red-50/30' : 'border-gray-200 bg-white'}`}>
+    <div className={`p-4 rounded-xl border ${
+      resultado === 'N'
+        ? 'border-red-200 bg-red-50/30'
+        : pregunta.nc_anterior && resultado == null
+          ? 'border-amber-300 bg-amber-50/40'
+          : 'border-gray-200 bg-white'
+    }`}>
       <div className="flex items-start gap-3">
         <span className="text-xs text-gray-400 font-mono mt-0.5 min-w-[24px]">{pregunta.orden}.</span>
         <div className="flex-1 space-y-3">
           <div className="flex items-start justify-between gap-2">
-            <p className="text-sm text-gray-800 leading-snug">
-              {pregunta.texto}
-              {pregunta.es_obligatoria && <span className="text-red-500 ml-1">*</span>}
-            </p>
+            <div className="flex-1">
+              <p className="text-sm text-gray-800 leading-snug">
+                {pregunta.texto}
+                {pregunta.es_obligatoria && <span className="text-red-500 ml-1">*</span>}
+              </p>
+              {pregunta.nc_anterior && (
+                <span className="inline-flex items-center gap-1 mt-1 text-[10px] bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded-full font-semibold">
+                  <AlertTriangle size={9}/> NC en {pregunta.nc_anterior_codigo || pregunta.nc_anterior_fecha || 'inspección anterior'}
+                </span>
+              )}
+            </div>
             {pregunta.ayuda && (
               <button title={pregunta.ayuda} className="text-gray-400 hover:text-gray-600 shrink-0">
                 <Info size={14} />
@@ -334,7 +349,9 @@ export default function InspeccionChecklistWizard() {
   const { id: inspId } = useParams()
   const [searchParams] = useSearchParams()
   const location = useLocation()
+  const user = useSelector(selectUser)
   const preselCatalogoId = searchParams.get('catalogo_id')
+  const progId           = searchParams.get('prog_id')
   // asignacion_id viene de query params o de location.state (reanudación)
   const asignacionId   = searchParams.get('asignacion_id') || location.state?.asignacion_id || null
   const fromMisEquipos = Boolean(asignacionId) || location.state?.from === 'mis-equipos'
@@ -348,7 +365,7 @@ export default function InspeccionChecklistWizard() {
   const [loading, setLoading]         = useState(false)
   const [saving, setSaving]           = useState(false)
   const [inspeccion, setInspeccion]   = useState(null)
-  const [firmasDone, setFirmasDone]   = useState({ inspector: false, responsable_area: false })
+  const [firmasDone, setFirmasDone]   = useState({ responsable_area: false })
 
   // Selecciones
   const [submoduloSel, setSubmoduloSel] = useState(null)
@@ -370,6 +387,13 @@ export default function InspeccionChecklistWizard() {
     api.get('/areas', { params: { per_page: 1000 } }).then(({ data }) => setAreas(data.data || data)).catch(() => {})
     api.get('/personal').then(({ data }) => setPersonal(data.data || data)).catch(() => {})
   }, [])
+
+  // Auto-rellenar inspector con el usuario actual
+  useEffect(() => {
+    if (user?.personal_id && !inspId) {
+      setInspectorId(String(user.personal_id))
+    }
+  }, [user?.personal_id, inspId])
 
   // Auto-seleccionar cuando viene con ?catalogo_id= desde la tabla de equipos
   useEffect(() => {
@@ -396,7 +420,7 @@ export default function InspeccionChecklistWizard() {
         if (insp.equipo_catalogo_id) {
           // Determinar frecuencia de inspección desde el catálogo del equipo
           const frecuencia = insp.equipo_catalogo?.frecuencia_inspeccion || null
-          const params = { solo_activas: true }
+          const params = { solo_activas: true, inspeccion_id: inspId }
           if (frecuencia) {
             params.frecuencia = frecuencia
           }
@@ -489,6 +513,9 @@ export default function InspeccionChecklistWizard() {
       const { data } = await api.post('/inspecciones', body)
       setInspeccion(data)
       setPaso(3)
+      if (progId) {
+        api.put(`/inspecciones-programadas/${progId}/realizar`, { inspeccion_id: data.id }).catch(() => {})
+      }
     } catch (err) {
       alert(err.response?.data?.message || 'Error al crear la inspección')
     } finally { setSaving(false) }
@@ -831,16 +858,11 @@ export default function InspeccionChecklistWizard() {
             )}
           </div>
 
-          {/* Firmas */}
+          {/* Firma responsable de área */}
           <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-5">
             <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-              <PenLine size={18} className="text-roka-500" /> Firmas digitales
+              <PenLine size={18} className="text-roka-500" /> Firma digital
             </h3>
-            <FirmaCanvas
-              label="Inspector SST"
-              firmado={firmasDone.inspector}
-              onFirmar={(b64) => firmar('inspector', b64, 'Inspector SST')}
-            />
             <FirmaCanvas
               label="Responsable de Área"
               firmado={firmasDone.responsable_area}
@@ -855,7 +877,7 @@ export default function InspeccionChecklistWizard() {
             </button>
             <button
               onClick={finalizar}
-              disabled={saving || (!firmasDone.inspector && !firmasDone.responsable_area)}
+              disabled={saving}
               className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-medium disabled:opacity-40"
             >
               {saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}

@@ -220,13 +220,42 @@ class ChecklistController extends Controller
             $query->where('activo', true);
         }
 
-        // Filtrar por frecuencia (para inspecciones diarias/mensuales)
         if ($request->filled('frecuencia')) {
             $frecuencia = $request->input('frecuencia');
             $query->whereIn('frecuencia', [$frecuencia, 'ambas']);
         }
 
-        return response()->json($query->get());
+        $preguntas = $query->get();
+
+        // Plantilla adaptativa: marcar preguntas que tuvieron NC en la inspección anterior
+        if ($request->filled('inspeccion_id')) {
+            $actual = \App\Models\Inspeccion::find($request->integer('inspeccion_id'));
+            if ($actual?->equipo_catalogo_id) {
+                $anterior = \App\Models\Inspeccion::where('empresa_id', $actual->empresa_id)
+                    ->where('equipo_catalogo_id', $actual->equipo_catalogo_id)
+                    ->when($actual->equipo_id, fn($q) => $q->where('equipo_id', $actual->equipo_id))
+                    ->whereIn('estado', ['ejecutada', 'con_hallazgos', 'cerrada'])
+                    ->where('id', '!=', $actual->id)
+                    ->orderByDesc('planificada_para')
+                    ->first(['id', 'codigo', 'planificada_para']);
+
+                if ($anterior) {
+                    $ncPrevios = \App\Models\InspeccionRespuesta::where('inspeccion_id', $anterior->id)
+                        ->where('resultado', 'N')
+                        ->pluck('pregunta_id')
+                        ->flip();
+
+                    $preguntas = $preguntas->map(function ($p) use ($ncPrevios, $anterior) {
+                        $p->nc_anterior        = $ncPrevios->has($p->id);
+                        $p->nc_anterior_codigo = $p->nc_anterior ? $anterior->codigo : null;
+                        $p->nc_anterior_fecha  = $p->nc_anterior ? substr($anterior->planificada_para, 0, 7) : null;
+                        return $p;
+                    });
+                }
+            }
+        }
+
+        return response()->json($preguntas);
     }
 
     public function preguntaStore(Request $request): JsonResponse

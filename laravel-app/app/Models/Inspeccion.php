@@ -18,7 +18,7 @@ class Inspeccion extends Model
         'empresa_id', 'sede_id', 'area_id',
         'codigo', 'tipo', 'titulo', 'descripcion',
         'planificada_para', 'ejecutada_en',
-        'inspector_id', 'supervisor_id', 'elaborado_por',
+        'inspector_id', 'inspector_usuario_id', 'supervisor_id', 'elaborado_por',
         'estado',
         'puntaje_total', 'puntaje_obtenido', 'porcentaje_cumplimiento',
         'observaciones_generales', 'requiere_firma',
@@ -53,9 +53,10 @@ class Inspeccion extends Model
     public function empresa(): BelongsTo    { return $this->belongsTo(Empresa::class); }
     public function sede(): BelongsTo       { return $this->belongsTo(Sede::class); }
     public function area(): BelongsTo       { return $this->belongsTo(Area::class); }
-    public function inspector(): BelongsTo  { return $this->belongsTo(Personal::class, 'inspector_id'); }
-    public function supervisor(): BelongsTo { return $this->belongsTo(Personal::class, 'supervisor_id'); }
-    public function elaborador(): BelongsTo { return $this->belongsTo(Usuario::class, 'elaborado_por'); }
+    public function inspector(): BelongsTo         { return $this->belongsTo(Personal::class, 'inspector_id'); }
+    public function inspectorUsuario(): BelongsTo  { return $this->belongsTo(Usuario::class, 'inspector_usuario_id'); }
+    public function supervisor(): BelongsTo        { return $this->belongsTo(Personal::class, 'supervisor_id'); }
+    public function elaborador(): BelongsTo        { return $this->belongsTo(Usuario::class, 'elaborado_por'); }
     public function items(): HasMany        { return $this->hasMany(InspeccionItem::class)->orderBy('numero_item'); }
     public function hallazgos(): HasMany    { return $this->hasMany(InspeccionHallazgo::class); }
 

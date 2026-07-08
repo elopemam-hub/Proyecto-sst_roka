@@ -145,7 +145,7 @@ export default function EquipoProgramaPage() {
   }
 
   const inspeccionar = (prog) => {
-    navigate(`/inspecciones/checklist/nueva?catalogo_id=${prog.plantilla_id}&equipo_id=${prog.equipo_id}`)
+    navigate(`/inspecciones/checklist/nueva?catalogo_id=${prog.plantilla_id}&equipo_id=${prog.equipo_id}&prog_id=${prog.id}`)
   }
 
   const gf = (k, v) => setGenForm(p => ({ ...p, [k]: v }))

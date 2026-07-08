@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Edit, CheckCircle, AlertTriangle, Clock, Calendar,
   ClipboardCheck, Plus, Lock, Download, Camera, X,
-  Send, Pen, Shield,
+  Send, Pen, Shield, RotateCcw, ExternalLink, ShieldCheck,
 } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
@@ -44,7 +44,7 @@ function exportarInspeccion(insp) {
     ['Tipo',         insp.tipo],
     ['Estado',       insp.estado],
     ['Área',         insp.area?.nombre || '—'],
-    ['Inspector',    insp.inspector ? `${insp.inspector.nombres} ${insp.inspector.apellidos}` : '—'],
+    ['Inspector',    insp.inspector ? `${insp.inspector.nombres} ${insp.inspector.apellidos}` : insp.inspector_usuario?.nombre || '—'],
     ['Fecha planif.',insp.planificada_para || '—'],
     ['Ejecutada',    insp.ejecutada_en || 'Pendiente'],
     [],
@@ -406,21 +406,20 @@ export default function InspeccionDetailPage() {
   const { id }   = useParams()
   const [insp, setInsp]                   = useState(null)
 
-  // Determinar ruta de retorno según la frecuencia de inspección
+  // Determinar ruta de retorno según tipo y frecuencia de inspección
   const getRutaRetorno = () => {
     if (!insp) return '/inspecciones'
 
-    // Si tiene equipo_catalogo_id, usar la frecuencia del catálogo
-    if (insp.equipo_catalogo_id && insp.frecuencia_inspeccion) {
-      if (insp.frecuencia_inspeccion === 'diaria') {
-        return '/inspecciones/diarias'
-      }
-      if (insp.frecuencia_inspeccion === 'mensual') {
-        return '/inspecciones/mensual'
-      }
+    // Inspecciones de equipos (Mis Equipos Hoy) → siempre a diarias
+    if (insp.tipo === 'equipos') return '/inspecciones/diarias'
+
+    // Inspecciones con catálogo → usar frecuencia del catálogo
+    const freq = insp.frecuencia_inspeccion || insp.equipo_catalogo?.frecuencia_inspeccion
+    if (insp.equipo_catalogo_id && freq) {
+      if (freq === 'diaria')  return '/inspecciones/diarias'
+      if (freq === 'mensual') return '/inspecciones/mensual'
     }
 
-    // Default: inspecciones generales
     return '/inspecciones'
   }
   const [personal, setPersonal]           = useState([])
@@ -462,8 +461,15 @@ export default function InspeccionDetailPage() {
   const handleCerrar = async () => {
     if (!confirm('¿Cerrar definitivamente esta inspección?')) return
     try {
-      await api.post(`/inspecciones/${id}/cerrar`)
-      toast.success('Inspección cerrada')
+      const { data: res } = await api.post(`/inspecciones/${id}/cerrar`)
+      if (res.reinspeccion) {
+        toast.success(
+          `Cerrada · Re-inspección programada: ${res.reinspeccion.codigo} para ${res.reinspeccion.fecha}`,
+          { duration: 6000 }
+        )
+      } else {
+        toast.success('Inspección cerrada correctamente')
+      }
       cargar()
     } catch (err) { toast.error(err.response?.data?.message || 'Error') }
   }
@@ -499,6 +505,28 @@ export default function InspeccionDetailPage() {
     } catch (err) {
       toast.error(err.response?.data?.message || 'Error al actualizar hallazgo')
     }
+  }
+
+  const [hallazgosPrevios, setHallazgosPrevios]       = useState(null)
+  const [verificandoId, setVerificandoId]             = useState(null)
+
+  useEffect(() => {
+    if (insp?.equipo_catalogo_id) {
+      api.get(`/inspecciones/${id}/hallazgos-previos`)
+        .then(({ data }) => setHallazgosPrevios(data.hallazgos || []))
+        .catch(() => setHallazgosPrevios([]))
+    }
+  }, [id, insp?.equipo_catalogo_id])
+
+  const handleVerificarHallazgoPrevio = async (hallazgoId) => {
+    setVerificandoId(hallazgoId)
+    try {
+      await api.post(`/inspecciones/${id}/verificar-hallazgo/${hallazgoId}`)
+      toast.success('Hallazgo marcado como verificado en esta inspección')
+      setHallazgosPrevios(prev => prev.filter(h => h.id !== hallazgoId))
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error al verificar hallazgo')
+    } finally { setVerificandoId(null) }
   }
 
   if (loading) return (
@@ -672,7 +700,7 @@ export default function InspeccionDetailPage() {
         <Info label="Equipo"            value={insp.equipo ? `${insp.equipo.codigo} - ${insp.equipo.nombre}` : insp.equipo_catalogo_nombre || '—'} />
         <Info label="Área"              value={insp.area?.nombre || '—'} />
         <Info label="Turno"             value={insp.turno ? insp.turno.charAt(0).toUpperCase() + insp.turno.slice(1) : '—'} />
-        <Info label="Inspector"         value={insp.inspector ? `${insp.inspector.nombres} ${insp.inspector.apellidos}` : '—'} />
+        <Info label="Inspector"         value={insp.inspector ? `${insp.inspector.nombres} ${insp.inspector.apellidos}` : insp.inspector_usuario?.nombre || insp.elaborador?.nombre || '—'} />
         <Info label="Supervisor"        value={insp.supervisor ? `${insp.supervisor.nombres} ${insp.supervisor.apellidos}` : '—'} />
         <Info label="Fecha planificada" value={insp.planificada_para ? format(new Date(insp.planificada_para), 'dd MMM yyyy', { locale: es }) : '—'} />
         <Info label="Fecha ejecutada"   value={insp.ejecutada_en ? format(new Date(insp.ejecutada_en), "dd MMM yyyy", { locale: es }) : 'Pendiente'} />
@@ -806,6 +834,60 @@ export default function InspeccionDetailPage() {
                   </div>
                 )
               })}
+          </div>
+        </div>
+      )}
+
+      {/* Hallazgos previos pendientes de verificación */}
+      {hallazgosPrevios?.length > 0 && (
+        <div className="bg-amber-50 rounded-xl border border-amber-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-amber-200 flex items-center gap-3">
+            <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
+              <AlertTriangle size={15} className="text-amber-600"/>
+            </div>
+            <div>
+              <p className="font-semibold text-amber-900 text-sm">
+                Hallazgos pendientes de inspecciones anteriores ({hallazgosPrevios.length})
+              </p>
+              <p className="text-xs text-amber-700">Verificar si las correcciones se aplicaron en esta inspección</p>
+            </div>
+          </div>
+          <div className="divide-y divide-amber-100">
+            {hallazgosPrevios.map(h => (
+              <div key={h.id} className="px-5 py-3 flex items-start justify-between gap-4 hover:bg-amber-100/40 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${
+                      h.criticidad === 'critico'
+                        ? 'bg-red-100 text-red-700 border-red-200'
+                        : h.criticidad === 'moderado'
+                          ? 'bg-orange-100 text-orange-700 border-orange-200'
+                          : 'bg-yellow-100 text-yellow-700 border-yellow-200'
+                    }`}>
+                      {h.criticidad}
+                    </span>
+                    <span className="text-[10px] text-amber-600 font-mono">
+                      {h.inspeccion?.codigo} · {h.inspeccion?.planificada_para?.slice(0,7)}
+                    </span>
+                    {h.fecha_limite_correccion && new Date(h.fecha_limite_correccion) < new Date() && (
+                      <span className="text-[10px] text-red-600 font-semibold">⚠ Vencido</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-800 leading-snug">{h.descripcion}</p>
+                  {h.responsable && (
+                    <p className="text-xs text-gray-500 mt-0.5">Responsable: {h.responsable.nombres} {h.responsable.apellidos}</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleVerificarHallazgoPrevio(h.id)}
+                  disabled={verificandoId === h.id}
+                  className="flex-shrink-0 flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
+                  {verificandoId === h.id
+                    ? <><RotateCcw size={11} className="animate-spin"/> Verificando...</>
+                    : <><ShieldCheck size={11}/> Verificado</>}
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -945,7 +1027,7 @@ export default function InspeccionDetailPage() {
           titulo={`${insp.codigo} — ${insp.titulo}`}
           accion="aprueba"
           onClose={() => setShowFirma(false)}
-          onSuccess={() => { setShowFirma(false); cargar() }}
+          onSuccess={() => { setShowFirma(false); navigate(getRutaRetorno()) }}
         />
       )}
     </div>

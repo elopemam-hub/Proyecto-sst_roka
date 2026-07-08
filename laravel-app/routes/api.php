@@ -156,6 +156,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/diarias-tabla',          [InspeccionController::class, 'tablaDiaria']);
         Route::get('/mensuales-tabla',        [InspeccionController::class, 'tablaMensual']);
         Route::get('/programa-mensual',       [InspeccionController::class, 'programaMensual']);
+        Route::get('/tendencia-mensual',      [InspeccionController::class, 'tendenciaMensual']);
+        Route::get('/mis-inspecciones',       [InspeccionController::class, 'misInspecciones']);
         Route::post('/generar-programa',      [InspeccionController::class, 'generarPrograma']);
         Route::get('/programadas-checklist',  [InspeccionController::class, 'programadasChecklist']);
         Route::post('/programar-checklist',   [InspeccionController::class, 'programarChecklist']);
@@ -165,10 +167,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{id}/ejecutar',         [InspeccionController::class, 'ejecutar']);
         Route::post('/{id}/hallazgos',        [InspeccionController::class, 'registrarHallazgo']);
         Route::put('/{id}/hallazgos/{hallazgoId}', [InspeccionController::class, 'actualizarHallazgo']);
-        Route::post('/{id}/cerrar',           [InspeccionController::class, 'cerrar']);
-        Route::post('/{id}/rechazar',         [InspeccionController::class, 'rechazar']);
-        Route::post('/{id}/enviar-a-firma',   [InspeccionController::class, 'enviarAFirma']);
-        Route::get('/{id}/reporte',           [InspeccionController::class, 'reporte']);
+        Route::post('/{id}/cerrar',                              [InspeccionController::class, 'cerrar']);
+        Route::post('/{id}/rechazar',                            [InspeccionController::class, 'rechazar']);
+        Route::post('/{id}/enviar-a-firma',                      [InspeccionController::class, 'enviarAFirma']);
+        Route::get('/{id}/reporte',                              [InspeccionController::class, 'reporte']);
+        Route::get('/{id}/hallazgos-previos',                    [InspeccionController::class, 'hallazgosPrevios']);
+        Route::post('/{id}/verificar-hallazgo/{hallazgoId}',     [InspeccionController::class, 'verificarHallazgoPrevio']);
 
         // Checklist dinámico por inspección
         Route::get('/{id}/checklist/respuestas',           [ChecklistController::class, 'respuestas']);

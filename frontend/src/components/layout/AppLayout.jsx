@@ -58,6 +58,7 @@ const menu = [
   { to: '/inspecciones/alertas', label: 'Alertas',             icon: ClipboardList, group: 'operativo', hidden: true },
   { to: '/inspecciones/tabla-diaria',  label: 'Checklist Diario',  icon: Zap,           group: 'operativo', hidden: true },
   { to: '/inspecciones/tabla-mensual', label: 'Checklist Mensual', icon: ClipboardList, group: 'operativo', hidden: true },
+  { to: '/inspecciones/mis-inspecciones', label: 'Mis inspecciones', icon: ClipboardCheck, group: 'operativo', roles: ['administrador', 'supervisor_sst', 'tecnico_sst', 'operativo', 'trabajador_tercero'] },
   { to: '/accidentes',              label: 'Accidentes',       icon: AlertCircle,     group: 'operativo', modulo: 'accidentes' },
   { to: '/seguimiento',             label: 'Seguimiento',      icon: TrendingUp,      group: 'operativo' },
   { to: '/personal',                label: 'Gestión Humana',   icon: Users,           group: 'gestion',   modulo: 'personal' },

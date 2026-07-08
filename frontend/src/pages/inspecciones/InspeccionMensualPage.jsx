@@ -4,8 +4,12 @@ import {
   ArrowLeft, ChevronLeft, ChevronRight, ClipboardList,
   CheckCircle2, Clock, AlertTriangle, Zap, Play,
   RefreshCw, Plus, Eye, BarChart3, Package, Shield,
-  PenLine, ShieldCheck, ShieldAlert, ChevronDown, XCircle, X, Info,
+  PenLine, ShieldCheck, ShieldAlert, ChevronDown, XCircle, X, Info, TrendingUp, User,
 } from 'lucide-react'
+import {
+  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, Legend,
+} from 'recharts'
 import { isToday } from 'date-fns'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
@@ -26,6 +30,13 @@ const ESTADO_CFG = {
   en_progreso:   { label: 'En progreso',    cls: 'bg-amber-50 text-amber-700 border-amber-200',       icon: Zap },
   programada:    { label: 'Programada',     cls: 'bg-blue-50 text-blue-700 border-blue-200',          icon: Clock },
   sin_programar: { label: 'Sin programar',  cls: 'bg-gray-100 text-gray-500 border-gray-200',         icon: AlertTriangle },
+}
+
+const SEMAFORO_CFG = {
+  rojo:     { dot: 'bg-red-500',     ring: 'ring-red-200',     label: 'Riesgo alto', pillCls: 'bg-red-50 border-red-200 text-red-700'             },
+  amarillo: { dot: 'bg-amber-400',   ring: 'ring-amber-200',   label: 'Atención',    pillCls: 'bg-amber-50 border-amber-200 text-amber-700'       },
+  verde:    { dot: 'bg-emerald-500', ring: 'ring-emerald-200', label: 'OK',          pillCls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+  gris:     { dot: 'bg-gray-300',    ring: 'ring-gray-200',    label: 'Sin datos',   pillCls: 'bg-gray-50 border-gray-200 text-gray-500'          },
 }
 
 const pctColor = v => v == null ? 'text-gray-300' : v >= 90 ? 'text-emerald-600 font-bold' : v >= 70 ? 'text-amber-600 font-bold' : 'text-red-500 font-bold'
@@ -65,8 +76,31 @@ function KpiSubmod({ codigo, data }) {
   )
 }
 
+// ── Selector compacto de inspector ───────────────────────────────────────
+function InspectorSelect({ inspId, inspectorUsuarioId, usuarios, onAsignarInspector }) {
+  const handleChange = (e) => {
+    const v = e.target.value ? parseInt(e.target.value) : null
+    onAsignarInspector(inspId, v)
+  }
+  return (
+    <div className="flex items-center gap-1 mt-1">
+      <User size={10} className="text-gray-400 shrink-0"/>
+      <select
+        value={inspectorUsuarioId ?? ''}
+        onChange={handleChange}
+        onClick={e => e.stopPropagation()}
+        className="text-[10px] border border-gray-200 rounded px-1 py-0.5 text-gray-600 bg-white max-w-[120px] focus:outline-none focus:ring-1 focus:ring-roka-300">
+        <option value="">Sin inspector</option>
+        {usuarios.map(u => (
+          <option key={u.id} value={u.id}>{u.nombre || `${u.nombres ?? ''} ${u.apellidos ?? ''}`.trim()}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
 // ── Fila del catálogo ─────────────────────────────────────────────────────
-function FilaCatalogo({ cat, navigate, onProgramar }) {
+function FilaCatalogo({ cat, navigate, onProgramar, usuarios, onAsignarInspector }) {
   const [expandida, setExpandida] = useState(false)
   const estadoCfg = ESTADO_CFG[cat.estado] || ESTADO_CFG.sin_programar
   const EIcon = estadoCfg.icon
@@ -95,8 +129,23 @@ function FilaCatalogo({ cat, navigate, onProgramar }) {
         </td>
         {/* Equipo */}
         <td className="px-4 py-3">
-          <p className="font-medium text-gray-800 text-sm">{cat.catalogo_nombre}</p>
-          <p className="text-gray-400 text-[10px] font-mono">{cat.catalogo_codigo}</p>
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ring-2 ring-offset-1 ${SEMAFORO_CFG[cat.semaforo]?.dot || 'bg-gray-300'} ${SEMAFORO_CFG[cat.semaforo]?.ring || 'ring-gray-200'}`}
+              title={SEMAFORO_CFG[cat.semaforo]?.label}
+            />
+            <div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <p className="font-medium text-gray-800 text-sm">{cat.catalogo_nombre}</p>
+                {cat.criticos_abiertos > 0 && (
+                  <span className="inline-flex items-center gap-0.5 text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full border border-red-200 font-medium">
+                    <AlertTriangle size={9}/> {cat.criticos_abiertos} crítico{cat.criticos_abiertos > 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+              <p className="text-gray-400 text-[10px] font-mono">{cat.catalogo_codigo}</p>
+            </div>
+          </div>
         </td>
         {/* Equipos físicos */}
         <td className="px-4 py-3 text-center">
@@ -128,23 +177,33 @@ function FilaCatalogo({ cat, navigate, onProgramar }) {
         </td>
         {/* Acciones */}
         <td className="px-4 py-3">
-          <div className="flex gap-2" onClick={e => e.stopPropagation()}>
-            {cat.estado === 'sin_programar' ? (
-              <button onClick={() => onProgramar(cat)}
-                className="flex items-center gap-1 text-xs bg-roka-500 hover:bg-roka-600 text-white px-2.5 py-1 rounded-lg font-medium">
-                <Plus size={11}/> Programar
-              </button>
-            ) : cat.inspecciones?.length > 0 ? (
-              <button onClick={() => navigate(`/inspecciones/${cat.inspecciones[0].id}`)}
-                className="flex items-center gap-1 text-xs text-roka-600 hover:text-roka-700 font-medium">
-                <Eye size={12}/> Ver
-              </button>
-            ) : null}
-            {['programada','en_progreso'].includes(cat.estado) && cat.inspecciones?.length > 0 && (
-              <button onClick={() => navigate(`/inspecciones/checklist/${cat.inspecciones[0].id}`)}
-                className="flex items-center gap-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg font-medium">
-                <Play size={10}/> Ejecutar
-              </button>
+          <div className="flex flex-col gap-0.5" onClick={e => e.stopPropagation()}>
+            <div className="flex gap-2">
+              {cat.estado === 'sin_programar' ? (
+                <button onClick={() => onProgramar(cat)}
+                  className="flex items-center gap-1 text-xs bg-roka-500 hover:bg-roka-600 text-white px-2.5 py-1 rounded-lg font-medium">
+                  <Plus size={11}/> Programar
+                </button>
+              ) : cat.inspecciones?.length > 0 ? (
+                <button onClick={() => navigate(`/inspecciones/${cat.inspecciones[0].id}`)}
+                  className="flex items-center gap-1 text-xs text-roka-600 hover:text-roka-700 font-medium">
+                  <Eye size={12}/> Ver
+                </button>
+              ) : null}
+              {['programada','en_progreso'].includes(cat.estado) && cat.inspecciones?.length > 0 && (
+                <button onClick={() => navigate(`/inspecciones/checklist/${cat.inspecciones[0].id}`)}
+                  className="flex items-center gap-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg font-medium">
+                  <Play size={10}/> Ejecutar
+                </button>
+              )}
+            </div>
+            {cat.inspecciones?.length > 0 && usuarios.length > 0 && (
+              <InspectorSelect
+                inspId={cat.inspecciones[0].id}
+                inspectorUsuarioId={cat.inspecciones[0].inspector_usuario_id}
+                usuarios={usuarios}
+                onAsignarInspector={onAsignarInspector}
+              />
             )}
           </div>
         </td>
@@ -193,25 +252,35 @@ function FilaCatalogo({ cat, navigate, onProgramar }) {
                     </div>
 
                     {/* Acciones */}
-                    <div className="flex gap-1.5" onClick={e => e.stopPropagation()}>
-                      {tieneInsp ? (
-                        <>
-                          <button onClick={() => navigate(`/inspecciones/${eq.inspeccion.id}`)}
-                            className="flex items-center gap-1 text-[10px] text-roka-600 hover:text-roka-700 font-medium px-2 py-1 rounded hover:bg-roka-50">
-                            <Eye size={10}/> Ver
-                          </button>
-                          {['programada','en_progreso'].includes(eq.inspeccion.estado) && (
-                            <button onClick={() => navigate(`/inspecciones/checklist/${eq.inspeccion.id}`)}
-                              className="flex items-center gap-1 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded font-medium">
-                              <Play size={9}/> Ejecutar
+                    <div className="flex flex-col gap-0.5" onClick={e => e.stopPropagation()}>
+                      <div className="flex gap-1.5">
+                        {tieneInsp ? (
+                          <>
+                            <button onClick={() => navigate(`/inspecciones/${eq.inspeccion.id}`)}
+                              className="flex items-center gap-1 text-[10px] text-roka-600 hover:text-roka-700 font-medium px-2 py-1 rounded hover:bg-roka-50">
+                              <Eye size={10}/> Ver
                             </button>
-                          )}
-                        </>
-                      ) : (
-                        <button onClick={() => onProgramar(cat, eq)}
-                          className="flex items-center gap-1 text-[10px] bg-roka-500 hover:bg-roka-600 text-white px-2 py-1 rounded font-medium">
-                          <Plus size={9}/> Programar
-                        </button>
+                            {['programada','en_progreso'].includes(eq.inspeccion.estado) && (
+                              <button onClick={() => navigate(`/inspecciones/checklist/${eq.inspeccion.id}`)}
+                                className="flex items-center gap-1 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded font-medium">
+                                <Play size={9}/> Ejecutar
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          <button onClick={() => onProgramar(cat, eq)}
+                            className="flex items-center gap-1 text-[10px] bg-roka-500 hover:bg-roka-600 text-white px-2 py-1 rounded font-medium">
+                            <Plus size={9}/> Programar
+                          </button>
+                        )}
+                      </div>
+                      {tieneInsp && usuarios.length > 0 && (
+                        <InspectorSelect
+                          inspId={eq.inspeccion.id}
+                          inspectorUsuarioId={eq.inspeccion.inspector_usuario_id}
+                          usuarios={usuarios}
+                          onAsignarInspector={onAsignarInspector}
+                        />
                       )}
                     </div>
                   </div>
@@ -250,8 +319,9 @@ function FilaCatalogo({ cat, navigate, onProgramar }) {
 }
 
 // ── Modal confirmar generar programa ─────────────────────────────────────
-function ModalGenerarPrograma({ anio, mes, resumen, onConfirmar, onClose, generando }) {
+function ModalGenerarPrograma({ anio, mes, resumen, onConfirmar, onClose, generando, usuarios }) {
   const [sobreescribir, setSobreescribir] = useState(false)
+  const [inspectorId, setInspectorId]     = useState('')
   const sinProg = resumen?.sin_prog || 0
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -271,6 +341,25 @@ function ModalGenerarPrograma({ anio, mes, resumen, onConfirmar, onClose, genera
               <p className="text-xs text-gray-500">Ya tienen insp.</p>
             </div>
           </div>
+
+          {/* Inspector por defecto */}
+          {usuarios.length > 0 && (
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-medium text-gray-700 mb-1.5">
+                <User size={12} className="text-gray-500"/>
+                Inspector por defecto (opcional)
+              </label>
+              <select value={inspectorId} onChange={e => setInspectorId(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-roka-300 bg-white">
+                <option value="">Sin asignar</option>
+                {usuarios.map(u => (
+                  <option key={u.id} value={u.id}>{u.nombre || `${u.nombres ?? ''} ${u.apellidos ?? ''}`.trim()}</option>
+                ))}
+              </select>
+              <p className="text-[10px] text-gray-400 mt-1">Se asignará a todas las inspecciones generadas</p>
+            </div>
+          )}
+
           <label className="flex items-center gap-2.5 p-3 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer">
             <input type="checkbox" checked={sobreescribir} onChange={e => setSobreescribir(e.target.checked)}
               className="w-4 h-4 rounded accent-amber-500"/>
@@ -284,7 +373,7 @@ function ModalGenerarPrograma({ anio, mes, resumen, onConfirmar, onClose, genera
           <button onClick={onClose} className="flex-1 border border-gray-300 text-gray-600 rounded-lg py-2 text-sm hover:bg-gray-50">
             Cancelar
           </button>
-          <button onClick={() => onConfirmar(sobreescribir)} disabled={generando}
+          <button onClick={() => onConfirmar(sobreescribir, inspectorId ? parseInt(inspectorId) : null)} disabled={generando}
             className="flex-1 flex items-center justify-center gap-2 bg-roka-500 hover:bg-roka-600 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-40">
             {generando ? <RefreshCw size={13} className="animate-spin"/> : <Plus size={13}/>}
             {generando ? 'Generando...' : 'Generar programa'}
@@ -598,6 +687,119 @@ function SeccionRevisionMensual({ navigate }) {
   )
 }
 
+// ── Tooltip personalizado del gráfico ────────────────────────────────────
+function TrendTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  const d = payload[0]?.payload || {}
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-lg px-4 py-3 text-xs space-y-1.5">
+      <p className="font-bold text-gray-800 text-sm">{label}</p>
+      <p className="text-blue-600">Ejecución: <strong>{d.pct_ejecucion ?? 0}%</strong> ({d.completadas}/{d.total})</p>
+      {d.pct_cumplimiento != null && (
+        <p className="text-emerald-600">Cumplimiento promedio: <strong>{d.pct_cumplimiento}%</strong></p>
+      )}
+      {d.criticos > 0 && (
+        <p className="text-red-600">Hallazgos críticos: <strong>{d.criticos}</strong></p>
+      )}
+    </div>
+  )
+}
+
+// ── Sección de evolución mensual ──────────────────────────────────────────
+function SeccionTendencia() {
+  const [data, setData]       = useState(null)
+  const [meses, setMeses]     = useState(6)
+  const [abierto, setAbierto] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  const cargar = () => {
+    setLoading(true)
+    api.get('/inspecciones/tendencia-mensual', { params: { meses } })
+      .then(({ data }) => setData(data.datos || []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { if (abierto) cargar() }, [abierto, meses])
+
+  const chartData = (data || []).map(d => ({
+    ...d,
+    label: format(parseISO(d.mes + '-01'), 'MMM yy', { locale: es }),
+  }))
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+      <button onClick={() => setAbierto(o => !o)}
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center">
+            <TrendingUp size={17} className="text-blue-600"/>
+          </div>
+          <div className="text-left">
+            <p className="font-bold text-gray-900 text-sm">Evolución mensual</p>
+            <p className="text-xs text-gray-400">Tendencia de ejecución y cumplimiento del programa</p>
+          </div>
+        </div>
+        <ChevronDown size={16} className={`text-gray-400 transition-transform ${abierto ? 'rotate-180' : ''}`}/>
+      </button>
+
+      {abierto && (
+        <div className="border-t border-gray-100">
+          {/* Controles */}
+          <div className="flex items-center gap-2 px-5 py-3 bg-gray-50 border-b border-gray-100">
+            <span className="text-xs text-gray-500">Período:</span>
+            {[3, 6, 12].map(m => (
+              <button key={m} onClick={() => setMeses(m)}
+                className={`px-2.5 py-1 rounded-full border text-xs font-medium transition-colors ${
+                  meses === m ? 'bg-roka-500 text-white border-roka-500' : 'border-gray-300 text-gray-600 hover:bg-white'
+                }`}>
+                {m === 12 ? '1 año' : `${m} meses`}
+              </button>
+            ))}
+            <button onClick={cargar} className="ml-auto flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
+              <RefreshCw size={11}/> Actualizar
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <div className="w-6 h-6 border-2 border-roka-500 border-t-transparent rounded-full animate-spin"/>
+            </div>
+          ) : chartData.length === 0 ? (
+            <p className="text-center text-gray-400 text-sm py-10">Sin datos para el período seleccionado</p>
+          ) : (
+            <div className="px-4 py-5">
+              {/* Leyenda manual */}
+              <div className="flex flex-wrap items-center gap-4 mb-4 text-xs text-gray-500">
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-400 inline-block"/><span>% Ejecución (barras)</span></span>
+                <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 bg-emerald-500 inline-block"/><span>% Cumplimiento promedio (línea)</span></span>
+                {chartData.some(d => d.criticos > 0) && (
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-red-400 inline-block"/><span>Hallazgos críticos (barras)</span></span>
+                )}
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <ComposedChart data={chartData} margin={{ top: 4, right: 16, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#6b7280' }}/>
+                  <YAxis yAxisId="pct" domain={[0, 100]} tick={{ fontSize: 11, fill: '#6b7280' }} unit="%"/>
+                  <YAxis yAxisId="cnt" orientation="right" tick={{ fontSize: 11, fill: '#ef4444' }} allowDecimals={false}/>
+                  <Tooltip content={<TrendTooltip/>}/>
+                  <Bar yAxisId="pct" dataKey="pct_ejecucion" name="% Ejecución" fill="#93c5fd" radius={[3,3,0,0]} maxBarSize={40}/>
+                  {chartData.some(d => d.criticos > 0) && (
+                    <Bar yAxisId="cnt" dataKey="criticos" name="Críticos" fill="#fca5a5" radius={[3,3,0,0]} maxBarSize={20}/>
+                  )}
+                  <Line yAxisId="pct" type="monotone" dataKey="pct_cumplimiento" name="% Cumplimiento"
+                    stroke="#10b981" strokeWidth={2} dot={{ r: 4, fill: '#10b981' }} connectNulls/>
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Página principal ──────────────────────────────────────────────────────
 export default function InspeccionMensualPage() {
   const navigate   = useNavigate()
@@ -608,11 +810,20 @@ export default function InspeccionMensualPage() {
   const [loading, setLoading] = useState(true)
   const [anio, setAnio]       = useState(anioActual)
   const [mes, setMes]         = useState(mesActual)
-  const [filtroSub, setFiltroSub]     = useState('')
-  const [filtroEstado, setFiltroEstado] = useState('')
-  const [buscar, setBuscar]           = useState('')
-  const [modalGen, setModalGen]       = useState(false)
-  const [generando, setGenerando]     = useState(false)
+  const [filtroSub, setFiltroSub]         = useState('')
+  const [filtroEstado, setFiltroEstado]   = useState('')
+  const [filtroSemaforo, setFiltroSemaforo] = useState('')
+  const [ordenRiesgo, setOrdenRiesgo]     = useState(false)
+  const [buscar, setBuscar]               = useState('')
+  const [modalGen, setModalGen]           = useState(false)
+  const [generando, setGenerando]         = useState(false)
+  const [usuarios, setUsuarios]           = useState([])
+
+  useEffect(() => {
+    api.get('/usuarios', { params: { per_page: 1000, activo: true } })
+      .then(({ data }) => setUsuarios(data.data || data))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => { cargar() }, [anio, mes])
 
@@ -627,15 +838,25 @@ export default function InspeccionMensualPage() {
     } finally { setLoading(false) }
   }
 
-  const generarPrograma = async (sobreescribir) => {
+  const generarPrograma = async (sobreescribir, inspectorId = null) => {
     setGenerando(true)
     try {
-      const { data: res } = await api.post('/inspecciones/generar-programa', { anio, mes, sobreescribir })
+      const payload = { anio, mes, sobreescribir }
+      if (inspectorId) payload.inspector_usuario_id = inspectorId
+      const { data: res } = await api.post('/inspecciones/generar-programa', payload)
       toast.success(`✓ ${res.creadas} inspecciones creadas · ${res.omitidas} omitidas`)
       setModalGen(false)
       cargar()
     } catch (e) { toast.error(e.response?.data?.message || 'Error al generar') }
     finally { setGenerando(false) }
+  }
+
+  const handleAsignarInspector = async (inspeccionId, usuarioId) => {
+    try {
+      await api.put(`/inspecciones/${inspeccionId}`, { inspector_usuario_id: usuarioId })
+      toast.success('Inspector asignado')
+      cargar()
+    } catch (e) { toast.error(e.response?.data?.message || 'Error al asignar inspector') }
   }
 
   const programarInspeccion = async (catalogo, equipoEspecifico = null) => {
@@ -674,15 +895,20 @@ export default function InspeccionMensualPage() {
   const [pagina, setPagina] = useState(1)
   const POR_PAGINA = 15
 
-  const catalogosFiltrados = (data?.catalogos || []).filter(c => {
-    if (filtroSub   && c.submodulo !== filtroSub)     return false
-    if (filtroEstado && c.estado !== filtroEstado)     return false
+  const catalogosFiltradosBase = (data?.catalogos || []).filter(c => {
+    if (filtroSub      && c.submodulo !== filtroSub)     return false
+    if (filtroEstado   && c.estado !== filtroEstado)     return false
+    if (filtroSemaforo && c.semaforo !== filtroSemaforo) return false
     if (buscar && !c.catalogo_nombre.toLowerCase().includes(buscar.toLowerCase())) return false
     return true
   })
 
+  const catalogosFiltrados = ordenRiesgo
+    ? [...catalogosFiltradosBase].sort((a, b) => (b.score_riesgo || 0) - (a.score_riesgo || 0))
+    : catalogosFiltradosBase
+
   // Reset paginación al cambiar filtros
-  useEffect(() => { setPagina(1) }, [filtroSub, filtroEstado, buscar, anio, mes])
+  useEffect(() => { setPagina(1) }, [filtroSub, filtroEstado, filtroSemaforo, buscar, ordenRiesgo, anio, mes])
 
   const totalPags    = Math.ceil(catalogosFiltrados.length / POR_PAGINA)
   const catalogosPag = catalogosFiltrados.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA)
@@ -772,16 +998,34 @@ export default function InspeccionMensualPage() {
             ))}
           </div>
 
+          {/* Banner de riesgo */}
+          {r.rojo > 0 && (
+            <div className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle size={16} className="text-red-600 flex-shrink-0"/>
+                <p className="text-sm text-red-800">
+                  <strong>{r.rojo} catálogo{r.rojo > 1 ? 's' : ''}</strong> {r.rojo > 1 ? 'requieren' : 'requiere'} atención inmediata
+                  {r.amarillo > 0 && <span className="text-red-600"> · {r.amarillo} en observación</span>}
+                </p>
+              </div>
+              <button
+                onClick={() => { setFiltroSemaforo('rojo'); setOrdenRiesgo(true) }}
+                className="flex-shrink-0 text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
+                Ver críticos
+              </button>
+            </div>
+          )}
+
           {/* Tabla de catálogos */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             {/* Barra filtros */}
-            <div className="flex flex-wrap gap-3 p-3 border-b border-gray-100 bg-gray-50">
+            <div className="flex flex-wrap gap-2 p-3 border-b border-gray-100 bg-gray-50">
               <input value={buscar} onChange={e => setBuscar(e.target.value)}
                 placeholder="🔍 Buscar catálogo..."
-                className="flex-1 min-w-40 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-roka-300"/>
+                className="flex-1 min-w-36 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-roka-300"/>
               <select value={filtroSub} onChange={e => setFiltroSub(e.target.value)}
                 className="border border-gray-200 text-sm rounded-lg px-3 py-1.5 text-gray-600 focus:outline-none bg-white">
-                <option value="">Todos los sub-módulos</option>
+                <option value="">Todos sub-módulos</option>
                 <option value="A">A — Equipos</option>
                 <option value="B">B — Infraestructura</option>
                 <option value="C">C — Emergencia</option>
@@ -794,7 +1038,36 @@ export default function InspeccionMensualPage() {
                 <option value="programada">Programada</option>
                 <option value="sin_programar">Sin programar</option>
               </select>
-              <button onClick={cargar} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-2">
+              {/* Filtro semáforo */}
+              <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-1.5 py-1">
+                {[
+                  { v: '', l: 'Todos' },
+                  { v: 'rojo',     l: '🔴' },
+                  { v: 'amarillo', l: '🟡' },
+                  { v: 'verde',    l: '🟢' },
+                ].map(({ v, l }) => (
+                  <button key={v || 'all'} onClick={() => setFiltroSemaforo(v)}
+                    title={v ? SEMAFORO_CFG[v]?.label : 'Todos los semáforos'}
+                    className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                      filtroSemaforo === v
+                        ? 'bg-roka-500 text-white'
+                        : 'text-gray-500 hover:bg-gray-100'
+                    }`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+              {/* Ordenar por riesgo */}
+              <button onClick={() => setOrdenRiesgo(o => !o)}
+                title="Ordenar de mayor a menor riesgo"
+                className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
+                  ordenRiesgo
+                    ? 'bg-orange-50 text-orange-700 border-orange-300 font-semibold'
+                    : 'border-gray-200 text-gray-500 hover:bg-white'
+                }`}>
+                <TrendingUp size={11}/> Por riesgo
+              </button>
+              <button onClick={cargar} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-2 ml-auto">
                 <RefreshCw size={12}/> Actualizar
               </button>
             </div>
@@ -815,7 +1088,9 @@ export default function InspeccionMensualPage() {
                   </td></tr>
                 ) : catalogosPag.map(cat => (
                   <FilaCatalogo key={cat.catalogo_id} cat={cat} navigate={navigate}
-                    onProgramar={programarInspeccion}/>
+                    onProgramar={programarInspeccion}
+                    usuarios={usuarios}
+                    onAsignarInspector={handleAsignarInspector}/>
                 ))}
               </tbody>
             </table>
@@ -849,6 +1124,9 @@ export default function InspeccionMensualPage() {
         </>
       )}
 
+      {/* Sección Evolución mensual */}
+      <SeccionTendencia />
+
       {/* Sección Revisión */}
       <SeccionRevisionMensual navigate={navigate} />
 
@@ -860,6 +1138,7 @@ export default function InspeccionMensualPage() {
           generando={generando}
           onConfirmar={generarPrograma}
           onClose={() => setModalGen(false)}
+          usuarios={usuarios}
         />
       )}
     </div>

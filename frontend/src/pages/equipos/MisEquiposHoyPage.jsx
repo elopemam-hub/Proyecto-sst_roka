@@ -3,11 +3,97 @@ import { useNavigate } from 'react-router-dom'
 import {
   ClipboardCheck, CheckCircle2, Clock, AlertCircle,
   ChevronRight, ArrowLeft, Calendar, Wrench,
-  Play, Eye, XCircle, RefreshCw,
+  Play, Eye, XCircle, RefreshCw, ClipboardList, Zap, ChevronDown,
 } from 'lucide-react'
 import api from '../../services/api'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
+
+const INSP_ESTADO_CFG = {
+  programada:    { label: 'Pendiente',   color: 'bg-blue-50 text-blue-700 border-blue-200',    icon: Clock },
+  en_ejecucion:  { label: 'En ejecución',color: 'bg-amber-50 text-amber-700 border-amber-200', icon: Zap },
+  con_hallazgos: { label: 'Con hallazgos',color:'bg-orange-50 text-orange-700 border-orange-200',icon: AlertCircle },
+  ejecutada:     { label: 'Ejecutada',   color: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: CheckCircle2 },
+  cerrada:       { label: 'Cerrada',     color: 'bg-gray-100 text-gray-600 border-gray-200',   icon: CheckCircle2 },
+}
+
+function SeccionMisInspecciones({ fecha, navigate }) {
+  const [data, setData]       = useState(null)
+  const [abierta, setAbierta] = useState(true)
+
+  useEffect(() => {
+    // Sin filtro de mes → muestra todas las pendientes (no cerradas)
+    api.get('/inspecciones/mis-inspecciones')
+      .then(({ data: res }) => setData(res))
+      .catch(() => {})
+  }, [])
+
+  if (!data || data.inspecciones.length === 0) return null
+
+  return (
+    <div className="mt-4">
+      <button
+        onClick={() => setAbierta(o => !o)}
+        className="w-full flex items-center justify-between bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-sm mb-2">
+        <div className="flex items-center gap-2">
+          <ClipboardList size={16} className="text-blue-600" />
+          <span className="font-semibold text-gray-800 text-sm">Mis inspecciones del mes</span>
+          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+            {data.resumen.total}
+          </span>
+        </div>
+        <ChevronDown size={15} className={`text-gray-400 transition-transform ${abierta ? 'rotate-180' : ''}`} />
+      </button>
+
+      {abierta && data.inspecciones.map(insp => {
+        const cfg    = INSP_ESTADO_CFG[insp.estado] || INSP_ESTADO_CFG.programada
+        const EstIcon = cfg.icon
+        const puedeEjecutar = ['programada', 'en_ejecucion', 'con_hallazgos'].includes(insp.estado)
+
+        return (
+          <div key={insp.id} className={`bg-white rounded-xl border ${cfg.color} p-4 mb-2 shadow-sm`}>
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-center flex-shrink-0">
+                <ClipboardList size={16} className="text-blue-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900 text-sm leading-tight truncate">
+                      {insp.equipoCatalogo?.nombre || insp.titulo}
+                    </p>
+                    <p className="text-xs text-gray-400 font-mono">{insp.codigo}</p>
+                  </div>
+                  <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border shrink-0 ${cfg.color}`}>
+                    <EstIcon size={9} /> {cfg.label}
+                  </span>
+                </div>
+                {insp.area?.nombre && (
+                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full mt-1 inline-block">
+                    {insp.area.nombre}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2 mt-3 pt-2 border-t border-gray-100">
+              {puedeEjecutar ? (
+                <button onClick={() => navigate(`/inspecciones/checklist/${insp.id}`)}
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 rounded-lg">
+                  <Play size={12} /> Ejecutar
+                </button>
+              ) : (
+                <button onClick={() => navigate(`/inspecciones/${insp.id}`)}
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-medium py-1.5 rounded-lg">
+                  <Eye size={12} /> Ver resultado
+                </button>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 const TURNO_CFG = {
   mañana:      { label: 'Mañana',      color: 'bg-amber-50 text-amber-700 border-amber-200' },
@@ -238,7 +324,7 @@ export default function MisEquiposHoyPage() {
             <BarraProgreso resumen={data.resumen} />
 
             {data.asignaciones.length === 0 ? (
-              <div className="text-center py-16 text-gray-400">
+              <div className="text-center py-10 text-gray-400">
                 <ClipboardCheck size={36} className="mx-auto mb-3 opacity-30" />
                 <p className="font-medium text-gray-500">Sin equipos asignados para esta fecha</p>
                 <p className="text-sm mt-1">El supervisor no ha generado asignaciones aún</p>
@@ -256,6 +342,8 @@ export default function MisEquiposHoyPage() {
                 ))}
               </div>
             )}
+
+            <SeccionMisInspecciones fecha={fecha} navigate={navigate} />
           </>
         )}
       </div>

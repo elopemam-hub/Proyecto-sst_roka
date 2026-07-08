@@ -74,7 +74,7 @@ class AuthController extends Controller
         }
 
         // Generar token
-        $token = $usuario->createToken('sst_roka_token', ['*'], now()->addHours(8))->plainTextToken;
+        $token = $usuario->createToken('sst_roka_token', ['*'], now()->addHours(24))->plainTextToken;
 
         // Registrar acceso
         $usuario->registrarAcceso($request->ip());
@@ -188,7 +188,7 @@ class AuthController extends Controller
     {
         $usuario = $request->user();
         $request->user()->currentAccessToken()->delete();
-        $token = $usuario->createToken('sst_roka_token', ['*'], now()->addHours(8))->plainTextToken;
+        $token = $usuario->createToken('sst_roka_token', ['*'], now()->addHours(24))->plainTextToken;
 
         return response()->json(['token' => $token]);
     }

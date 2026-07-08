@@ -12,7 +12,7 @@ class EppCategoria extends Model
 
     protected $fillable = [
         'empresa_id', 'nombre', 'descripcion',
-        'requiere_talla', 'vida_util_meses', 'activa',
+        'requiere_talla', 'vida_util_meses', 'activa', 'color',
     ];
 
     protected $casts = [

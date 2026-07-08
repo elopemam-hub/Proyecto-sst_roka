@@ -53,7 +53,7 @@ class InspeccionController extends Controller
             ->whereIn('equipo_catalogo_id', $catalogos->pluck('id'))
             ->whereBetween('planificada_para', [$desde, $hasta])
             ->whereNull('deleted_at')
-            ->get(['id','codigo','equipo_catalogo_id','equipo_id','estado','planificada_para','porcentaje_cumplimiento','area_id'])
+            ->get(['id','codigo','equipo_catalogo_id','equipo_id','estado','planificada_para','porcentaje_cumplimiento','area_id','inspector_id','inspector_usuario_id'])
             ->groupBy('equipo_catalogo_id');
 
         // Equipos físicos por catálogo
@@ -74,7 +74,45 @@ class InspeccionController extends Controller
         // Áreas
         $areas = DB::table('areas')->pluck('nombre','id');
 
-        $resultado = $catalogos->map(function ($cat) use ($inspExistentes, $equiposPorCat, $equiposPorId, $areas) {
+        // Hallazgos críticos abiertos por catálogo (sin subsanar/verificar)
+        $hallazgosCriticosPorCat = DB::table('inspecciones_hallazgos as h')
+            ->join('inspecciones as i', 'i.id', '=', 'h.inspeccion_id')
+            ->where('i.empresa_id', $eid)
+            ->whereIn('i.equipo_catalogo_id', $catalogos->pluck('id'))
+            ->where('h.criticidad', 'critico')
+            ->whereNotIn('h.estado', ['subsanado', 'verificado'])
+            ->whereNull('i.deleted_at')
+            ->select('i.equipo_catalogo_id', DB::raw('COUNT(*) as total'))
+            ->groupBy('i.equipo_catalogo_id')
+            ->pluck('total', 'equipo_catalogo_id');
+
+        // Hallazgos NC abiertos (cualquier criticidad, sin cerrar)
+        $hallazgosNCPorCat = DB::table('inspecciones_hallazgos as h')
+            ->join('inspecciones as i', 'i.id', '=', 'h.inspeccion_id')
+            ->where('i.empresa_id', $eid)
+            ->whereIn('i.equipo_catalogo_id', $catalogos->pluck('id'))
+            ->whereNotIn('h.estado', ['subsanado', 'verificado'])
+            ->whereNull('i.deleted_at')
+            ->select('i.equipo_catalogo_id', DB::raw('COUNT(*) as total'))
+            ->groupBy('i.equipo_catalogo_id')
+            ->pluck('total', 'equipo_catalogo_id');
+
+        // Última inspección ejecutada por catálogo (antes del mes consultado)
+        $ultimaInspPorCat = DB::table('inspecciones')
+            ->where('empresa_id', $eid)
+            ->whereIn('equipo_catalogo_id', $catalogos->pluck('id'))
+            ->whereIn('estado', ['ejecutada', 'con_hallazgos', 'cerrada'])
+            ->where('planificada_para', '<', $desde)
+            ->whereNull('deleted_at')
+            ->select('equipo_catalogo_id', DB::raw('MAX(planificada_para) as ultima_fecha'))
+            ->groupBy('equipo_catalogo_id')
+            ->pluck('ultima_fecha', 'equipo_catalogo_id');
+
+        $hoy         = now()->toDateString();
+        $esMesFuturo = $desde > $hoy;
+        $esMesPasado = $hasta < $hoy;
+
+        $resultado = $catalogos->map(function ($cat) use ($inspExistentes, $equiposPorCat, $equiposPorId, $areas, $hallazgosCriticosPorCat, $hallazgosNCPorCat, $ultimaInspPorCat, $hoy, $esMesFuturo, $esMesPasado, $desde) {
             $insps   = $inspExistentes->get($cat->id, collect());
             $equipos = $equiposPorCat->get($cat->id, collect());
 
@@ -121,6 +159,47 @@ class InspeccionController extends Controller
                 else                                       $estado = 'programada';
             }
 
+            // ── Score de riesgo y semáforo ───────────────────────────────────
+            $criticosAbiertos = (int) $hallazgosCriticosPorCat->get($cat->id, 0);
+            $ncAbiertos       = (int) $hallazgosNCPorCat->get($cat->id, 0);
+            $ultimaFecha      = $ultimaInspPorCat->get($cat->id);
+            $diasSinInsp      = $ultimaFecha
+                ? (int) \Carbon\Carbon::parse($ultimaFecha)->diffInDays(now())
+                : 365;
+
+            // Fórmula: críticos pesan más, luego NC abiertos, luego tiempo sin inspeccionar
+            $scoreRiesgo = ($criticosAbiertos * 5) + ($ncAbiertos * 2) + min(30, (int) ($diasSinInsp / 30));
+
+            if ($esMesFuturo) {
+                $semaforo = 'gris';
+            } elseif ($criticosAbiertos > 0) {
+                $semaforo = 'rojo';
+            } elseif ($esMesPasado) {
+                // Mes pasado: sin completar = rojo, bajo pct = amarillo
+                $semaforo = in_array($estado, ['sin_programar', 'programada'])
+                    ? 'rojo'
+                    : ($estado === 'en_progreso' ? 'amarillo' : (($pctCumpl ?? 0) >= 70 ? 'verde' : 'amarillo'));
+            } else {
+                // Mes actual
+                $tieneVencida = $insps->where('estado', 'programada')
+                    ->filter(fn($i) => $i->planificada_para < $hoy)->isNotEmpty();
+                $diaHoy   = now()->day;
+                $totalDias = (int) date('t', strtotime($desde));
+                $pctMes   = round($diaHoy / $totalDias * 100);
+
+                if ($tieneVencida || ($estado === 'sin_programar' && $pctMes > 70)) {
+                    $semaforo = 'rojo';
+                } elseif ($ncAbiertos > 0 || ($estado === 'sin_programar' && $pctMes > 30)) {
+                    $semaforo = 'amarillo';
+                } elseif ($estado === 'completada') {
+                    $semaforo = ($pctCumpl ?? 0) >= 70 ? 'verde' : 'amarillo';
+                } elseif (in_array($estado, ['en_progreso', 'programada'])) {
+                    $semaforo = 'verde';
+                } else {
+                    $semaforo = 'gris';
+                }
+            }
+
             return [
                 'catalogo_id'      => $cat->id,
                 'catalogo_codigo'  => $cat->codigo,
@@ -135,11 +214,13 @@ class InspeccionController extends Controller
                     'area'         => $areas[$eq->area_id] ?? '—',
                     'area_id'      => $eq->area_id,
                     'inspeccion'   => $inspeccionesPorEquipo->get($eq->id) ? [
-                        'id'     => $inspeccionesPorEquipo[$eq->id]->id,
-                        'codigo' => $inspeccionesPorEquipo[$eq->id]->codigo,
-                        'estado' => $inspeccionesPorEquipo[$eq->id]->estado,
-                        'fecha'  => $inspeccionesPorEquipo[$eq->id]->planificada_para,
-                        'pct'    => $inspeccionesPorEquipo[$eq->id]->porcentaje_cumplimiento,
+                        'id'          => $inspeccionesPorEquipo[$eq->id]->id,
+                        'codigo'      => $inspeccionesPorEquipo[$eq->id]->codigo,
+                        'estado'      => $inspeccionesPorEquipo[$eq->id]->estado,
+                        'fecha'       => $inspeccionesPorEquipo[$eq->id]->planificada_para,
+                        'pct'                  => $inspeccionesPorEquipo[$eq->id]->porcentaje_cumplimiento,
+                        'inspector_id'         => $inspeccionesPorEquipo[$eq->id]->inspector_id,
+                        'inspector_usuario_id' => $inspeccionesPorEquipo[$eq->id]->inspector_usuario_id,
                     ] : null,
                 ])->values(),
                 'inspecciones'     => $insps->map(fn($i) => [
@@ -148,14 +229,21 @@ class InspeccionController extends Controller
                     'estado'       => $i->estado,
                     'fecha'        => $i->planificada_para,
                     'pct'          => $i->porcentaje_cumplimiento,
-                    'area'         => $areas[$i->area_id] ?? '—',
-                    'equipo_codigo'=> $i->equipo_id ? ($equiposPorId[$i->equipo_id] ?? null) : null,
+                    'area'                 => $areas[$i->area_id] ?? '—',
+                    'equipo_codigo'        => $i->equipo_id ? ($equiposPorId[$i->equipo_id] ?? null) : null,
+                    'inspector_id'         => $i->inspector_id,
+                    'inspector_usuario_id' => $i->inspector_usuario_id,
                 ])->values(),
-                'total_programadas' => $totalEquipos,
-                'ejecutadas'        => $equiposCompletados,
-                'pendientes'        => $equiposProgramados,
-                'pct_cumplimiento'  => $pctCumpl,
-                'estado'            => $estado,
+                'total_programadas'   => $totalEquipos,
+                'ejecutadas'          => $equiposCompletados,
+                'pendientes'          => $equiposProgramados,
+                'pct_cumplimiento'    => $pctCumpl,
+                'estado'              => $estado,
+                'score_riesgo'        => $scoreRiesgo,
+                'semaforo'            => $semaforo,
+                'criticos_abiertos'   => $criticosAbiertos,
+                'nc_abiertos'         => $ncAbiertos,
+                'dias_sin_inspeccion' => $diasSinInsp,
             ];
         });
 
@@ -179,6 +267,9 @@ class InspeccionController extends Controller
                 'en_progreso' => $resultado->where('estado','en_progreso')->count(),
                 'programadas' => $resultado->where('estado','programada')->count(),
                 'sin_prog'    => $resultado->where('estado','sin_programar')->count(),
+                'rojo'        => $resultado->where('semaforo','rojo')->count(),
+                'amarillo'    => $resultado->where('semaforo','amarillo')->count(),
+                'verde'       => $resultado->where('semaforo','verde')->count(),
             ],
         ]);
     }
@@ -189,7 +280,8 @@ class InspeccionController extends Controller
         $eid  = $request->user()->empresa_id;
         $anio = $request->integer('anio', now()->year);
         $mes  = $request->integer('mes',  now()->month);
-        $sobreescribir = $request->boolean('sobreescribir', false);
+        $sobreescribir        = $request->boolean('sobreescribir', false);
+        $inspectorUsuarioId   = $request->integer('inspector_usuario_id') ?: null;
 
         $desde = sprintf('%04d-%02d-01', $anio, $mes);
         $hasta = date('Y-m-t', strtotime($desde));
@@ -235,9 +327,10 @@ class InspeccionController extends Controller
                 'area_id'            => $areaId,
                 'tipo'               => $tipo,
                 'titulo'             => $cat->nombre,
-                'planificada_para'   => $desde,
-                'equipo_catalogo_id' => $cat->id,
-                'submodulo_id'       => $cat->submodulo_id,
+                'planificada_para'    => $desde,
+                'equipo_catalogo_id'  => $cat->id,
+                'submodulo_id'        => $cat->submodulo_id,
+                'inspector_usuario_id'=> $inspectorUsuarioId,
                 'estado'             => 'programada',
                 'codigo'             => Inspeccion::generarCodigo($eid, $tipo),
                 'elaborado_por'      => $request->user()->id,
@@ -315,7 +408,7 @@ class InspeccionController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = Inspeccion::where('empresa_id', $request->user()->empresa_id)
-            ->with(['area:id,nombre', 'sede:id,nombre', 'inspector:id,nombres,apellidos', 'equipo:id,codigo,nombre,serie']);
+            ->with(['area:id,nombre', 'sede:id,nombre', 'inspector:id,nombres,apellidos', 'inspectorUsuario:id,nombre', 'equipo:id,codigo,nombre,serie']);
 
         if ($request->filled('estado'))             $query->where('estado', $request->estado);
         if ($request->filled('tipo'))               $query->where('tipo', $request->tipo);
@@ -408,7 +501,7 @@ class InspeccionController extends Controller
         );
 
         return response()->json(
-            $inspeccion->load(['items', 'area', 'sede', 'inspector', 'equipo:id,codigo,nombre']),
+            $inspeccion->load(['items', 'area', 'sede', 'inspector', 'inspectorUsuario', 'equipo:id,codigo,nombre']),
             201
         );
     }
@@ -421,6 +514,7 @@ class InspeccionController extends Controller
         $inspeccion = Inspeccion::where('empresa_id', $request->user()->empresa_id)
             ->with([
                 'area', 'sede', 'inspector:id,nombres,apellidos,dni',
+                'inspectorUsuario:id,nombre,nombres,apellidos,email',
                 'supervisor:id,nombres,apellidos',
                 'elaborador:id,nombre',
                 'equipo:id,codigo,nombre',
@@ -479,8 +573,9 @@ class InspeccionController extends Controller
             'titulo'               => 'sometimes|string|max:255',
             'descripcion'          => 'nullable|string',
             'planificada_para'     => 'sometimes|date',
-            'inspector_id'         => 'sometimes|exists:personal,id',
-            'supervisor_id'        => 'nullable|exists:personal,id',
+            'inspector_id'          => 'sometimes|nullable|exists:personal,id',
+            'inspector_usuario_id'  => 'sometimes|nullable|exists:usuarios,id',
+            'supervisor_id'         => 'nullable|exists:personal,id',
             'estado'               => ['sometimes', Rule::in(['programada','en_ejecucion','ejecutada','con_hallazgos','cerrada','anulada'])],
             'observaciones_generales' => 'nullable|string',
             'items'                => 'sometimes|array',
@@ -521,7 +616,7 @@ class InspeccionController extends Controller
             request: $request
         );
 
-        return response()->json($inspeccion->fresh(['items', 'area', 'sede', 'inspector']));
+        return response()->json($inspeccion->fresh(['items', 'area', 'sede', 'inspector', 'inspectorUsuario']));
     }
 
     /**
@@ -723,7 +818,96 @@ class InspeccionController extends Controller
 
         $inspeccion->update(['estado' => 'cerrada']);
 
-        return response()->json(['message' => 'Inspección cerrada correctamente.']);
+        // Re-inspección automática si hay hallazgos críticos sin resolver
+        $reinspeccion = null;
+        if ($inspeccion->equipo_catalogo_id) {
+            $criticos = InspeccionHallazgo::where('inspeccion_id', $inspeccion->id)
+                ->where('criticidad', 'critico')
+                ->whereNotIn('estado', ['subsanado', 'verificado'])
+                ->count();
+
+            if ($criticos > 0) {
+                $reinspeccion = Inspeccion::create([
+                    'empresa_id'         => $inspeccion->empresa_id,
+                    'sede_id'            => $inspeccion->sede_id,
+                    'area_id'            => $inspeccion->area_id,
+                    'tipo'               => $inspeccion->tipo,
+                    'titulo'             => 'Re-inspección: ' . $inspeccion->titulo,
+                    'descripcion'        => "Re-inspección automática por {$criticos} hallazgo(s) crítico(s) en {$inspeccion->codigo}.",
+                    'planificada_para'   => now()->addDays(15)->toDateString(),
+                    'equipo_catalogo_id' => $inspeccion->equipo_catalogo_id,
+                    'equipo_id'          => $inspeccion->equipo_id,
+                    'submodulo_id'       => $inspeccion->submodulo_id,
+                    'inspector_id'       => $inspeccion->inspector_id,
+                    'supervisor_id'      => $inspeccion->supervisor_id,
+                    'estado'             => 'programada',
+                    'codigo'             => Inspeccion::generarCodigo($inspeccion->empresa_id, $inspeccion->tipo),
+                    'elaborado_por'      => $request->user()->id,
+                ]);
+            }
+        }
+
+        return response()->json([
+            'message'      => 'Inspección cerrada correctamente.',
+            'reinspeccion' => $reinspeccion ? [
+                'id'     => $reinspeccion->id,
+                'codigo' => $reinspeccion->codigo,
+                'fecha'  => $reinspeccion->planificada_para,
+            ] : null,
+        ]);
+    }
+
+    /**
+     * GET /api/inspecciones/{id}/hallazgos-previos
+     * Hallazgos abiertos de inspecciones anteriores del mismo equipo/catálogo
+     */
+    public function hallazgosPrevios(Request $request, int $id): JsonResponse
+    {
+        $inspeccion = Inspeccion::where('empresa_id', $request->user()->empresa_id)->findOrFail($id);
+
+        if (!$inspeccion->equipo_catalogo_id) {
+            return response()->json(['hallazgos' => []]);
+        }
+
+        $hallazgos = InspeccionHallazgo::whereHas('inspeccion', function ($q) use ($inspeccion) {
+            $q->where('empresa_id', $inspeccion->empresa_id)
+              ->where('equipo_catalogo_id', $inspeccion->equipo_catalogo_id)
+              ->when($inspeccion->equipo_id, fn($s) => $s->where('equipo_id', $inspeccion->equipo_id))
+              ->where('id', '!=', $inspeccion->id)
+              ->whereIn('estado', ['ejecutada', 'con_hallazgos', 'cerrada']);
+        })
+        ->whereNotIn('estado', ['verificado', 'subsanado'])
+        ->with(['inspeccion:id,codigo,planificada_para', 'responsable:id,nombres,apellidos'])
+        ->orderByRaw("FIELD(criticidad,'critico','moderado','leve')")
+        ->orderBy('fecha_limite_correccion')
+        ->get();
+
+        return response()->json(['hallazgos' => $hallazgos]);
+    }
+
+    /**
+     * POST /api/inspecciones/{id}/verificar-hallazgo/{hallazgoId}
+     * Marca un hallazgo de inspección anterior como verificado en la inspección actual
+     */
+    public function verificarHallazgoPrevio(Request $request, int $id, int $hallazgoId): JsonResponse
+    {
+        $inspeccion = Inspeccion::where('empresa_id', $request->user()->empresa_id)->findOrFail($id);
+        $hallazgo   = InspeccionHallazgo::findOrFail($hallazgoId);
+
+        $origen = Inspeccion::find($hallazgo->inspeccion_id);
+        if (!$origen || $origen->empresa_id !== $inspeccion->empresa_id) {
+            return response()->json(['message' => 'Hallazgo no autorizado.'], 403);
+        }
+
+        $nota = "✓ Verificado en {$inspeccion->codigo} el " . now()->format('d/m/Y');
+        $hallazgo->update([
+            'estado'       => 'verificado',
+            'observaciones' => $hallazgo->observaciones
+                ? $hallazgo->observaciones . "\n" . $nota
+                : $nota,
+        ]);
+
+        return response()->json(['message' => 'Hallazgo verificado.', 'hallazgo' => $hallazgo->fresh()]);
     }
 
     /**
@@ -1033,6 +1217,100 @@ class InspeccionController extends Controller
         return response()->json($inspeccion->load(['area:id,nombre','equipoCatalogo:id,nombre,codigo','equipo:id,codigo,nombre']), 201);
     }
 
+    // ── Tendencia mensual del programa (últimos N meses) ─────────────────────
+    public function tendenciaMensual(Request $request): JsonResponse
+    {
+        $eid   = $request->user()->empresa_id;
+        $meses = max(3, min(12, $request->integer('meses', 6)));
+
+        $catsDiarios = DB::table('equipos_catalogo')
+            ->where('frecuencia_inspeccion', 'diaria')
+            ->pluck('id');
+
+        $desde = now()->subMonths($meses - 1)->startOfMonth()->toDateString();
+
+        $porMes = DB::table('inspecciones')
+            ->where('empresa_id', $eid)
+            ->whereNotIn('equipo_catalogo_id', $catsDiarios)
+            ->whereNull('deleted_at')
+            ->where('planificada_para', '>=', $desde)
+            ->selectRaw("DATE_FORMAT(planificada_para,'%Y-%m') as mes")
+            ->selectRaw('COUNT(*) as total')
+            ->selectRaw("SUM(CASE WHEN estado IN ('ejecutada','con_hallazgos','cerrada') THEN 1 ELSE 0 END) as completadas")
+            ->selectRaw("ROUND(AVG(CASE WHEN estado IN ('ejecutada','con_hallazgos','cerrada') AND porcentaje_cumplimiento IS NOT NULL THEN porcentaje_cumplimiento END),1) as pct_promedio")
+            ->groupBy('mes')
+            ->orderBy('mes')
+            ->get();
+
+        $criticosPorMes = DB::table('inspecciones_hallazgos as h')
+            ->join('inspecciones as i', 'i.id', '=', 'h.inspeccion_id')
+            ->where('i.empresa_id', $eid)
+            ->whereNotIn('i.equipo_catalogo_id', $catsDiarios)
+            ->whereNull('i.deleted_at')
+            ->where('i.planificada_para', '>=', $desde)
+            ->where('h.criticidad', 'critico')
+            ->selectRaw("DATE_FORMAT(i.planificada_para,'%Y-%m') as mes")
+            ->selectRaw('COUNT(*) as criticos')
+            ->groupBy('mes')
+            ->pluck('criticos', 'mes');
+
+        $datos = $porMes->map(fn($m) => [
+            'mes'              => $m->mes,
+            'total'            => $m->total,
+            'completadas'      => (int) $m->completadas,
+            'pct_ejecucion'    => $m->total > 0 ? round($m->completadas / $m->total * 100, 1) : 0,
+            'pct_cumplimiento' => $m->pct_promedio,
+            'criticos'         => (int) $criticosPorMes->get($m->mes, 0),
+        ]);
+
+        return response()->json(['meses' => $meses, 'datos' => $datos]);
+    }
+
+    // ── Mis inspecciones asignadas ────────────────────────────────────────────
+    public function misInspecciones(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        // Buscar por usuario_id directo O por personal_id vinculado
+        $query = Inspeccion::where('empresa_id', $user->empresa_id)
+            ->where(function ($q) use ($user) {
+                $q->where('inspector_usuario_id', $user->id);
+                if ($user->personal_id) {
+                    $q->orWhere('inspector_id', $user->personal_id);
+                }
+            })
+            ->whereNull('deleted_at')
+            ->whereNotIn('estado', ['anulada'])
+            ->with(['area:id,nombre', 'equipoCatalogo:id,nombre,codigo']);
+
+        // Filtro de mes opcional. Sin mes → muestra todas (pendientes no cerradas por defecto)
+        if ($request->filled('mes') && $request->filled('anio')) {
+            $desde = sprintf('%04d-%02d-01', $request->integer('anio'), $request->integer('mes'));
+            $hasta = date('Y-m-t', strtotime($desde));
+            $query->whereBetween('planificada_para', [$desde, $hasta]);
+        } elseif (!$request->boolean('todas', false)) {
+            // Por defecto: solo no cerradas (pendientes + en progreso + ejecutadas sin cerrar)
+            $query->whereNotIn('estado', ['cerrada']);
+        }
+
+        if ($request->filled('estado')) {
+            $query->where('estado', $request->estado);
+        }
+
+        $inspecciones = $query->orderBy('planificada_para')->get();
+
+        return response()->json([
+            'inspecciones' => $inspecciones,
+            'resumen' => [
+                'total'       => $inspecciones->count(),
+                'programadas' => $inspecciones->where('estado', 'programada')->count(),
+                'en_progreso' => $inspecciones->whereIn('estado', ['en_ejecucion', 'con_hallazgos'])->count(),
+                'ejecutadas'  => $inspecciones->whereIn('estado', ['ejecutada', 'cerrada'])->count(),
+            ],
+            'debug' => ['personal_id' => $user->personal_id, 'usuario_id' => $user->id],
+        ]);
+    }
+
     /**
      * GET /api/inspecciones/pendientes-firma
      * Inspecciones con estado de firmas. tipo=diaria|mensual
@@ -1054,7 +1332,11 @@ class InspeccionController extends Controller
             ->orderByDesc('planificada_para');
 
         if ($tipo === 'diaria') {
-            $query->whereIn('equipo_catalogo_id', $catsDiarios);
+            // Incluir: equipos con frecuencia diaria Y cualquier inspección de tipo 'equipos' (Mis Equipos Hoy)
+            $query->where(fn($q) =>
+                $q->whereIn('equipo_catalogo_id', $catsDiarios)
+                  ->orWhere('tipo', 'equipos')
+            );
         } else {
             // mensual: excluir diarios, incluir inspeciones con catálogo mensual o sin catálogo
             $query->where(fn($q) =>

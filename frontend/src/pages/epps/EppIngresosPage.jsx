@@ -143,8 +143,14 @@ export default function EppIngresosPage() {
         cargarHistorial()
       }
     } catch (err) {
-      console.error('Error:', err)
-      toast.error(err.response?.data?.message || 'Error al registrar ingreso')
+      console.error('Error ingreso:', err.response?.data)
+      const errores = err.response?.data?.errors
+      if (errores) {
+        const primer = Object.entries(errores)[0]
+        toast.error(`Error en "${primer[0]}": ${primer[1][0]}`)
+      } else {
+        toast.error(err.response?.data?.message || 'Error al registrar ingreso')
+      }
     } finally {
       setSaving(false)
     }
@@ -277,7 +283,7 @@ export default function EppIngresosPage() {
                       <option value="">-- Sin proveedor --</option>
                       {proveedoresList.map((p) => (
                         <option key={p.id} value={p.id}>
-                          {p.razon_social} — {p.ruc}
+                          {p.nombre || p.razon_social || '—'} {p.ruc ? `— ${p.ruc}` : ''}
                         </option>
                       ))}
                     </select>

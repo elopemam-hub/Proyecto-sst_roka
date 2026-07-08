@@ -1,7 +1,8 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useSelector } from 'react-redux'
+import { useSelector, useDispatch } from 'react-redux'
 import { ROLES_CONFIG } from './utils/roles'
+import { fetchMe, selectInitialized } from './store/slices/authSlice'
 
 import AppLayout from './components/layout/AppLayout'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -54,6 +55,7 @@ const InspeccionDetailPage = lazy(() => import('./pages/inspecciones/InspeccionD
 const InspeccionAlertasPage = lazy(() => import('./pages/inspecciones/InspeccionAlertasPage'))
 
 // Inspecciones v2 — Checklist dinámico por catálogo + wizard general
+const MisInspeccionesPage       = lazy(() => import('./pages/inspecciones/MisInspeccionesPage'))
 const InspeccionChecklistWizard = lazy(() => import('./pages/inspecciones/InspeccionChecklistWizard'))
 const InspeccionGeneralWizard   = lazy(() => import('./pages/inspecciones/InspeccionGeneralWizard'))
 const InspeccionEquiposPage     = lazy(() => import('./pages/inspecciones/InspeccionEquiposPage'))
@@ -198,14 +200,44 @@ function PageLoader() {
   )
 }
 
+function AppInitializer({ children }) {
+  const dispatch    = useDispatch()
+  const token       = useSelector(s => s.auth.token)
+  const initialized = useSelector(selectInitialized)
+
+  useEffect(() => {
+    if (token && !initialized) {
+      dispatch(fetchMe())
+    }
+  }, [token, initialized, dispatch])
+
+  // Mientras se valida el token muestra spinner en lugar de redirigir
+  if (token && !initialized) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-900">
+        <div className="w-10 h-10 border-2 border-roka-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  return children
+}
+
 function RequireAuth({ children }) {
-  const token = useSelector(s => s.auth.token)
+  const token       = useSelector(s => s.auth.token)
+  const initialized = useSelector(selectInitialized)
+  // Si hay token pero aún no se validó, no redirigir todavía
+  if (token && !initialized) return null
   if (!token) return <Navigate to="/login" replace />
   return children
 }
 
 function RequireRol({ modulos, children }) {
-  const user = useSelector(s => s.auth.user)
+  const user        = useSelector(s => s.auth.user)
+  const initialized = useSelector(selectInitialized)
+  const token       = useSelector(s => s.auth.token)
+  // Esperar a que fetchMe termine antes de evaluar el rol
+  if (token && !initialized) return null
   const rol = user?.rol
   if (!rol) return <Navigate to="/login" replace />
   const cfg = ROLES_CONFIG[rol]
@@ -217,6 +249,7 @@ function RequireRol({ modulos, children }) {
 export default function App() {
   return (
     <ErrorBoundary>
+      <AppInitializer>
       <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
@@ -268,6 +301,7 @@ export default function App() {
             <Route path="inspecciones/tabla-diaria"         element={<InspeccionTablaDiariaPage />} />
             <Route path="inspecciones/tabla-mensual"        element={<InspeccionTablaMensualPage />} />
             <Route path="inspecciones/mensual"              element={<InspeccionMensualPage />} />
+            <Route path="inspecciones/mis-inspecciones"     element={<MisInspeccionesPage />} />
             <Route path="inspecciones/alertas"                element={<InspeccionAlertasPage />} />
             <Route path="inspecciones/nueva"                  element={<InspeccionFormPage />} />
             <Route path="inspecciones/nueva/general"          element={<InspeccionGeneralWizard />} />
@@ -452,6 +486,7 @@ export default function App() {
         </Route>
       </Routes>
       </Suspense>
+      </AppInitializer>
     </ErrorBoundary>
   )
 }

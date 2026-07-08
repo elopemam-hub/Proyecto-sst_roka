@@ -356,6 +356,7 @@ class EquipoAsignacionController extends Controller
                             'turno'              => $turno,
                             'codigo'             => \App\Models\Inspeccion::generarCodigo($asignacion->empresa_id, 'equipos'),
                             'elaborado_por'      => $request->user()->id,
+                            'inspector_id'       => $request->user()->personal_id ?? null,
                             'estado'             => 'programada',
                         ]);
                     } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {

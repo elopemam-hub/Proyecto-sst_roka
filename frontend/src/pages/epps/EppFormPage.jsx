@@ -49,10 +49,22 @@ export default function EppFormPage() {
 
   const set = (field, value) => setForm(f => ({ ...f, [field]: value }))
 
+  const setStockTotal = (value) => {
+    setForm(f => ({
+      ...f,
+      stock_total: value,
+      stock_disponible: f.stock_disponible === '' ? value : f.stock_disponible,
+    }))
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!form.categoria_id || !form.nombre || form.stock_total === '') {
-      toast.error('Categoría, nombre y stock total son obligatorios')
+    if (!form.categoria_id || !form.nombre) {
+      toast.error('Categoría y nombre son obligatorios')
+      return
+    }
+    if (form.stock_total === '' || form.stock_disponible === '' || form.stock_minimo === '') {
+      toast.error('Stock total, stock disponible y stock mínimo son obligatorios')
       return
     }
     setSaving(true)
@@ -132,17 +144,27 @@ export default function EppFormPage() {
         <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 space-y-4">
           <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Control de Stock</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[
-              { field: 'stock_total',      label: 'Stock Total *',     min: 0 },
-              { field: 'stock_disponible', label: 'Stock Disponible *', min: 0 },
-              { field: 'stock_minimo',     label: 'Stock Mínimo *',    min: 0 },
-            ].map(({ field, label, min }) => (
-              <div key={field}>
-                <label className="block text-xs text-slate-400 mb-1">{label}</label>
-                <input type="number" min={min} value={form[field]} onChange={e => set(field, e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-3 py-2 text-sm text-center" />
-              </div>
-            ))}
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Stock Total *</label>
+              <input type="number" min={0} value={form.stock_total}
+                onChange={e => setStockTotal(e.target.value)}
+                placeholder="0"
+                className="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-3 py-2 text-sm text-center" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Stock Disponible *</label>
+              <input type="number" min={0} value={form.stock_disponible}
+                onChange={e => set('stock_disponible', e.target.value)}
+                placeholder="0"
+                className="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-3 py-2 text-sm text-center" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Stock Mínimo *</label>
+              <input type="number" min={0} value={form.stock_minimo}
+                onChange={e => set('stock_minimo', e.target.value)}
+                placeholder="0"
+                className="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-3 py-2 text-sm text-center" />
+            </div>
             <div>
               <label className="block text-xs text-slate-400 mb-1">Unidad *</label>
               <select value={form.unidad} onChange={e => set('unidad', e.target.value)}

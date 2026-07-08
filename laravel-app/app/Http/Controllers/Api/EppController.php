@@ -546,10 +546,19 @@ class EppController extends Controller
      */
     public function proveedores(Request $request): JsonResponse
     {
-        if (!Schema::hasTable('epp_proveedores')) return response()->json([]);
-        $rows = DB::table('epp_proveedores')
+        $rows = DB::table('epps_proveedores')
             ->where('empresa_id', $request->user()->empresa_id)
-            ->orderBy('nombre')->get();
+            ->whereNull('deleted_at')
+            ->select([
+                'id', 'empresa_id', 'activo', 'created_at', 'updated_at',
+                DB::raw('razon_social AS nombre'),
+                DB::raw('ruc'),
+                DB::raw('contacto_nombre AS contacto'),
+                DB::raw('contacto_telefono AS telefono'),
+                DB::raw('contacto_email AS email'),
+            ])
+            ->orderBy('razon_social')
+            ->get();
         return response()->json($rows);
     }
 
@@ -559,18 +568,35 @@ class EppController extends Controller
     public function storeProveedor(Request $request): JsonResponse
     {
         $v = $request->validate([
-            'nombre'   => 'required|string|max:120',
+            'nombre'   => 'required|string|max:200',
             'ruc'      => 'nullable|string|max:20',
-            'contacto' => 'nullable|string|max:100',
+            'contacto' => 'nullable|string|max:150',
             'telefono' => 'nullable|string|max:20',
             'email'    => 'nullable|email|max:100',
         ]);
-        $id = DB::table('epp_proveedores')->insertGetId(array_merge($v, [
-            'empresa_id' => $request->user()->empresa_id,
-            'activo'     => 1,
-            'created_at' => now(), 'updated_at' => now(),
-        ]));
-        return response()->json(DB::table('epp_proveedores')->find($id), 201);
+        $id = DB::table('epps_proveedores')->insertGetId([
+            'empresa_id'        => $request->user()->empresa_id,
+            'razon_social'      => $v['nombre'],
+            'ruc'               => $v['ruc'] ?? null,
+            'contacto_nombre'   => $v['contacto'] ?? null,
+            'contacto_telefono' => $v['telefono'] ?? null,
+            'contacto_email'    => $v['email'] ?? null,
+            'activo'            => 1,
+            'created_at'        => now(),
+            'updated_at'        => now(),
+        ]);
+        $row = DB::table('epps_proveedores')
+            ->where('id', $id)
+            ->select([
+                'id', 'empresa_id', 'activo',
+                DB::raw('razon_social AS nombre'),
+                DB::raw('ruc'),
+                DB::raw('contacto_nombre AS contacto'),
+                DB::raw('contacto_telefono AS telefono'),
+                DB::raw('contacto_email AS email'),
+            ])
+            ->first();
+        return response()->json($row, 201);
     }
 
     /**
@@ -579,17 +605,38 @@ class EppController extends Controller
     public function updateProveedor(Request $request, int $id): JsonResponse
     {
         $v = $request->validate([
-            'nombre'   => 'sometimes|string|max:120',
+            'nombre'   => 'sometimes|string|max:200',
             'ruc'      => 'nullable|string|max:20',
-            'contacto' => 'nullable|string|max:100',
+            'contacto' => 'nullable|string|max:150',
             'telefono' => 'nullable|string|max:20',
             'email'    => 'nullable|email|max:100',
             'activo'   => 'boolean',
         ]);
-        DB::table('epp_proveedores')
-            ->where('id', $id)->where('empresa_id', $request->user()->empresa_id)
-            ->update(array_merge($v, ['updated_at' => now()]));
-        return response()->json(DB::table('epp_proveedores')->find($id));
+        $update = ['updated_at' => now()];
+        if (isset($v['nombre']))   $update['razon_social']      = $v['nombre'];
+        if (array_key_exists('ruc',      $v)) $update['ruc']               = $v['ruc'];
+        if (array_key_exists('contacto', $v)) $update['contacto_nombre']   = $v['contacto'];
+        if (array_key_exists('telefono', $v)) $update['contacto_telefono'] = $v['telefono'];
+        if (array_key_exists('email',    $v)) $update['contacto_email']    = $v['email'];
+        if (isset($v['activo']))   $update['activo']            = $v['activo'];
+
+        DB::table('epps_proveedores')
+            ->where('id', $id)
+            ->where('empresa_id', $request->user()->empresa_id)
+            ->update($update);
+
+        $row = DB::table('epps_proveedores')
+            ->where('id', $id)
+            ->select([
+                'id', 'empresa_id', 'activo',
+                DB::raw('razon_social AS nombre'),
+                DB::raw('ruc'),
+                DB::raw('contacto_nombre AS contacto'),
+                DB::raw('contacto_telefono AS telefono'),
+                DB::raw('contacto_email AS email'),
+            ])
+            ->first();
+        return response()->json($row);
     }
 
     /**
@@ -597,8 +644,10 @@ class EppController extends Controller
      */
     public function destroyProveedor(Request $request, int $id): JsonResponse
     {
-        DB::table('epp_proveedores')
-            ->where('id', $id)->where('empresa_id', $request->user()->empresa_id)->delete();
+        DB::table('epps_proveedores')
+            ->where('id', $id)
+            ->where('empresa_id', $request->user()->empresa_id)
+            ->delete();
         return response()->json(['message' => 'Proveedor eliminado']);
     }
 
@@ -1034,9 +1083,8 @@ class EppController extends Controller
             $stockAnterior = $inventario->stock_disponible;
             $stockNuevo = $stockAnterior + $validated['cantidad'];
 
-            // Incrementar stock
+            // Incrementar stock (incrementarStock ya actualiza stock_disponible y stock_total)
             $inventario->incrementarStock($validated['cantidad']);
-            $inventario->increment('stock_total', $validated['cantidad']);
 
             // Registrar movimiento
             EppMovimiento::registrar(
