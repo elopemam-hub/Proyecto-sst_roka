@@ -28,10 +28,11 @@ const TURNO_OPTS = [
 // ──────────────────────────────────────────────────────────────────
 // Tab: Dashboard (KPIs de hoy)
 // ──────────────────────────────────────────────────────────────────
-function TabDashboard() {
-  const [dash, setDash]       = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [tick, setTick]       = useState(0)
+function TabDashboard({ onIrGenerar }) {
+  const [dash, setDash]           = useState(null)
+  const [loading, setLoading]     = useState(true)
+  const [tick, setTick]           = useState(0)
+  const [generando, setGenerando] = useState(false)
 
   useEffect(() => {
     setLoading(true)
@@ -41,13 +42,66 @@ function TabDashboard() {
       .finally(() => setLoading(false))
   }, [tick])
 
+  // Genera asignaciones para los días de la semana actual que faltan
+  const generarSemana = async () => {
+    const hoy   = new Date()
+    const lunes = new Date(hoy)
+    lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7))  // ISO lunes
+    const domingo = new Date(lunes)
+    domingo.setDate(lunes.getDate() + 6)
+
+    const fmt = d => d.toISOString().split('T')[0]
+
+    // Obtener todos los usuarios activos
+    setGenerando(true)
+    try {
+      const usRes = await api.get('/usuarios', { params: { activo: 1, per_page: 100 } })
+      const usuarios = (usRes.data.data || usRes.data).map(u => u.id)
+      if (usuarios.length === 0) { alert('No hay usuarios activos.'); return }
+
+      const res = await api.post('/equipo-asignaciones/generar-desde-reglas', {
+        fecha_inicio: fmt(lunes),
+        fecha_fin:    fmt(domingo),
+        usuario_ids:  usuarios,
+      })
+      alert(res.data.message || 'Asignaciones generadas.')
+      setTick(t => t + 1)
+    } catch (err) {
+      alert(err?.response?.data?.message || 'Error al generar.')
+    } finally { setGenerando(false) }
+  }
+
   if (loading) return <div className="text-center py-16 text-gray-400"><RefreshCw size={24} className="animate-spin mx-auto mb-2" />Cargando…</div>
   if (!dash)   return null
 
   const hoy = dash.hoy
 
+  // Detectar días sin asignaciones esta semana
+  const diasVacios = (dash.tendencia_semana || []).filter(d => d.total === 0)
+
   return (
     <div className="space-y-6">
+      {/* Aviso si hay días sin asignaciones */}
+      {diasVacios.length > 0 && (
+        <div className="flex items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+          <div className="flex items-start gap-2">
+            <AlertCircle size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-amber-800">
+              <span className="font-semibold">{diasVacios.map(d => d.dia.toUpperCase()).join(', ')}</span>
+              {' '}no tiene{diasVacios.length > 1 ? 'n' : ''} asignaciones generadas esta semana.
+            </p>
+          </div>
+          <button
+            onClick={generarSemana}
+            disabled={generando}
+            className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-semibold px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors"
+          >
+            <Zap size={13} />
+            {generando ? 'Generando…' : 'Generar semana'}
+          </button>
+        </div>
+      )}
+
       {/* Header con botón actualizar */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-500">Resumen del día y tendencia semanal</p>
