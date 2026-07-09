@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine,
+  ResponsiveContainer, ReferenceLine, LabelList,
 } from 'recharts'
 import {
   BarChart3, ArrowLeft, RefreshCw, TrendingUp, TrendingDown,
@@ -315,7 +315,7 @@ export default function KpiEquiposPage() {
               />
             </div>
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={chartData} margin={{ top: 8, right: 40, left: -10, bottom: 0 }} barCategoryGap="20%" barGap={2}>
+              <BarChart data={chartData} margin={{ top: 20, right: 40, left: -10, bottom: 0 }} barCategoryGap="20%" barGap={2}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                 <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
@@ -337,7 +337,14 @@ export default function KpiEquiposPage() {
                       fill={SERIES_COLORS[si]}
                       radius={[3, 3, 0, 0]}
                       maxBarSize={28}
-                    />
+                    >
+                      <LabelList
+                        dataKey={`eq_${si}`}
+                        position="top"
+                        formatter={(v) => (v != null ? `${v}%` : '')}
+                        style={{ fontSize: 9, fill: SERIES_COLORS[si], fontWeight: 700 }}
+                      />
+                    </Bar>
                   ) : null
                 )}
               </BarChart>
