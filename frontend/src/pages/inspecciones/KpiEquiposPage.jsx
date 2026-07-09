@@ -16,7 +16,12 @@ const PERIODS = [
   { key: 'mes',    label: 'Mes'    },
 ]
 
-const SERIES_COLORS = ['#2a78d6','#1baf7a','#eda100','#4a3aa7','#e34948']
+const SERIES_COLORS = [
+  '#2a78d6','#1baf7a','#eda100','#4a3aa7','#e34948',
+  '#0891b2','#7c3aed','#db2777','#65a30d','#ea580c',
+]
+
+const MAX_VISIBLE = 8
 
 function pctStatus(v) {
   if (v == null) return 'gray'
@@ -90,10 +95,8 @@ function KpiTile({ label, value, sub, delta, accentColor }) {
   )
 }
 
-const TOP5_LIMIT = 5
-
 /* ── Dropdown multi-selección de series ── */
-function SeriesDropdown({ top5, visible, onChange }) {
+function SeriesDropdown({ allEquipos, visible, onChange }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -103,34 +106,37 @@ function SeriesDropdown({ top5, visible, onChange }) {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const allSelected = top5.every((_, si) => visible.has(si))
-  const count = visible.size
+  const total       = allEquipos.length
+  const count       = visible.size
+  const allSelected = count === total
+  const atLimit     = count >= MAX_VISIBLE
 
   const toggleAll = () => {
     if (allSelected) {
-      // keep at least one
       onChange(new Set([0]))
     } else {
-      onChange(new Set(top5.map((_, si) => si)))
+      // select all up to MAX_VISIBLE
+      onChange(new Set(allEquipos.slice(0, MAX_VISIBLE).map((_, si) => si)))
     }
   }
 
   const toggle = (si) => {
     const next = new Set(visible)
     if (next.has(si)) {
-      if (next.size === 1) return // keep at least one
+      if (next.size === 1) return
       next.delete(si)
     } else {
+      if (atLimit) return
       next.add(si)
     }
     onChange(next)
   }
 
-  const label = count === top5.length
+  const label = allSelected
     ? 'Todos los equipos'
     : count === 1
-      ? top5[[...visible][0]]?.nombre
-      : `${count} equipos seleccionados`
+      ? allEquipos[[...visible][0]]?.nombre
+      : `${count} de ${total} seleccionados`
 
   return (
     <div className="relative" ref={ref}>
@@ -142,35 +148,50 @@ function SeriesDropdown({ top5, visible, onChange }) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 min-w-[220px] py-1 overflow-hidden">
+        <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 min-w-[240px] py-1 overflow-hidden max-h-72 overflow-y-auto">
           {/* Todos */}
           <button
             onClick={toggleAll}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs hover:bg-gray-50 transition-colors border-b border-gray-100">
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs hover:bg-gray-50 transition-colors border-b border-gray-100 sticky top-0 bg-white">
             <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
               allSelected ? 'bg-green-600 border-green-600' : 'border-gray-300'}`}>
               {allSelected && <Check size={10} color="white" strokeWidth={3} />}
             </div>
             <span className="font-semibold text-gray-700">Todos</span>
+            <span className="ml-auto text-gray-400">{total} equipos</span>
           </button>
 
-          {/* Cada serie */}
-          {top5.map((eq, si) => (
-            <button
-              key={eq.id}
-              onClick={() => toggle(si)}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs hover:bg-gray-50 transition-colors">
-              <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
-                visible.has(si) ? 'border-transparent' : 'border-gray-300 bg-white'}`}
-                style={visible.has(si) ? { background: SERIES_COLORS[si] } : {}}>
-                {visible.has(si) && <Check size={10} color="white" strokeWidth={3} />}
-              </div>
-              <div className="flex items-center gap-1.5 text-left">
+          {/* Cada equipo */}
+          {allEquipos.map((eq, si) => {
+            const checked  = visible.has(si)
+            const disabled = !checked && atLimit
+            return (
+              <button
+                key={eq.id}
+                onClick={() => toggle(si)}
+                disabled={disabled}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors ${
+                  disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-50'}`}>
+                <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
+                  checked ? 'border-transparent' : 'border-gray-300 bg-white'}`}
+                  style={checked ? { background: SERIES_COLORS[si] } : {}}>
+                  {checked && <Check size={10} color="white" strokeWidth={3} />}
+                </div>
                 <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: SERIES_COLORS[si] }} />
-                <span className="text-gray-700 leading-tight">{eq.nombre}</span>
-              </div>
-            </button>
-          ))}
+                <span className="text-gray-700 leading-tight text-left flex-1">{eq.nombre}</span>
+                {eq.pct_actual != null && (
+                  <span className="text-gray-400 tabular-nums flex-shrink-0">{eq.pct_actual}%</span>
+                )}
+              </button>
+            )
+          })}
+
+          {/* Aviso límite */}
+          {atLimit && (
+            <div className="px-3 py-2 bg-amber-50 border-t border-amber-100 text-[10px] text-amber-700 font-medium">
+              Máximo {MAX_VISIBLE} series en el gráfico. Desmarca una para agregar otra.
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -199,25 +220,26 @@ export default function KpiEquiposPage() {
 
   useEffect(() => { cargar(period) }, [period])
 
-  // Reset visible series when data changes
+  // Reset visible series when data changes — pre-seleccionar top 5
   useEffect(() => {
-    setVisibleSeries(new Set([0,1,2,3,4]))
+    const equiposConDatos = (data?.equipos ?? []).filter(e => e.pct_actual != null)
+    const defaultVisible  = new Set(equiposConDatos.slice(0, 5).map((_, i) => i))
+    setVisibleSeries(defaultVisible)
   }, [data])
 
   const r       = data?.resumen ?? {}
   const equipos = data?.equipos  ?? []
   const labels  = data?.hist_labels ?? []
 
-  // Top 5 por pct_actual para el gráfico
-  const top5 = [...equipos]
+  // Todos los equipos con datos, ordenados por cumplimiento
+  const allEquipos = [...equipos]
     .filter(e => e.pct_actual != null)
     .sort((a, b) => (b.pct_actual ?? 0) - (a.pct_actual ?? 0))
-    .slice(0, TOP5_LIMIT)
 
   // Preparar datos del gráfico de evolución
   const chartData = labels.map((label, idx) => {
     const point = { label }
-    top5.forEach((eq, si) => {
+    allEquipos.forEach((eq, si) => {
       point[`eq_${si}`] = eq.hist?.[idx] ?? null
     })
     return point
@@ -301,15 +323,15 @@ export default function KpiEquiposPage() {
         )}
 
         {/* Evolución chart */}
-        {!loading && data && top5.length > 0 && (
+        {!loading && data && allEquipos.length > 0 && (
           <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div>
-                <p className="text-sm font-bold text-gray-900">Evolución — Top {top5.length} equipos</p>
+                <p className="text-sm font-bold text-gray-900">Evolución de equipos</p>
                 <p className="text-xs text-gray-400">% cumplimiento en las {labels.length} {period === 'hoy' ? 'horas' : period === 'semana' ? 'jornadas' : 'semanas'} del período</p>
               </div>
               <SeriesDropdown
-                top5={top5}
+                allEquipos={allEquipos}
                 visible={visibleSeries}
                 onChange={setVisibleSeries}
               />
@@ -324,12 +346,12 @@ export default function KpiEquiposPage() {
                   cursor={{ fill: 'rgba(0,0,0,0.04)' }}
                   formatter={(val, name) => {
                     const idx = parseInt(name.split('_')[1])
-                    return [val != null ? `${val}%` : '—', top5[idx]?.nombre]
+                    return [val != null ? `${val}%` : '—', allEquipos[idx]?.nombre]
                   }}
                 />
                 <ReferenceLine y={85} stroke="#0ca30c" strokeDasharray="4 3" strokeWidth={1} label={{ value: '85%', position: 'right', fontSize: 9, fill: '#0ca30c' }} />
                 <ReferenceLine y={65} stroke="#d97706" strokeDasharray="4 3" strokeWidth={1} label={{ value: '65%', position: 'right', fontSize: 9, fill: '#d97706' }} />
-                {top5.map((_, si) =>
+                {allEquipos.map((_, si) =>
                   visibleSeries.has(si) ? (
                     <Bar
                       key={si}
@@ -338,12 +360,14 @@ export default function KpiEquiposPage() {
                       radius={[3, 3, 0, 0]}
                       maxBarSize={28}
                     >
-                      <LabelList
-                        dataKey={`eq_${si}`}
-                        position="top"
-                        formatter={(v) => (v != null ? `${v}%` : '')}
-                        style={{ fontSize: 9, fill: SERIES_COLORS[si], fontWeight: 700 }}
-                      />
+                      {visibleSeries.size <= 4 && (
+                        <LabelList
+                          dataKey={`eq_${si}`}
+                          position="top"
+                          formatter={(v) => (v != null ? `${v}%` : '')}
+                          style={{ fontSize: 9, fill: SERIES_COLORS[si], fontWeight: 700 }}
+                        />
+                      )}
                     </Bar>
                   ) : null
                 )}
@@ -375,7 +399,7 @@ export default function KpiEquiposPage() {
             {equipos.map((eq, idx) => {
               const st = pctStatus(eq.pct_actual)
               const cfg = STATUS_CFG[st]
-              const siColor = top5.findIndex(t => t.id === eq.id)
+              const siColor = allEquipos.findIndex(t => t.id === eq.id)
               const lineColor = siColor >= 0 ? SERIES_COLORS[siColor] : '#94a3b8'
               return (
                 <div key={eq.id}
