@@ -2,11 +2,11 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine, Cell, LabelList,
+  ResponsiveContainer, ReferenceLine,
 } from 'recharts'
 import {
   BarChart3, ArrowLeft, RefreshCw, TrendingUp, TrendingDown,
-  CheckCircle2, AlertTriangle, XCircle, Minus,
+  XCircle, Minus, ChevronDown, Check,
 } from 'lucide-react'
 import api from '../../services/api'
 
@@ -92,12 +92,98 @@ function KpiTile({ label, value, sub, delta, accentColor }) {
 
 const TOP5_LIMIT = 5
 
+/* ── Dropdown multi-selección de series ── */
+function SeriesDropdown({ top5, visible, onChange }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const allSelected = top5.every((_, si) => visible.has(si))
+  const count = visible.size
+
+  const toggleAll = () => {
+    if (allSelected) {
+      // keep at least one
+      onChange(new Set([0]))
+    } else {
+      onChange(new Set(top5.map((_, si) => si)))
+    }
+  }
+
+  const toggle = (si) => {
+    const next = new Set(visible)
+    if (next.has(si)) {
+      if (next.size === 1) return // keep at least one
+      next.delete(si)
+    } else {
+      next.add(si)
+    }
+    onChange(next)
+  }
+
+  const label = count === top5.length
+    ? 'Todos los equipos'
+    : count === 1
+      ? top5[[...visible][0]]?.nombre
+      : `${count} equipos seleccionados`
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 text-xs font-medium px-3 py-1.5 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 transition-colors min-w-[180px] justify-between">
+        <span className="truncate text-gray-700">{label}</span>
+        <ChevronDown size={13} className={`text-gray-400 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 min-w-[220px] py-1 overflow-hidden">
+          {/* Todos */}
+          <button
+            onClick={toggleAll}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs hover:bg-gray-50 transition-colors border-b border-gray-100">
+            <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
+              allSelected ? 'bg-green-600 border-green-600' : 'border-gray-300'}`}>
+              {allSelected && <Check size={10} color="white" strokeWidth={3} />}
+            </div>
+            <span className="font-semibold text-gray-700">Todos</span>
+          </button>
+
+          {/* Cada serie */}
+          {top5.map((eq, si) => (
+            <button
+              key={eq.id}
+              onClick={() => toggle(si)}
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs hover:bg-gray-50 transition-colors">
+              <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
+                visible.has(si) ? 'border-transparent' : 'border-gray-300 bg-white'}`}
+                style={visible.has(si) ? { background: SERIES_COLORS[si] } : {}}>
+                {visible.has(si) && <Check size={10} color="white" strokeWidth={3} />}
+              </div>
+              <div className="flex items-center gap-1.5 text-left">
+                <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: SERIES_COLORS[si] }} />
+                <span className="text-gray-700 leading-tight">{eq.nombre}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function KpiEquiposPage() {
   const navigate  = useNavigate()
-  const [period,  setPeriod]  = useState('semana')
-  const [data,    setData]    = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState(null)
+  const [period,       setPeriod]       = useState('semana')
+  const [data,         setData]         = useState(null)
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState(null)
+  const [visibleSeries,setVisibleSeries]= useState(new Set([0,1,2,3,4]))
 
   const cargar = async (p) => {
     setLoading(true); setError(null)
@@ -112,6 +198,11 @@ export default function KpiEquiposPage() {
   }
 
   useEffect(() => { cargar(period) }, [period])
+
+  // Reset visible series when data changes
+  useEffect(() => {
+    setVisibleSeries(new Set([0,1,2,3,4]))
+  }, [data])
 
   const r       = data?.resumen ?? {}
   const equipos = data?.equipos  ?? []
@@ -212,19 +303,16 @@ export default function KpiEquiposPage() {
         {/* Evolución chart */}
         {!loading && data && top5.length > 0 && (
           <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-            <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div>
                 <p className="text-sm font-bold text-gray-900">Evolución — Top {top5.length} equipos</p>
                 <p className="text-xs text-gray-400">% cumplimiento en las {labels.length} {period === 'hoy' ? 'horas' : period === 'semana' ? 'jornadas' : 'semanas'} del período</p>
               </div>
-              <div className="flex flex-wrap gap-3">
-                {top5.map((eq, si) => (
-                  <div key={eq.id} className="flex items-center gap-1.5 text-xs text-gray-600">
-                    <div className="w-2 h-2 rounded-sm" style={{ background: SERIES_COLORS[si] }} />
-                    {eq.nombre}
-                  </div>
-                ))}
-              </div>
+              <SeriesDropdown
+                top5={top5}
+                visible={visibleSeries}
+                onChange={setVisibleSeries}
+              />
             </div>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={chartData} margin={{ top: 8, right: 40, left: -10, bottom: 0 }} barCategoryGap="20%" barGap={2}>
@@ -241,15 +329,17 @@ export default function KpiEquiposPage() {
                 />
                 <ReferenceLine y={85} stroke="#0ca30c" strokeDasharray="4 3" strokeWidth={1} label={{ value: '85%', position: 'right', fontSize: 9, fill: '#0ca30c' }} />
                 <ReferenceLine y={65} stroke="#d97706" strokeDasharray="4 3" strokeWidth={1} label={{ value: '65%', position: 'right', fontSize: 9, fill: '#d97706' }} />
-                {top5.map((_, si) => (
-                  <Bar
-                    key={si}
-                    dataKey={`eq_${si}`}
-                    fill={SERIES_COLORS[si]}
-                    radius={[3, 3, 0, 0]}
-                    maxBarSize={28}
-                  />
-                ))}
+                {top5.map((_, si) =>
+                  visibleSeries.has(si) ? (
+                    <Bar
+                      key={si}
+                      dataKey={`eq_${si}`}
+                      fill={SERIES_COLORS[si]}
+                      radius={[3, 3, 0, 0]}
+                      maxBarSize={28}
+                    />
+                  ) : null
+                )}
               </BarChart>
             </ResponsiveContainer>
           </div>
