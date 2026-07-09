@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 namespace App\Http\Controllers\Api;
 
@@ -446,6 +446,7 @@ class EquipoAsignacionController extends Controller
             ->with([
                 'area:id,nombre',
                 'equipo:id,codigo,nombre',
+                'usuario:id,nombre',
                 'tipo:id,nombre',
             ])
             ->orderBy('area_id')
@@ -460,6 +461,7 @@ class EquipoAsignacionController extends Controller
         $validated = $request->validate([
             'area_id'       => 'nullable|exists:areas,id',
             'equipo_id'     => 'nullable|exists:equipos,id',
+            'usuario_id'    => 'nullable|exists:usuarios,id',
             'tipo_id'       => 'nullable|exists:equipos_tipos,id',
             'turno'         => 'required|in:mañana,tarde,noche,dia_completo',
             'dias_semana'   => 'required|array|min:1',
@@ -473,7 +475,7 @@ class EquipoAsignacionController extends Controller
             'creado_por' => $request->user()->id,
         ]));
 
-        return response()->json($regla->load(['area:id,nombre', 'equipo:id,codigo,nombre', 'tipo:id,nombre']), 201);
+        return response()->json($regla->load(['area:id,nombre', 'equipo:id,codigo,nombre', 'usuario:id,nombre', 'tipo:id,nombre']), 201);
     }
 
     public function updateRegla(Request $request, int $id): JsonResponse
@@ -483,6 +485,7 @@ class EquipoAsignacionController extends Controller
         $validated = $request->validate([
             'area_id'       => 'nullable|exists:areas,id',
             'equipo_id'     => 'nullable|exists:equipos,id',
+            'usuario_id'    => 'nullable|exists:usuarios,id',
             'tipo_id'       => 'nullable|exists:equipos_tipos,id',
             'turno'         => 'sometimes|in:mañana,tarde,noche,dia_completo',
             'dias_semana'   => 'sometimes|array|min:1',
@@ -493,7 +496,7 @@ class EquipoAsignacionController extends Controller
 
         $regla->update($validated);
 
-        return response()->json($regla->load(['area:id,nombre', 'equipo:id,codigo,nombre', 'tipo:id,nombre']));
+        return response()->json($regla->load(['area:id,nombre', 'equipo:id,codigo,nombre', 'usuario:id,nombre', 'tipo:id,nombre']));
     }
 
     public function destroyRegla(Request $request, int $id): JsonResponse
@@ -579,11 +582,16 @@ class EquipoAsignacionController extends Controller
             $diaSemana = (int) $cursor->isoFormat('E'); // 1=lun … 7=dom
 
             foreach ($reglas as $regla) {
-                if (!in_array($diaSemana, $regla->dias_semana)) continue;
+                $dias = is_array($regla->dias_semana) ? $regla->dias_semana : [];
+                if (!in_array($diaSemana, $dias)) continue;
                 if (!$regla->equipo || $regla->equipo->estado !== 'operativo') continue;
 
-                $usuarioId = $usuarioIds[$usuarioIdx % count($usuarioIds)];
-                $usuarioIdx++;
+                if ($regla->usuario_id) {
+                    $usuarioId = $regla->usuario_id;
+                } else {
+                    $usuarioId = $usuarioIds[$usuarioIdx % count($usuarioIds)];
+                    $usuarioIdx++;
+                }
 
                 $existe = EquipoAsignacion::where('empresa_id', $empresaId)
                     ->where('equipo_id', $regla->equipo_id)
@@ -614,3 +622,4 @@ class EquipoAsignacionController extends Controller
         ]);
     }
 }
+
