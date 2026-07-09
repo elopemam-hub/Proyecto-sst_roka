@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Settings2, Plus, Trash2, RefreshCw, AlertCircle,
   ArrowLeft, Calendar, BarChart3, CheckCircle2, Clock,
-  XCircle, Zap, ChevronRight,
+  XCircle, Zap, ChevronRight, Pencil,
 } from 'lucide-react'
 import api from '../../services/api'
 import { format, addDays } from 'date-fns'
@@ -161,17 +161,15 @@ function TabDashboard() {
 // Tab: Reglas
 // ──────────────────────────────────────────────────────────────────
 function TabReglas() {
-  const [reglas, setReglas]     = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [showForm, setShowForm] = useState(false)
-  const [areas, setAreas]       = useState([])
-  const [equipos, setEquipos]   = useState([])
-  const [tipos, setTipos]       = useState([])
-  const [form, setForm] = useState({
-    area_id: '', equipo_id: '', tipo_id: '',
-    turno: 'dia_completo', dias_semana: [1,2,3,4,5],
-    activo: true, observaciones: '',
-  })
+  const [reglas, setReglas]       = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [showForm, setShowForm]   = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [areas, setAreas]         = useState([])
+  const [equipos, setEquipos]     = useState([])
+  const [tipos, setTipos]         = useState([])
+  const FORM_BLANK = { area_id: '', equipo_id: '', tipo_id: '', turno: 'dia_completo', dias_semana: [1,2,3,4,5], activo: true, observaciones: '' }
+  const [form, setForm] = useState(FORM_BLANK)
   const [saving, setSaving] = useState(false)
 
   const cargar = useCallback(async () => {
@@ -202,18 +200,48 @@ function TabReglas() {
     }))
   }
 
+  const abrirNuevo = () => {
+    setEditingId(null)
+    setForm(FORM_BLANK)
+    setShowForm(true)
+  }
+
+  const abrirEditar = (r) => {
+    setEditingId(r.id)
+    setForm({
+      area_id:      r.area?.id    ? String(r.area.id)    : '',
+      equipo_id:    r.equipo?.id  ? String(r.equipo.id)  : '',
+      tipo_id:      r.tipo?.id    ? String(r.tipo.id)    : '',
+      turno:        r.turno         || 'dia_completo',
+      dias_semana:  r.dias_semana   || [1,2,3,4,5],
+      activo:       r.activo        ?? true,
+      observaciones: r.observaciones || '',
+    })
+    setShowForm(true)
+  }
+
+  const cerrarForm = () => {
+    setShowForm(false)
+    setEditingId(null)
+    setForm(FORM_BLANK)
+  }
+
   const handleGuardar = async (e) => {
     e.preventDefault()
     setSaving(true)
+    const payload = {
+      ...form,
+      area_id:   form.area_id   || undefined,
+      equipo_id: form.equipo_id || undefined,
+      tipo_id:   form.tipo_id   || undefined,
+    }
     try {
-      await api.post('/equipo-asignaciones/reglas', {
-        ...form,
-        area_id:   form.area_id   || undefined,
-        equipo_id: form.equipo_id || undefined,
-        tipo_id:   form.tipo_id   || undefined,
-      })
-      setShowForm(false)
-      setForm({ area_id:'', equipo_id:'', tipo_id:'', turno:'dia_completo', dias_semana:[1,2,3,4,5], activo:true, observaciones:'' })
+      if (editingId) {
+        await api.put(`/equipo-asignaciones/reglas/${editingId}`, payload)
+      } else {
+        await api.post('/equipo-asignaciones/reglas', payload)
+      }
+      cerrarForm()
       cargar()
     } catch (err) {
       alert(err?.response?.data?.message || 'Error al guardar.')
@@ -233,7 +261,7 @@ function TabReglas() {
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-gray-500">Define qué equipos se inspeccionan, en qué turno y días</p>
         <button
-          onClick={() => setShowForm(s => !s)}
+          onClick={abrirNuevo}
           className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-3 py-2 rounded-xl transition-colors"
         >
           <Plus size={15} />
@@ -243,8 +271,10 @@ function TabReglas() {
 
       {/* Formulario inline */}
       {showForm && (
-        <form onSubmit={handleGuardar} className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4 space-y-3">
-          <h4 className="font-semibold text-blue-800 text-sm">Nueva regla de asignación</h4>
+        <form onSubmit={handleGuardar} className={`border rounded-xl p-4 mb-4 space-y-3 ${editingId ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-200'}`}>
+          <h4 className={`font-semibold text-sm ${editingId ? 'text-amber-800' : 'text-blue-800'}`}>
+            {editingId ? '✏️ Editar regla de asignación' : 'Nueva regla de asignación'}
+          </h4>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Área (opcional)</label>
@@ -311,13 +341,13 @@ function TabReglas() {
             />
           </div>
           <div className="flex gap-2 pt-1">
-            <button type="button" onClick={() => setShowForm(false)}
+            <button type="button" onClick={cerrarForm}
               className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-lg text-sm hover:bg-gray-50">
               Cancelar
             </button>
             <button type="submit" disabled={saving || form.dias_semana.length === 0}
-              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-semibold">
-              {saving ? 'Guardando…' : 'Guardar regla'}
+              className={`flex-1 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-semibold ${editingId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
+              {saving ? 'Guardando…' : editingId ? 'Guardar cambios' : 'Guardar regla'}
             </button>
           </div>
         </form>
@@ -353,7 +383,13 @@ function TabReglas() {
                 <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${r.activo ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
                   {r.activo ? 'Activa' : 'Inactiva'}
                 </span>
+                <button onClick={() => abrirEditar(r)}
+                  title="Editar regla"
+                  className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors">
+                  <Pencil size={15} />
+                </button>
                 <button onClick={() => handleEliminar(r.id)}
+                  title="Eliminar regla"
                   className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
                   <Trash2 size={15} />
                 </button>
