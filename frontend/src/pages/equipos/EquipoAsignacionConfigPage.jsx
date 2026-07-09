@@ -29,15 +29,17 @@ const TURNO_OPTS = [
 // Tab: Dashboard (KPIs de hoy)
 // ──────────────────────────────────────────────────────────────────
 function TabDashboard() {
-  const [dash, setDash]     = useState(null)
+  const [dash, setDash]       = useState(null)
   const [loading, setLoading] = useState(true)
+  const [tick, setTick]       = useState(0)
 
   useEffect(() => {
+    setLoading(true)
     api.get('/equipo-asignaciones/dashboard')
       .then(r => setDash(r.data))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [])
+  }, [tick])
 
   if (loading) return <div className="text-center py-16 text-gray-400"><RefreshCw size={24} className="animate-spin mx-auto mb-2" />Cargando…</div>
   if (!dash)   return null
@@ -46,6 +48,18 @@ function TabDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Header con botón actualizar */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-gray-500">Resumen del día y tendencia semanal</p>
+        <button
+          onClick={() => setTick(t => t + 1)}
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-blue-600 border border-gray-200 hover:border-blue-300 px-3 py-1.5 rounded-lg transition-colors"
+        >
+          <RefreshCw size={14} />
+          Actualizar
+        </button>
+      </div>
+
       {/* KPIs hoy */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
