@@ -236,23 +236,26 @@ function TabReglas() {
   const [areas, setAreas]         = useState([])
   const [equipos, setEquipos]     = useState([])
   const [tipos, setTipos]         = useState([])
-  const FORM_BLANK = { area_id: '', equipo_id: '', tipo_id: '', turno: 'dia_completo', dias_semana: [1,2,3,4,5], activo: true, observaciones: '' }
+  const [usuarios, setUsuarios]   = useState([])
+  const FORM_BLANK = { area_id: '', equipo_id: '', usuario_id: '', tipo_id: '', turno: 'dia_completo', dias_semana: [1,2,3,4,5], activo: true, observaciones: '' }
   const [form, setForm] = useState(FORM_BLANK)
   const [saving, setSaving] = useState(false)
 
   const cargar = useCallback(async () => {
     setLoading(true)
     try {
-      const [r, a, e, t] = await Promise.all([
+      const [r, a, e, t, u] = await Promise.all([
         api.get('/equipo-asignaciones/reglas'),
         api.get('/areas', { params: { per_page: 100 } }),
         api.get('/equipos', { params: { per_page: 200 } }),
         api.get('/equipos-tipos'),
+        api.get('/usuarios', { params: { activo: 1, per_page: 100 } }),
       ])
       setReglas(r.data)
       setAreas(a.data.data || a.data)
       setEquipos(e.data.data || e.data)
       setTipos(t.data.data || t.data)
+      setUsuarios(u.data.data || u.data)
     } catch {}
     finally { setLoading(false) }
   }, [])
@@ -277,9 +280,10 @@ function TabReglas() {
   const abrirEditar = (r) => {
     setEditingId(r.id)
     setForm({
-      area_id:      r.area?.id    ? String(r.area.id)    : '',
-      equipo_id:    r.equipo?.id  ? String(r.equipo.id)  : '',
-      tipo_id:      r.tipo?.id    ? String(r.tipo.id)    : '',
+      area_id:      r.area?.id      ? String(r.area.id)      : '',
+      equipo_id:    r.equipo?.id    ? String(r.equipo.id)    : '',
+      usuario_id:   r.usuario?.id   ? String(r.usuario.id)   : '',
+      tipo_id:      r.tipo?.id      ? String(r.tipo.id)      : '',
       turno:        r.turno         || 'dia_completo',
       dias_semana:  r.dias_semana   || [1,2,3,4,5],
       activo:       r.activo        ?? true,
@@ -299,9 +303,10 @@ function TabReglas() {
     setSaving(true)
     const payload = {
       ...form,
-      area_id:   form.area_id   || undefined,
-      equipo_id: form.equipo_id || undefined,
-      tipo_id:   form.tipo_id   || undefined,
+      area_id:    form.area_id    || undefined,
+      equipo_id:  form.equipo_id  || undefined,
+      usuario_id: form.usuario_id || undefined,
+      tipo_id:    form.tipo_id    || undefined,
     }
     try {
       if (editingId) {
@@ -366,7 +371,7 @@ function TabReglas() {
           <h4 className={`font-semibold text-sm ${editingId ? 'text-amber-800' : 'text-blue-800'}`}>
             {editingId ? '✏️ Editar regla de asignación' : 'Nueva regla de asignación'}
           </h4>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Área (opcional)</label>
               <select className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -381,6 +386,14 @@ function TabReglas() {
                 value={form.equipo_id} onChange={e => setForm(f => ({...f, equipo_id: e.target.value}))}>
                 <option value="">Todos los equipos</option>
                 {equipos.map(e => <option key={e.id} value={e.id}>{e.nombre} ({e.codigo})</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Usuario asignado</label>
+              <select className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={form.usuario_id} onChange={e => setForm(f => ({...f, usuario_id: e.target.value}))}>
+                <option value="">Sin asignar (rotación)</option>
+                {usuarios.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
               </select>
             </div>
             <div>
@@ -458,9 +471,10 @@ function TabReglas() {
             <div key={r.id} className={`bg-white border rounded-xl p-4 flex items-start gap-3 ${r.activo ? 'border-gray-200' : 'border-gray-100 opacity-60'}`}>
               <div className="flex-1">
                 <div className="flex flex-wrap items-center gap-2 mb-1">
-                  {r.equipo && <span className="text-sm font-semibold text-gray-800">{r.equipo.nombre}</span>}
-                  {r.area   && <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{r.area.nombre}</span>}
-                  {r.tipo   && <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">{r.tipo.nombre}</span>}
+                  {r.equipo   && <span className="text-sm font-semibold text-gray-800">{r.equipo.nombre}</span>}
+                  {r.area     && <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{r.area.nombre}</span>}
+                  {r.tipo     && <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">{r.tipo.nombre}</span>}
+                  {r.usuario  && <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">{r.usuario.nombre}</span>}
                   {!r.equipo && !r.area && !r.tipo && <span className="text-sm text-gray-500">Todos los equipos</span>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
