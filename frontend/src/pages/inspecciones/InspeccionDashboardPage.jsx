@@ -157,6 +157,10 @@ export default function InspeccionDashboardPage() {
             className="flex items-center gap-1.5 text-sm border border-green-300 text-green-700 bg-green-50 hover:bg-green-100 px-3 py-2 rounded-lg transition-colors font-medium">
             <BarChart3 size={14} /> KPI Equipos
           </button>
+          <button onClick={() => navigate('/inspecciones/extintores-dashboard')}
+            className="flex items-center gap-1.5 text-sm border border-red-300 text-red-700 bg-red-50 hover:bg-red-100 px-3 py-2 rounded-lg transition-colors font-medium">
+            🧯 Extintores
+          </button>
           <button onClick={() => navigate('/inspecciones/nueva')}
             className="flex items-center gap-2 bg-roka-500 hover:bg-roka-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
             <Plus size={16} /> Nueva Inspección

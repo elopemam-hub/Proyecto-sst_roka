@@ -38,6 +38,7 @@ use App\Http\Controllers\Api\PermisoController;
 use App\Http\Controllers\Api\ProgramaSstController;
 use App\Http\Controllers\Api\NotificacionController;
 use App\Http\Controllers\Api\AuditoriaLogController;
+use App\Http\Controllers\Api\ExtintorController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -159,6 +160,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/tendencia-mensual',      [InspeccionController::class, 'tendenciaMensual']);
         Route::get('/mis-inspecciones',       [InspeccionController::class, 'misInspecciones']);
         Route::get('/kpi-equipos',            [InspeccionController::class, 'kpiEquipos'])->name('inspecciones.kpi-equipos');
+        Route::get('/extintores/dashboard',   [ExtintorController::class, 'dashboard'])->name('inspecciones.extintores-dashboard');
         Route::post('/generar-programa',      [InspeccionController::class, 'generarPrograma']);
         Route::get('/programadas-checklist',  [InspeccionController::class, 'programadasChecklist']);
         Route::post('/programar-checklist',   [InspeccionController::class, 'programarChecklist']);
