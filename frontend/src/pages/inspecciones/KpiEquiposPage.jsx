@@ -23,6 +23,8 @@ const SERIES_COLORS = [
 
 const MAX_VISIBLE = 8
 
+const getColor = (si) => SERIES_COLORS[si % SERIES_COLORS.length]
+
 function pctStatus(v) {
   if (v == null) return 'gray'
   if (v >= 85)  return 'good'
@@ -174,10 +176,10 @@ function SeriesDropdown({ allEquipos, visible, onChange }) {
                   disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-50'}`}>
                 <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
                   checked ? 'border-transparent' : 'border-gray-300 bg-white'}`}
-                  style={checked ? { background: SERIES_COLORS[si] } : {}}>
+                  style={checked ? { background: getColor(si) } : {}}>
                   {checked && <Check size={10} color="white" strokeWidth={3} />}
                 </div>
-                <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: SERIES_COLORS[si] }} />
+                <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: getColor(si) }} />
                 <span className="text-gray-700 leading-tight text-left flex-1">{eq.nombre}</span>
                 {eq.pct_actual != null && (
                   <span className="text-gray-400 tabular-nums flex-shrink-0">{eq.pct_actual}%</span>
@@ -356,7 +358,7 @@ export default function KpiEquiposPage() {
                     <Bar
                       key={si}
                       dataKey={`eq_${si}`}
-                      fill={SERIES_COLORS[si]}
+                      fill={getColor(si)}
                       radius={[3, 3, 0, 0]}
                       maxBarSize={28}
                     >
@@ -365,7 +367,7 @@ export default function KpiEquiposPage() {
                           dataKey={`eq_${si}`}
                           position="top"
                           formatter={(v) => (v != null ? `${v}%` : '')}
-                          style={{ fontSize: 9, fill: SERIES_COLORS[si], fontWeight: 700 }}
+                          style={{ fontSize: 9, fill: getColor(si), fontWeight: 700 }}
                         />
                       )}
                     </Bar>
