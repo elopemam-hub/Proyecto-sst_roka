@@ -17,11 +17,25 @@ class EquipoCatalogoController extends Controller
      */
     public function lista(Request $request): JsonResponse
     {
-        $eid       = $request->user()->empresa_id;
-        $año       = (int) $request->input('año', now()->year);
-        $estadosOk = ['ejecutada', 'cerrada', 'con_hallazgos'];
+        $eid        = $request->user()->empresa_id;
+        $año        = (int) $request->input('año', now()->year);
+        $areaId     = $request->input('area_id');
+        $submoduloId= $request->input('submodulo_id');
+        $estadosOk  = ['ejecutada', 'cerrada', 'con_hallazgos'];
 
-        $rows = DB::table('equipos_catalogo as ec')
+        // Si filtran por área: IDs de catálogos que tienen equipos en esa área
+        $idsConArea = null;
+        if ($areaId) {
+            $idsConArea = DB::table('equipos')
+                ->where('empresa_id', $eid)
+                ->where('area_id', $areaId)
+                ->whereNull('deleted_at')
+                ->distinct()
+                ->pluck('equipo_catalogo_id');
+        }
+
+        $query = DB::table('equipos_catalogo as ec')
+            ->leftJoin('inspeccion_submodulos as sm', 'sm.id', '=', 'ec.submodulo_id')
             ->leftJoin('equipos as e', function ($j) use ($eid) {
                 $j->on('e.equipo_catalogo_id', '=', 'ec.id')
                   ->where('e.empresa_id', $eid)
@@ -34,17 +48,64 @@ class EquipoCatalogoController extends Controller
                   ->whereIn('i.estado', $estadosOk)
                   ->whereNull('i.deleted_at');
             })
-            ->selectRaw("ec.id, ec.nombre, ec.categoria_emergencia,
+            ->selectRaw("ec.id, ec.nombre, ec.submodulo_id, ec.categoria_emergencia,
+                sm.codigo as submodulo_codigo, sm.nombre as submodulo_nombre, sm.color as submodulo_color,
                 COUNT(DISTINCT e.id)   as total_unidades,
                 COUNT(DISTINCT i.id)   as inspecciones_año,
                 ROUND(AVG(CASE WHEN i.id IS NOT NULL THEN i.porcentaje_cumplimiento END), 1) as cumplimiento,
                 MAX(i.planificada_para) as ultima_inspeccion")
-            ->groupBy('ec.id', 'ec.nombre', 'ec.categoria_emergencia')
+            ->groupBy('ec.id', 'ec.nombre', 'ec.submodulo_id', 'ec.categoria_emergencia',
+                      'sm.codigo', 'sm.nombre', 'sm.color')
             ->havingRaw('total_unidades > 0 OR inspecciones_año > 0')
-            ->orderBy('ec.nombre')
+            ->orderBy('sm.orden')
+            ->orderBy('ec.nombre');
+
+        if ($idsConArea !== null) {
+            $query->whereIn('ec.id', $idsConArea);
+        }
+        if ($submoduloId) {
+            $query->where('ec.submodulo_id', $submoduloId);
+        }
+
+        $rows = $query->get();
+
+        // Submodulos disponibles para el filtro (con actividad en la empresa)
+        $submodulos = DB::table('inspeccion_submodulos as sm')
+            ->join('equipos_catalogo as ec', 'ec.submodulo_id', '=', 'sm.id')
+            ->leftJoin('equipos as e', function ($j) use ($eid) {
+                $j->on('e.equipo_catalogo_id', '=', 'ec.id')
+                  ->where('e.empresa_id', $eid)
+                  ->whereNull('e.deleted_at');
+            })
+            ->leftJoin('inspecciones as i', function ($j) use ($eid, $año, $estadosOk) {
+                $j->on('i.equipo_catalogo_id', '=', 'ec.id')
+                  ->where('i.empresa_id', $eid)
+                  ->whereYear('i.planificada_para', $año)
+                  ->whereIn('i.estado', $estadosOk)
+                  ->whereNull('i.deleted_at');
+            })
+            ->selectRaw('sm.id, sm.codigo, sm.nombre, sm.color, COUNT(DISTINCT ec.id) as total_tipos')
+            ->groupBy('sm.id', 'sm.codigo', 'sm.nombre', 'sm.color', 'sm.orden')
+            ->havingRaw('total_tipos > 0')
+            ->orderBy('sm.orden')
             ->get();
 
-        return response()->json(['año' => $año, 'catalogo' => $rows]);
+        // Áreas con equipos de esta empresa
+        $areas = DB::table('areas')
+            ->join('equipos', 'equipos.area_id', '=', 'areas.id')
+            ->where('equipos.empresa_id', $eid)
+            ->whereNull('equipos.deleted_at')
+            ->selectRaw('areas.id, areas.nombre')
+            ->distinct()
+            ->orderBy('areas.nombre')
+            ->get();
+
+        return response()->json([
+            'año'        => $año,
+            'catalogo'   => $rows,
+            'submodulos' => $submodulos,
+            'areas'      => $areas,
+        ]);
     }
 
     /**
