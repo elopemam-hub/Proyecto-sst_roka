@@ -505,6 +505,41 @@ class EquipoAsignacionController extends Controller
     }
 
     // ──────────────────────────────────────────────────────────────────────────
+    // POST /api/equipo-asignaciones/limpiar-periodo
+    // Administrador: elimina asignaciones PENDIENTES de un período (revertir)
+    // ──────────────────────────────────────────────────────────────────────────
+    public function limpiarPeriodo(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'fecha_inicio' => 'required|date',
+            'fecha_fin'    => 'required|date|after_or_equal:fecha_inicio',
+        ]);
+
+        $empresaId = $request->user()->empresa_id;
+        $inicio    = Carbon::parse($validated['fecha_inicio']);
+        $fin       = Carbon::parse($validated['fecha_fin']);
+
+        if ($fin->diffInDays($inicio) > 31) {
+            return response()->json(['message' => 'El período no puede superar 31 días.'], 422);
+        }
+
+        $eliminadas = EquipoAsignacion::where('empresa_id', $empresaId)
+            ->where('estado', 'pendiente')
+            ->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()])
+            ->count();
+
+        EquipoAsignacion::where('empresa_id', $empresaId)
+            ->where('estado', 'pendiente')
+            ->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()])
+            ->delete();
+
+        return response()->json([
+            'message'    => "{$eliminadas} asignación(es) pendientes eliminadas del período.",
+            'eliminadas' => $eliminadas,
+        ]);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
     // POST /api/equipo-asignaciones/generar-desde-reglas
     // Administrador: genera asignaciones automáticas para un período
     // basándose en las reglas activas + usuarios disponibles

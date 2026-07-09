@@ -505,6 +505,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/reglas/{id}',              [EquipoAsignacionController::class, 'updateRegla']);
         Route::delete('/reglas/{id}',           [EquipoAsignacionController::class, 'destroyRegla']);
         Route::post('/generar-desde-reglas',    [EquipoAsignacionController::class, 'generarDesdeReglas']);
+        Route::post('/limpiar-periodo',         [EquipoAsignacionController::class, 'limpiarPeriodo']);
     });
 
 });

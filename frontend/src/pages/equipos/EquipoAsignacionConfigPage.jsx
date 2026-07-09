@@ -502,8 +502,9 @@ function TabGenerar() {
     fecha_fin:    format(addDays(new Date(), 6), 'yyyy-MM-dd'),
     usuario_ids:  [],
   })
-  const [usuarios, setUsuarios] = useState([])
-  const [loading, setLoading]   = useState(false)
+  const [usuarios, setUsuarios]   = useState([])
+  const [loading, setLoading]     = useState(false)
+  const [limpiando, setLimpiando] = useState(false)
   const [resultado, setResultado] = useState(null)
 
   useEffect(() => {
@@ -532,10 +533,28 @@ function TabGenerar() {
         fecha_fin:    form.fecha_fin,
         usuario_ids:  form.usuario_ids,
       })
-      setResultado(res.data)
+      setResultado({ tipo: 'generar', ...res.data })
     } catch (err) {
       alert(err?.response?.data?.message || 'Error al generar asignaciones.')
     } finally { setLoading(false) }
+  }
+
+  const handleLimpiar = async () => {
+    if (!confirm(
+      `¿Eliminar TODAS las asignaciones PENDIENTES del ${form.fecha_inicio} al ${form.fecha_fin}?\n\n` +
+      'Solo se eliminan las pendientes (no afecta completadas/iniciadas).\nEsta acción no se puede deshacer.'
+    )) return
+    setLimpiando(true)
+    setResultado(null)
+    try {
+      const res = await api.post('/equipo-asignaciones/limpiar-periodo', {
+        fecha_inicio: form.fecha_inicio,
+        fecha_fin:    form.fecha_fin,
+      })
+      setResultado({ tipo: 'limpiar', ...res.data })
+    } catch (err) {
+      alert(err?.response?.data?.message || 'Error al limpiar el período.')
+    } finally { setLimpiando(false) }
   }
 
   return (
@@ -590,19 +609,39 @@ function TabGenerar() {
           </div>
         </div>
 
-        <button
-          type="submit"
-          disabled={loading || form.usuario_ids.length === 0}
-          className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-2.5 rounded-xl text-sm font-semibold transition-colors"
-        >
-          <Zap size={16} />
-          {loading ? 'Generando asignaciones…' : 'Generar asignaciones'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={loading || form.usuario_ids.length === 0}
+            className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-2.5 rounded-xl text-sm font-semibold transition-colors"
+          >
+            <Zap size={16} />
+            {loading ? 'Generando…' : 'Generar asignaciones'}
+          </button>
+          <button
+            type="button"
+            onClick={handleLimpiar}
+            disabled={limpiando || loading}
+            title="Eliminar todas las asignaciones PENDIENTES del período seleccionado"
+            className="flex items-center gap-1.5 border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+          >
+            <Trash2 size={15} />
+            {limpiando ? 'Limpiando…' : 'Revertir'}
+          </button>
+        </div>
       </form>
 
       {resultado && (
-        <div className={`mt-4 p-4 rounded-xl border ${resultado.insertadas > 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-200'}`}>
-          <p className={`text-sm font-semibold ${resultado.insertadas > 0 ? 'text-emerald-700' : 'text-gray-600'}`}>
+        <div className={`mt-4 p-4 rounded-xl border ${
+          resultado.tipo === 'limpiar'
+            ? 'bg-red-50 border-red-200'
+            : resultado.insertadas > 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-200'
+        }`}>
+          <p className={`text-sm font-semibold ${
+            resultado.tipo === 'limpiar'
+              ? 'text-red-700'
+              : resultado.insertadas > 0 ? 'text-emerald-700' : 'text-gray-600'
+          }`}>
             {resultado.message}
           </p>
         </div>
