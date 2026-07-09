@@ -39,6 +39,7 @@ use App\Http\Controllers\Api\ProgramaSstController;
 use App\Http\Controllers\Api\NotificacionController;
 use App\Http\Controllers\Api\AuditoriaLogController;
 use App\Http\Controllers\Api\ExtintorController;
+use App\Http\Controllers\Api\EquipoCatalogoController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -161,6 +162,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/mis-inspecciones',       [InspeccionController::class, 'misInspecciones']);
         Route::get('/kpi-equipos',            [InspeccionController::class, 'kpiEquipos'])->name('inspecciones.kpi-equipos');
         Route::get('/extintores/dashboard',   [ExtintorController::class, 'dashboard'])->name('inspecciones.extintores-dashboard');
+        Route::get('/catalogo/lista',         [EquipoCatalogoController::class, 'lista'])->name('inspecciones.catalogo-lista');
+        Route::get('/catalogo/{id}/dashboard',[EquipoCatalogoController::class, 'dashboard'])->name('inspecciones.catalogo-dashboard');
         Route::post('/generar-programa',      [InspeccionController::class, 'generarPrograma']);
         Route::get('/programadas-checklist',  [InspeccionController::class, 'programadasChecklist']);
         Route::post('/programar-checklist',   [InspeccionController::class, 'programarChecklist']);

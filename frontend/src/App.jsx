@@ -56,8 +56,10 @@ const InspeccionAlertasPage = lazy(() => import('./pages/inspecciones/Inspeccion
 
 // Inspecciones v2 — Checklist dinámico por catálogo + wizard general
 const MisInspeccionesPage       = lazy(() => import('./pages/inspecciones/MisInspeccionesPage'))
-const KpiEquiposPage            = lazy(() => import('./pages/inspecciones/KpiEquiposPage'))
-const ExtintorDashboardPage     = lazy(() => import('./pages/inspecciones/ExtintorDashboardPage'))
+const KpiEquiposPage                = lazy(() => import('./pages/inspecciones/KpiEquiposPage'))
+const ExtintorDashboardPage         = lazy(() => import('./pages/inspecciones/ExtintorDashboardPage'))
+const EquipoCatalogListaPage        = lazy(() => import('./pages/inspecciones/EquipoCatalogListaPage'))
+const EquipoCatalogDashboardPage    = lazy(() => import('./pages/inspecciones/EquipoCatalogDashboardPage'))
 const InspeccionChecklistWizard = lazy(() => import('./pages/inspecciones/InspeccionChecklistWizard'))
 const InspeccionGeneralWizard   = lazy(() => import('./pages/inspecciones/InspeccionGeneralWizard'))
 const InspeccionEquiposPage     = lazy(() => import('./pages/inspecciones/InspeccionEquiposPage'))
@@ -305,7 +307,9 @@ export default function App() {
             <Route path="inspecciones/mensual"              element={<InspeccionMensualPage />} />
             <Route path="inspecciones/mis-inspecciones"     element={<MisInspeccionesPage />} />
             <Route path="inspecciones/kpi-equipos"          element={<KpiEquiposPage />} />
-            <Route path="inspecciones/extintores-dashboard" element={<ExtintorDashboardPage />} />
+            <Route path="inspecciones/extintores-dashboard"   element={<ExtintorDashboardPage />} />
+            <Route path="inspecciones/catalogo"               element={<EquipoCatalogListaPage />} />
+            <Route path="inspecciones/catalogo/:catalogoId/dashboard" element={<EquipoCatalogDashboardPage />} />
             <Route path="inspecciones/alertas"                element={<InspeccionAlertasPage />} />
             <Route path="inspecciones/nueva"                  element={<InspeccionFormPage />} />
             <Route path="inspecciones/nueva/general"          element={<InspeccionGeneralWizard />} />
