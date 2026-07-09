@@ -519,8 +519,8 @@ class EquipoAsignacionController extends Controller
         $inicio    = Carbon::parse($validated['fecha_inicio']);
         $fin       = Carbon::parse($validated['fecha_fin']);
 
-        if ($fin->diffInDays($inicio) > 31) {
-            return response()->json(['message' => 'El período no puede superar 31 días.'], 422);
+        if ($fin->diffInDays($inicio) > 366) {
+            return response()->json(['message' => 'El período no puede superar 1 año.'], 422);
         }
 
         $eliminadas = EquipoAsignacion::where('empresa_id', $empresaId)

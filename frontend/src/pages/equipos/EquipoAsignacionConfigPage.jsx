@@ -522,9 +522,17 @@ function TabGenerar() {
     }))
   }
 
+  const diasRango = form.fecha_inicio && form.fecha_fin
+    ? Math.round((new Date(form.fecha_fin) - new Date(form.fecha_inicio)) / 86400000)
+    : 0
+
   const handleGenerar = async (e) => {
     e.preventDefault()
     if (form.usuario_ids.length === 0) { alert('Selecciona al menos un usuario.'); return }
+    if (diasRango > 31) {
+      alert(`El período seleccionado es de ${diasRango} días.\nEl límite para generar es 31 días.\nReduce el rango o usa tramos de 1 mes.`)
+      return
+    }
     setLoading(true)
     setResultado(null)
     try {
@@ -562,7 +570,19 @@ function TabGenerar() {
       <p className="text-sm text-gray-500 mb-4">
         Genera asignaciones automáticas para un período basándose en las reglas activas.
         Los equipos se distribuirán en rotación entre los usuarios seleccionados.
+        <span className="text-amber-600 font-medium"> Máximo 31 días por generación.</span>
       </p>
+
+      {diasRango > 31 && (
+        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
+          <AlertCircle size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
+          <p className="text-sm text-amber-800">
+            El rango seleccionado es de <strong>{diasRango} días</strong>.
+            Para <strong>Revertir</strong> puedes usar el rango completo.
+            Para <strong>Generar</strong>, divide en tramos de máximo 31 días.
+          </p>
+        </div>
+      )}
 
       <form onSubmit={handleGenerar} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
