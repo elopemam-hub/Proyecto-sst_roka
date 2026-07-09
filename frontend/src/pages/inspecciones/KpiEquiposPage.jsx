@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine, Cell, LabelList,
 } from 'recharts'
 import {
   BarChart3, ArrowLeft, RefreshCw, TrendingUp, TrendingDown,
@@ -226,33 +226,31 @@ export default function KpiEquiposPage() {
                 ))}
               </div>
             </div>
-            <ResponsiveContainer width="100%" height={180}>
-              <LineChart data={chartData} margin={{ top: 8, right: 40, left: -10, bottom: 0 }}>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={chartData} margin={{ top: 8, right: 40, left: -10, bottom: 0 }} barCategoryGap="20%" barGap={2}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                 <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
                 <Tooltip
                   contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff' }}
+                  cursor={{ fill: 'rgba(0,0,0,0.04)' }}
                   formatter={(val, name) => {
                     const idx = parseInt(name.split('_')[1])
-                    return [`${val ?? '—'}%`, top5[idx]?.nombre]
+                    return [val != null ? `${val}%` : '—', top5[idx]?.nombre]
                   }}
                 />
                 <ReferenceLine y={85} stroke="#0ca30c" strokeDasharray="4 3" strokeWidth={1} label={{ value: '85%', position: 'right', fontSize: 9, fill: '#0ca30c' }} />
                 <ReferenceLine y={65} stroke="#d97706" strokeDasharray="4 3" strokeWidth={1} label={{ value: '65%', position: 'right', fontSize: 9, fill: '#d97706' }} />
                 {top5.map((_, si) => (
-                  <Line
+                  <Bar
                     key={si}
-                    type="monotone"
                     dataKey={`eq_${si}`}
-                    stroke={SERIES_COLORS[si]}
-                    strokeWidth={2}
-                    dot={{ r: 3, fill: SERIES_COLORS[si], strokeWidth: 0 }}
-                    activeDot={{ r: 5 }}
-                    connectNulls
+                    fill={SERIES_COLORS[si]}
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={28}
                   />
                 ))}
-              </LineChart>
+              </BarChart>
             </ResponsiveContainer>
           </div>
         )}
