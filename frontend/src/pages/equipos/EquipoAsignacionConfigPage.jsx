@@ -309,6 +309,29 @@ function TabReglas() {
       } else {
         await api.post('/equipo-asignaciones/reglas', payload)
       }
+
+      // Generar automáticamente asignaciones para la semana actual
+      try {
+        const hoy    = new Date()
+        const lunes  = new Date(hoy)
+        lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7))
+        const domingo = new Date(lunes)
+        domingo.setDate(lunes.getDate() + 6)
+        const fmt = d => d.toISOString().split('T')[0]
+        const usRes = await api.get('/usuarios', { params: { activo: 1, per_page: 100 } })
+        const usuarioIds = (usRes.data.data || usRes.data).map(u => u.id)
+        if (usuarioIds.length > 0) {
+          const genRes = await api.post('/equipo-asignaciones/generar-desde-reglas', {
+            fecha_inicio: fmt(lunes),
+            fecha_fin:    fmt(domingo),
+            usuario_ids:  usuarioIds,
+          })
+          if (genRes.data.insertadas > 0) {
+            alert(`Regla guardada. ${genRes.data.insertadas} asignación(es) nueva(s) generadas para esta semana.`)
+          }
+        }
+      } catch (_) { /* generación silenciosa — la regla ya fue guardada */ }
+
       cerrarForm()
       cargar()
     } catch (err) {
