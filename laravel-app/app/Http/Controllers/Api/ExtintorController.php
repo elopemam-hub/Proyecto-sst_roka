@@ -110,7 +110,11 @@ class ExtintorController extends Controller
             ->whereNull('i.deleted_at')
             ->whereNotNull('i.equipo_id')
             ->selectRaw("i.equipo_id, cp.id as pregunta_id, cp.texto as descripcion, cp.orden,
-                ROUND(AVG(CASE WHEN ir.resultado IN ('si','conforme','ok','1') THEN 100.0 ELSE 0 END),1) as pct,
+                ROUND(AVG(CASE
+                    WHEN ir.resultado IN ('C','S','A') THEN 100.0
+                    WHEN ir.resultado = 'N'            THEN 0.0
+                    ELSE NULL
+                END),1) as pct,
                 COUNT(*) as cnt")
             ->groupBy('i.equipo_id', 'cp.id', 'cp.texto', 'cp.orden')
             ->orderBy('cp.orden')
