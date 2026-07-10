@@ -33,14 +33,15 @@ function TabDashboard({ onIrGenerar }) {
   const [loading, setLoading]     = useState(true)
   const [tick, setTick]           = useState(0)
   const [generando, setGenerando] = useState(false)
+  const [periodo, setPeriodo]     = useState('hoy')
 
   useEffect(() => {
     setLoading(true)
-    api.get('/equipo-asignaciones/dashboard')
+    api.get('/equipo-asignaciones/dashboard', { params: { periodo } })
       .then(r => setDash(r.data))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [tick])
+  }, [tick, periodo])
 
   // Genera asignaciones para los días de la semana actual que faltan
   const generarSemana = async () => {
@@ -74,7 +75,9 @@ function TabDashboard({ onIrGenerar }) {
   if (loading) return <div className="text-center py-16 text-gray-400"><RefreshCw size={24} className="animate-spin mx-auto mb-2" />Cargando…</div>
   if (!dash)   return null
 
-  const hoy = dash.hoy
+  const kpis = dash.kpis
+  const periodoLabel = { hoy: 'hoy', semana: 'esta semana', mes: 'este mes' }[periodo]
+  const totalLabel   = { hoy: 'Total hoy', semana: 'Total semana', mes: 'Total mes' }[periodo]
 
   // Detectar días sin asignaciones esta semana
   const diasVacios = (dash.tendencia_semana || []).filter(d => d.total === 0)
@@ -82,7 +85,7 @@ function TabDashboard({ onIrGenerar }) {
   return (
     <div className="space-y-6">
       {/* Aviso si hay días sin asignaciones */}
-      {diasVacios.length > 0 && (
+      {diasVacios.length > 0 && periodo === 'hoy' && (
         <div className="flex items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
           <div className="flex items-start gap-2">
             <AlertCircle size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
@@ -102,9 +105,27 @@ function TabDashboard({ onIrGenerar }) {
         </div>
       )}
 
-      {/* Header con botón actualizar */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Resumen del día y tendencia semanal</p>
+      {/* Header con filtros de período y botón actualizar */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+          {[
+            { value: 'hoy',    label: 'Hoy' },
+            { value: 'semana', label: 'Semana' },
+            { value: 'mes',    label: 'Mes' },
+          ].map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => setPeriodo(opt.value)}
+              className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                periodo === opt.value
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
         <button
           onClick={() => setTick(t => t + 1)}
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-blue-600 border border-gray-200 hover:border-blue-300 px-3 py-1.5 rounded-lg transition-colors"
@@ -114,13 +135,13 @@ function TabDashboard({ onIrGenerar }) {
         </button>
       </div>
 
-      {/* KPIs hoy */}
+      {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: 'Total hoy',    value: hoy.total,      color: 'text-gray-800' },
-          { label: 'Completados',  value: hoy.completado,  color: 'text-emerald-600' },
-          { label: 'Pendientes',   value: hoy.pendiente,   color: 'text-amber-600' },
-          { label: 'Cumplimiento', value: hoy.porcentaje != null ? `${hoy.porcentaje}%` : '—', color: hoy.porcentaje >= 80 ? 'text-emerald-600' : 'text-amber-600' },
+          { label: totalLabel,     value: kpis.total,      color: 'text-gray-800' },
+          { label: 'Completados',  value: kpis.completado,  color: 'text-emerald-600' },
+          { label: 'Pendientes',   value: kpis.pendiente,   color: 'text-amber-600' },
+          { label: 'Cumplimiento', value: kpis.porcentaje != null ? `${kpis.porcentaje}%` : '—', color: kpis.porcentaje >= 80 ? 'text-emerald-600' : 'text-amber-600' },
         ].map(k => (
           <div key={k.label} className="bg-white rounded-xl border border-gray-200 p-4 text-center shadow-sm">
             <p className={`text-2xl font-bold ${k.color}`}>{k.value}</p>
@@ -133,7 +154,7 @@ function TabDashboard({ onIrGenerar }) {
       {Object.keys(dash.por_area).length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100">
-            <h3 className="font-semibold text-gray-800">Cumplimiento por área — hoy</h3>
+            <h3 className="font-semibold text-gray-800">Cumplimiento por área — {periodoLabel}</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -197,7 +218,7 @@ function TabDashboard({ onIrGenerar }) {
       {dash.por_usuario.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100">
-            <h3 className="font-semibold text-gray-800">Por usuario — hoy</h3>
+            <h3 className="font-semibold text-gray-800">Por usuario — {periodoLabel}</h3>
           </div>
           {dash.por_usuario.map((u, i) => {
             const pct = u.total > 0 ? Math.round((u.completado / u.total) * 100) : 0

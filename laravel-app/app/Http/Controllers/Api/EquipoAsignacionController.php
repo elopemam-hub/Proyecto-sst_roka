@@ -113,25 +113,38 @@ class EquipoAsignacionController extends Controller
 
         EquipoAsignacion::marcarVencidas($empresaId);
 
-        $hoy       = Carbon::today();
-        $inicioMes = $hoy->copy()->startOfMonth();
-        $finMes    = $hoy->copy()->endOfMonth();
+        $hoy     = Carbon::today();
+        $periodo = $request->get('periodo', 'hoy');
 
-        $base = fn() => EquipoAsignacion::where('empresa_id', $empresaId);
+        switch ($periodo) {
+            case 'semana':
+                $inicio = $hoy->copy()->startOfWeek();
+                $fin    = $hoy->copy()->endOfWeek();
+                break;
+            case 'mes':
+                $inicio = $hoy->copy()->startOfMonth();
+                $fin    = $hoy->copy()->endOfMonth();
+                break;
+            default:
+                $inicio = $hoy->copy();
+                $fin    = $hoy->copy();
+        }
 
-        $hoyTotal      = $base()->whereDate('fecha', $hoy)->count();
-        $hoyCompletado = $base()->whereDate('fecha', $hoy)->where('estado', 'completado')->count();
-        $hoyPendiente  = $base()->whereDate('fecha', $hoy)->where('estado', 'pendiente')->count();
-        $hoyOmitido    = $base()->whereDate('fecha', $hoy)->where('estado', 'omitido')->count();
+        $base  = fn() => EquipoAsignacion::where('empresa_id', $empresaId);
+        $baseP = fn() => $base()->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()]);
 
-        $cumplimientoHoy = $hoyTotal > 0 ? round(($hoyCompletado / $hoyTotal) * 100, 1) : null;
+        $total      = $baseP()->count();
+        $completado = $baseP()->where('estado', 'completado')->count();
+        $pendiente  = $baseP()->where('estado', 'pendiente')->count();
+        $omitido    = $baseP()->where('estado', 'omitido')->count();
+        $porcentaje = $total > 0 ? round(($completado / $total) * 100, 1) : null;
 
-        // Cumplimiento por área (hoy)
+        // Cumplimiento por área
         $porArea = DB::table('equipo_asignaciones as ea')
             ->join('equipos as e', 'ea.equipo_id', '=', 'e.id')
             ->join('areas as a', 'e.area_id', '=', 'a.id')
             ->where('ea.empresa_id', $empresaId)
-            ->whereDate('ea.fecha', $hoy)
+            ->whereBetween('ea.fecha', [$inicio->toDateString(), $fin->toDateString()])
             ->whereNull('ea.deleted_at')
             ->selectRaw('a.nombre as area, ea.estado, count(*) as total')
             ->groupBy('a.nombre', 'ea.estado')
@@ -144,9 +157,9 @@ class EquipoAsignacionController extends Controller
                 'omitido'    => $rows->where('estado', 'omitido')->sum('total'),
             ]);
 
-        // Cumplimiento por usuario (hoy)
+        // Cumplimiento por usuario
         $porUsuario = EquipoAsignacion::where('empresa_id', $empresaId)
-            ->whereDate('fecha', $hoy)
+            ->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()])
             ->with('usuario:id,nombre,email')
             ->selectRaw('usuario_id, estado, count(*) as total')
             ->groupBy('usuario_id', 'estado')
@@ -159,30 +172,25 @@ class EquipoAsignacionController extends Controller
                 'pendiente'  => $rows->where('estado', 'pendiente')->sum('total'),
             ]);
 
-        // Tendencia de la semana
+        // Tendencia semanal (siempre la semana actual)
         $inicioSemana = $hoy->copy()->startOfWeek();
         $tendenciaSemana = [];
         for ($i = 0; $i < 7; $i++) {
-            $dia = $inicioSemana->copy()->addDays($i);
-            $total = $base()->whereDate('fecha', $dia)->count();
+            $dia   = $inicioSemana->copy()->addDays($i);
+            $tot   = $base()->whereDate('fecha', $dia)->count();
             $comp  = $base()->whereDate('fecha', $dia)->where('estado', 'completado')->count();
             $tendenciaSemana[] = [
                 'fecha'      => $dia->toDateString(),
                 'dia'        => $dia->locale('es')->isoFormat('ddd'),
-                'total'      => $total,
+                'total'      => $tot,
                 'completado' => $comp,
-                'porcentaje' => $total > 0 ? round(($comp / $total) * 100) : null,
+                'porcentaje' => $tot > 0 ? round(($comp / $tot) * 100) : null,
             ];
         }
 
         return response()->json([
-            'hoy' => [
-                'total'      => $hoyTotal,
-                'completado' => $hoyCompletado,
-                'pendiente'  => $hoyPendiente,
-                'omitido'    => $hoyOmitido,
-                'porcentaje' => $cumplimientoHoy,
-            ],
+            'periodo'         => $periodo,
+            'kpis'            => compact('total', 'completado', 'pendiente', 'omitido', 'porcentaje'),
             'por_area'        => $porArea,
             'por_usuario'     => $porUsuario->values(),
             'tendencia_semana'=> $tendenciaSemana,
