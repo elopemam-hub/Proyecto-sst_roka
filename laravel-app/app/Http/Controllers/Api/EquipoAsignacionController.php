@@ -549,6 +549,7 @@ class EquipoAsignacionController extends Controller
     // ──────────────────────────────────────────────────────────────────────────
     public function generarDesdeReglas(Request $request): JsonResponse
     {
+        try {
         $validated = $request->validate([
             'fecha_inicio'   => 'required|date',
             'fecha_fin'      => 'required|date|after_or_equal:fecha_inicio',
@@ -620,6 +621,11 @@ class EquipoAsignacionController extends Controller
             'message'    => "{$insertadas} asignación(es) generadas para el período.",
             'insertadas' => $insertadas,
         ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => 'Error: ' . $e->getMessage() . ' [' . basename($e->getFile()) . ':' . $e->getLine() . ']',
+            ], 500);
+        }
     }
 }
 
