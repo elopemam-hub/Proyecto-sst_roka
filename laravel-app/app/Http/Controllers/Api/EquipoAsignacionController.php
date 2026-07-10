@@ -157,7 +157,9 @@ class EquipoAsignacionController extends Controller
                 'omitido'    => $rows->where('estado', 'omitido')->sum('total'),
             ]);
 
-        // Cumplimiento por usuario
+        // Cumplimiento por usuario (solo trabajadores con asignaciones regulares en el período)
+        $minTotal = match($periodo) { 'mes' => 5, 'semana' => 2, default => 1 };
+
         $porUsuario = EquipoAsignacion::where('empresa_id', $empresaId)
             ->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()])
             ->with('usuario:id,nombre,email')
@@ -170,7 +172,8 @@ class EquipoAsignacionController extends Controller
                 'total'      => $rows->sum('total'),
                 'completado' => $rows->where('estado', 'completado')->sum('total'),
                 'pendiente'  => $rows->where('estado', 'pendiente')->sum('total'),
-            ]);
+            ])
+            ->filter(fn($u) => $u['total'] >= $minTotal);
 
         // Tendencia semanal (siempre la semana actual)
         $inicioSemana = $hoy->copy()->startOfWeek();
