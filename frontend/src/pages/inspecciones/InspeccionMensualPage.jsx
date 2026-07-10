@@ -29,6 +29,8 @@ const ESTADO_CFG = {
   completada:    { label: 'Completada',     cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: CheckCircle2 },
   en_progreso:   { label: 'En progreso',    cls: 'bg-amber-50 text-amber-700 border-amber-200',       icon: Zap },
   programada:    { label: 'Programada',     cls: 'bg-blue-50 text-blue-700 border-blue-200',          icon: Clock },
+  cerrada:       { label: 'Cerrada',        cls: 'bg-gray-100 text-gray-500 border-gray-200',         icon: CheckCircle2 },
+  con_hallazgos: { label: 'Con hallazgos',  cls: 'bg-orange-50 text-orange-700 border-orange-200',    icon: AlertTriangle },
   sin_programar: { label: 'Sin programar',  cls: 'bg-gray-100 text-gray-500 border-gray-200',         icon: AlertTriangle },
 }
 
@@ -204,7 +206,8 @@ function FilaCatalogo({ cat, navigate, onProgramar, usuarios, onAsignarInspector
                 </button>
               )}
             </div>
-            {cat.inspecciones?.length > 0 && usuarios.length > 0 && cat.equipos_count <= 1 && (
+            {cat.inspecciones?.length > 0 && usuarios.length > 0 && cat.equipos_count <= 1
+              && !['cerrada','ejecutada','con_hallazgos'].includes(cat.inspecciones[0].estado) && (
               <InspectorSelect
                 inspId={cat.inspecciones[0].id}
                 inspectorUsuarioId={cat.inspecciones[0].inspector_usuario_id}
@@ -288,7 +291,7 @@ function FilaCatalogo({ cat, navigate, onProgramar, usuarios, onAsignarInspector
                           </button>
                         )}
                       </div>
-                      {tieneInsp && usuarios.length > 0 && (
+                      {tieneInsp && usuarios.length > 0 && !['cerrada','ejecutada','con_hallazgos'].includes(eq.inspeccion.estado) && (
                         <InspectorSelect
                           inspId={eq.inspeccion.id}
                           inspectorUsuarioId={eq.inspeccion.inspector_usuario_id}
