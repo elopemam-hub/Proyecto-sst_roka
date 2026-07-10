@@ -23,7 +23,7 @@ const pctColor = v => v == null ? 'text-gray-300' : v >= 90 ? 'text-emerald-600 
 function TarjetaInspeccion({ insp, onEjecutar, onVer }) {
   const cfg      = ESTADO_CFG[insp.estado] || ESTADO_CFG.programada
   const EstIcon  = cfg.icon
-  const puedeEjecutar = ['programada', 'en_ejecucion', 'con_hallazgos'].includes(insp.estado)
+  const puedeEjecutar = ['programada', 'en_ejecucion'].includes(insp.estado)
 
   return (
     <div className={`bg-white rounded-xl border ${cfg.bg} p-4 mb-3 shadow-sm`}>
@@ -186,7 +186,7 @@ export default function MisInspeccionesPage() {
               { l: 'Total',        v: r.total      || 0, color: 'text-gray-700',    bg: 'bg-white' },
               { l: 'Pendientes',   v: r.programadas|| 0, color: 'text-blue-700',    bg: 'bg-blue-50' },
               { l: 'En ejecución', v: r.en_progreso|| 0, color: 'text-amber-700',   bg: 'bg-amber-50' },
-              { l: 'Completadas',  v: r.ejecutadas  || 0, color: 'text-emerald-700', bg: 'bg-emerald-50' },
+              { l: 'Ejecutadas',   v: r.ejecutadas  || 0, color: 'text-emerald-700', bg: 'bg-emerald-50' },
             ].map(({ l, v, color, bg }) => (
               <div key={l} className={`${bg} rounded-xl border border-gray-200 p-3 text-center shadow-sm`}>
                 <p className={`text-xl font-black ${color}`}>{v}</p>

@@ -431,15 +431,13 @@ class InspeccionController extends Controller
             );
         }
 
-        $inspecciones = $query->withCount(['hallazgos', 'items'])
+        $inspecciones = $query->withCount([
+                'hallazgos',
+                'items',
+                'hallazgos as total_hallazgos_criticos' => fn($q) => $q->where('criticidad', 'critico'),
+            ])
             ->orderByDesc('planificada_para')
             ->paginate(min($request->integer('per_page', 20), 100));
-
-        $inspecciones->getCollection()->transform(function ($item) {
-            $item->tipo_label = $item->tipo_label;
-            $item->total_hallazgos_criticos = $item->total_hallazgos_criticos;
-            return $item;
-        });
 
         return response()->json($inspecciones);
     }
@@ -1328,8 +1326,8 @@ class InspeccionController extends Controller
             'resumen' => [
                 'total'       => $inspecciones->count(),
                 'programadas' => $inspecciones->where('estado', 'programada')->count(),
-                'en_progreso' => $inspecciones->whereIn('estado', ['en_ejecucion', 'con_hallazgos'])->count(),
-                'ejecutadas'  => $inspecciones->whereIn('estado', ['ejecutada', 'cerrada'])->count(),
+                'en_progreso' => $inspecciones->where('estado', 'en_ejecucion')->count(),
+                'ejecutadas'  => $inspecciones->whereIn('estado', ['ejecutada', 'con_hallazgos', 'cerrada'])->count(),
             ],
         ]);
     }
