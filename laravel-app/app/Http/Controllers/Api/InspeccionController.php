@@ -35,14 +35,11 @@ class InspeccionController extends Controller
         $desde = sprintf('%04d-%02d-01', $anio, $mes);
         $hasta = date('Y-m-t', strtotime($desde));
 
-        // Catálogos NO diarios
-        $catsDiarios = DB::table('equipos_catalogo')
-            ->where('frecuencia_inspeccion', 'diaria')->pluck('id');
-
+        // Solo catálogos con frecuencia mensual
         $catalogos = DB::table('equipos_catalogo as ec')
             ->leftJoin('inspeccion_submodulos as sm', 'sm.id', '=', 'ec.submodulo_id')
             ->where('ec.activo', true)
-            ->whereNotIn('ec.id', $catsDiarios)
+            ->where('ec.frecuencia_inspeccion', 'mensual')
             ->orderBy('sm.codigo')
             ->orderBy('ec.orden')
             ->get(['ec.id','ec.codigo','ec.nombre','ec.submodulo_id','sm.codigo as submod_codigo','sm.nombre as submod_nombre']);
@@ -286,12 +283,9 @@ class InspeccionController extends Controller
         $desde = sprintf('%04d-%02d-01', $anio, $mes);
         $hasta = date('Y-m-t', strtotime($desde));
 
-        // Catálogos activos NO diarios
-        $catsDiarios = DB::table('equipos_catalogo')
-            ->where('frecuencia_inspeccion','diaria')->pluck('id');
-
+        // Solo catálogos con frecuencia mensual
         $catalogos = \App\Models\EquipoCatalogo::where('activo', true)
-            ->whereNotIn('id', $catsDiarios)
+            ->where('frecuencia_inspeccion', 'mensual')
             ->with('submodulo')
             ->get();
 
