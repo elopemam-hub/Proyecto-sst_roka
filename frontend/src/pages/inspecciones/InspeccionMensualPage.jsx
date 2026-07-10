@@ -204,7 +204,7 @@ function FilaCatalogo({ cat, navigate, onProgramar, usuarios, onAsignarInspector
                 </button>
               )}
             </div>
-            {cat.inspecciones?.length > 0 && usuarios.length > 0 && (
+            {cat.inspecciones?.length > 0 && usuarios.length > 0 && cat.equipos_count <= 1 && (
               <InspectorSelect
                 inspId={cat.inspecciones[0].id}
                 inspectorUsuarioId={cat.inspecciones[0].inspector_usuario_id}
