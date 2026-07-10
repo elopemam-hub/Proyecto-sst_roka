@@ -197,8 +197,10 @@ class InspeccionController extends Controller
                     $semaforo = 'amarillo';
                 } elseif ($estado === 'completada') {
                     $semaforo = ($pctCumpl ?? 0) >= 70 ? 'verde' : 'amarillo';
-                } elseif (in_array($estado, ['en_progreso', 'programada'])) {
+                } elseif ($estado === 'en_progreso') {
                     $semaforo = 'verde';
+                } elseif ($estado === 'programada') {
+                    $semaforo = 'amarillo'; // Programada pero no ejecutada aún
                 } else {
                     $semaforo = 'gris';
                 }
