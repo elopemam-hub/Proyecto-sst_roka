@@ -526,15 +526,26 @@ class EquipoAsignacionController extends Controller
             return response()->json(['message' => 'El período no puede superar 1 año.'], 422);
         }
 
+        $rango = [$inicio->toDateString(), $fin->toDateString()];
+
+        // Contar pendientes activas
         $eliminadas = EquipoAsignacion::where('empresa_id', $empresaId)
             ->where('estado', 'pendiente')
-            ->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()])
+            ->whereBetween('fecha', $rango)
             ->count();
 
+        // Borrado físico de pendientes (forceDelete evita conflictos en índice único al regenerar)
         EquipoAsignacion::where('empresa_id', $empresaId)
             ->where('estado', 'pendiente')
-            ->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()])
-            ->delete();
+            ->whereBetween('fecha', $rango)
+            ->forceDelete();
+
+        // Limpiar también cualquier registro ya soft-deleted del período (liberan el índice único)
+        EquipoAsignacion::withTrashed()
+            ->where('empresa_id', $empresaId)
+            ->whereBetween('fecha', $rango)
+            ->whereNotNull('deleted_at')
+            ->forceDelete();
 
         return response()->json([
             'message'    => "{$eliminadas} asignación(es) pendientes eliminadas del período.",
@@ -549,7 +560,6 @@ class EquipoAsignacionController extends Controller
     // ──────────────────────────────────────────────────────────────────────────
     public function generarDesdeReglas(Request $request): JsonResponse
     {
-        try {
         $validated = $request->validate([
             'fecha_inicio'   => 'required|date',
             'fecha_fin'      => 'required|date|after_or_equal:fecha_inicio',
@@ -621,11 +631,6 @@ class EquipoAsignacionController extends Controller
             'message'    => "{$insertadas} asignación(es) generadas para el período.",
             'insertadas' => $insertadas,
         ]);
-        } catch (\Throwable $e) {
-            return response()->json([
-                'message' => 'Error: ' . $e->getMessage() . ' [' . basename($e->getFile()) . ':' . $e->getLine() . ']',
-            ], 500);
-        }
     }
 }
 
