@@ -265,7 +265,22 @@ class EquipoCatalogoController extends Controller
             ->get()
             ->groupBy('equipo_id');
 
-        $ubicaciones = $equipos->map(function ($eq) use ($mensualPorEquipoRaw, $hoy, $limite90) {
+        // Inspecciones a nivel catálogo (sin equipo específico) — se usan como
+        // fallback por mes cuando un equipo no tiene inspección propia ese mes.
+        $mensualCatalogoRaw = DB::table('inspecciones')
+            ->where('empresa_id', $eid)
+            ->where('equipo_catalogo_id', $id)
+            ->whereYear('planificada_para', $año)
+            ->whereIn('estado', $estadosOk)
+            ->whereNull('deleted_at')
+            ->whereNull('equipo_id')
+            ->selectRaw('MONTH(planificada_para) as mes,
+                ROUND(AVG(porcentaje_cumplimiento),1) as pct')
+            ->groupBy(DB::raw('MONTH(planificada_para)'))
+            ->get()
+            ->keyBy('mes');
+
+        $ubicaciones = $equipos->map(function ($eq) use ($mensualPorEquipoRaw, $mensualCatalogoRaw, $hoy, $limite90) {
             $mensualEq = $mensualPorEquipoRaw->get($eq->id, collect())->keyBy('mes');
             $venc      = $eq->fecha_proxima_revision;
             $estadoV   = !$venc                  ? 'sin_fecha'
@@ -281,9 +296,15 @@ class EquipoCatalogoController extends Controller
                 'area'        => $eq->area?->nombre,
                 'vencimiento' => $venc?->format('d M Y'),
                 'estado_venc' => $estadoV,
-                'mensual'     => collect(range(1, 12))->mapWithKeys(
-                    fn($m) => [$m => isset($mensualEq[$m]) ? (float) $mensualEq[$m]->pct : null]
-                ),
+                'mensual'     => collect(range(1, 12))->mapWithKeys(function ($m) use ($mensualEq, $mensualCatalogoRaw) {
+                    if (isset($mensualEq[$m])) {
+                        return [$m => (float) $mensualEq[$m]->pct];
+                    }
+                    if (isset($mensualCatalogoRaw[$m])) {
+                        return [$m => (float) $mensualCatalogoRaw[$m]->pct];
+                    }
+                    return [$m => null];
+                }),
             ];
         });
 
