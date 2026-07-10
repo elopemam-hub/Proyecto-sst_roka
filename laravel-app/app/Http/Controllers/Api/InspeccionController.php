@@ -176,13 +176,17 @@ class InspeccionController extends Controller
 
             if ($esMesFuturo) {
                 $semaforo = 'gris';
-            } elseif ($criticosAbiertos > 0) {
-                $semaforo = 'rojo';
             } elseif ($esMesPasado) {
                 // Mes pasado: sin completar = rojo, bajo pct = amarillo
-                $semaforo = in_array($estado, ['sin_programar', 'programada'])
-                    ? 'rojo'
-                    : ($estado === 'en_progreso' ? 'amarillo' : (($pctCumpl ?? 0) >= 70 ? 'verde' : 'amarillo'));
+                if (in_array($estado, ['sin_programar', 'programada'])) {
+                    $semaforo = 'rojo';
+                } elseif ($estado === 'en_progreso') {
+                    $semaforo = 'amarillo';
+                } elseif (($pctCumpl ?? 0) >= 70) {
+                    $semaforo = $criticosAbiertos > 0 ? 'amarillo' : 'verde';
+                } else {
+                    $semaforo = 'amarillo';
+                }
             } else {
                 // Mes actual
                 $tieneVencida = $insps->where('estado', 'programada')
@@ -191,16 +195,19 @@ class InspeccionController extends Controller
                 $totalDias = (int) date('t', strtotime($desde));
                 $pctMes   = round($diaHoy / $totalDias * 100);
 
-                if ($tieneVencida || ($estado === 'sin_programar' && $pctMes > 70)) {
+                if ($estado === 'completada' && ($pctCumpl ?? 0) >= 70) {
+                    // Completada con buen pct: verde; amarillo si hay críticos abiertos
+                    $semaforo = $criticosAbiertos > 0 ? 'amarillo' : 'verde';
+                } elseif ($criticosAbiertos > 0 || $tieneVencida || ($estado === 'sin_programar' && $pctMes > 70)) {
                     $semaforo = 'rojo';
                 } elseif ($ncAbiertos > 0 || ($estado === 'sin_programar' && $pctMes > 30)) {
                     $semaforo = 'amarillo';
                 } elseif ($estado === 'completada') {
-                    $semaforo = ($pctCumpl ?? 0) >= 70 ? 'verde' : 'amarillo';
+                    $semaforo = 'amarillo'; // Completada pero pct bajo
                 } elseif ($estado === 'en_progreso') {
                     $semaforo = 'verde';
                 } elseif ($estado === 'programada') {
-                    $semaforo = 'amarillo'; // Programada pero no ejecutada aún
+                    $semaforo = 'amarillo';
                 } else {
                     $semaforo = 'gris';
                 }
