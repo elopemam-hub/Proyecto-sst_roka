@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, ClipboardCheck, AlertTriangle, CheckCircle, Clock, Download, XCircle, ClipboardList, Wrench, BookOpen, RotateCcw, Calendar, Zap, ChevronLeft, ChevronRight, ArrowLeft } from 'lucide-react'
+import { Plus, Search, ClipboardCheck, AlertTriangle, CheckCircle, Clock, Download, XCircle, ClipboardList, Wrench, BookOpen, RotateCcw, Calendar, Zap, ChevronLeft, ChevronRight, ArrowLeft, Trash2, Eye } from 'lucide-react'
 import api from '../../services/api'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -50,6 +50,9 @@ export default function InspeccionListPage() {
   const [meta, setMeta]                 = useState(null)
   const [stats, setStats]               = useState(null)
   const [anio, setAnio]                 = useState('')
+  const [confirmEliminar, setConfirmEliminar] = useState(null) // {id, codigo, titulo}
+  const [eliminando, setEliminando]           = useState(false)
+  const [errorEliminar, setErrorEliminar]     = useState('')
 
   useEffect(() => { setPagina(1) }, [search, tab, filtroTipo, anio])
   useEffect(() => { cargar() }, [search, tab, filtroTipo, pagina, anio])
@@ -95,8 +98,65 @@ export default function InspeccionListPage() {
 
   const handleTab = (key) => { setTab(key); setPagina(1) }
 
+  const handleEliminar = async () => {
+    if (!confirmEliminar) return
+    setEliminando(true)
+    setErrorEliminar('')
+    try {
+      await api.delete(`/inspecciones/${confirmEliminar.id}`)
+      setConfirmEliminar(null)
+      cargar()
+      cargarStats()
+    } catch (e) {
+      setErrorEliminar(e.response?.data?.message || 'No se pudo eliminar la inspección.')
+    } finally {
+      setEliminando(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
+      {/* Modal confirmar eliminar */}
+      {confirmEliminar && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <Trash2 size={18} className="text-red-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-gray-900">Eliminar inspección</p>
+                <p className="text-xs text-gray-500 font-mono">{confirmEliminar.codigo}</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600">
+              ¿Seguro que deseas eliminar <strong>{confirmEliminar.titulo}</strong>?
+              Esta acción no se puede deshacer.
+            </p>
+            {errorEliminar && (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{errorEliminar}</p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => { setConfirmEliminar(null); setErrorEliminar('') }}
+                disabled={eliminando}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleEliminar}
+                disabled={eliminando}
+                className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <Trash2 size={14} />
+                {eliminando ? 'Eliminando…' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
@@ -218,16 +278,16 @@ export default function InspeccionListPage() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              {['Código', 'Tipo', 'Título', 'Área', 'Fecha', 'Cumplimiento', 'Hallazgos', 'Estado'].map(h => (
+              {['Código', 'Tipo', 'Título', 'Área', 'Fecha', 'Cumplimiento', 'Hallazgos', 'Estado', 'Acciones'].map(h => (
                 <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={8} className="text-center py-12 text-gray-400">Cargando...</td></tr>
+              <tr><td colSpan={9} className="text-center py-12 text-gray-400">Cargando...</td></tr>
             ) : inspecciones.length === 0 ? (
-              <tr><td colSpan={8} className="text-center py-12 text-gray-400">No se encontraron inspecciones</td></tr>
+              <tr><td colSpan={9} className="text-center py-12 text-gray-400">No se encontraron inspecciones</td></tr>
             ) : inspecciones.map(ins => (
               <tr
                 key={ins.id}
@@ -261,6 +321,26 @@ export default function InspeccionListPage() {
                   <span className={`text-xs font-medium px-2 py-1 rounded-full border ${ESTADOS[ins.estado]?.color}`}>
                     {ESTADOS[ins.estado]?.label || ins.estado}
                   </span>
+                </td>
+                <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => navigate(`/inspecciones/${ins.id}`)}
+                      title="Ver detalle"
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                    >
+                      <Eye size={15} />
+                    </button>
+                    {ins.estado !== 'cerrada' && (
+                      <button
+                        onClick={() => { setErrorEliminar(''); setConfirmEliminar({ id: ins.id, codigo: ins.codigo, titulo: ins.titulo }) }}
+                        title="Eliminar"
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
