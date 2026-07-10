@@ -4,7 +4,7 @@ import {
   ArrowLeft, ChevronLeft, ChevronRight, ClipboardList,
   CheckCircle2, Clock, AlertTriangle, Zap, Play,
   RefreshCw, Plus, Eye, BarChart3, Package, Shield,
-  PenLine, ShieldCheck, ShieldAlert, ChevronDown, XCircle, X, Info, TrendingUp, User,
+  PenLine, ShieldCheck, ShieldAlert, ChevronDown, XCircle, X, Info, TrendingUp, User, Trash2,
 } from 'lucide-react'
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
@@ -100,7 +100,7 @@ function InspectorSelect({ inspId, inspectorUsuarioId, usuarios, onAsignarInspec
 }
 
 // ── Fila del catálogo ─────────────────────────────────────────────────────
-function FilaCatalogo({ cat, navigate, onProgramar, usuarios, onAsignarInspector }) {
+function FilaCatalogo({ cat, navigate, onProgramar, usuarios, onAsignarInspector, onEliminar }) {
   const [expandida, setExpandida] = useState(false)
   const estadoCfg = ESTADO_CFG[cat.estado] || ESTADO_CFG.sin_programar
   const EIcon = estadoCfg.icon
@@ -178,7 +178,7 @@ function FilaCatalogo({ cat, navigate, onProgramar, usuarios, onAsignarInspector
         {/* Acciones */}
         <td className="px-4 py-3">
           <div className="flex flex-col gap-0.5" onClick={e => e.stopPropagation()}>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               {cat.estado === 'sin_programar' ? (
                 <button onClick={() => onProgramar(cat)}
                   className="flex items-center gap-1 text-xs bg-roka-500 hover:bg-roka-600 text-white px-2.5 py-1 rounded-lg font-medium">
@@ -194,6 +194,13 @@ function FilaCatalogo({ cat, navigate, onProgramar, usuarios, onAsignarInspector
                 <button onClick={() => navigate(`/inspecciones/checklist/${cat.inspecciones[0].id}`)}
                   className="flex items-center gap-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg font-medium">
                   <Play size={10}/> Ejecutar
+                </button>
+              )}
+              {cat.estado === 'programada' && cat.inspecciones?.length > 0 && (
+                <button onClick={() => onEliminar(cat.inspecciones[0].id)}
+                  title="Eliminar inspección programada 0%"
+                  className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-1.5 py-1 rounded border border-transparent hover:border-red-200 transition-colors">
+                  <Trash2 size={11}/>
                 </button>
               )}
             </div>
@@ -253,7 +260,7 @@ function FilaCatalogo({ cat, navigate, onProgramar, usuarios, onAsignarInspector
 
                     {/* Acciones */}
                     <div className="flex flex-col gap-0.5" onClick={e => e.stopPropagation()}>
-                      <div className="flex gap-1.5">
+                      <div className="flex gap-1.5 flex-wrap">
                         {tieneInsp ? (
                           <>
                             <button onClick={() => navigate(`/inspecciones/${eq.inspeccion.id}`)}
@@ -264,6 +271,13 @@ function FilaCatalogo({ cat, navigate, onProgramar, usuarios, onAsignarInspector
                               <button onClick={() => navigate(`/inspecciones/checklist/${eq.inspeccion.id}`)}
                                 className="flex items-center gap-1 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded font-medium">
                                 <Play size={9}/> Ejecutar
+                              </button>
+                            )}
+                            {eq.inspeccion.estado === 'programada' && (
+                              <button onClick={() => onEliminar(eq.inspeccion.id)}
+                                title="Eliminar programada 0%"
+                                className="flex items-center text-[10px] text-red-500 hover:text-red-700 hover:bg-red-50 px-1.5 py-1 rounded border border-transparent hover:border-red-200 transition-colors">
+                                <Trash2 size={9}/>
                               </button>
                             )}
                           </>
@@ -297,18 +311,27 @@ function FilaCatalogo({ cat, navigate, onProgramar, usuarios, onAsignarInspector
           <td colSpan={7} className="bg-gray-50 border-t border-gray-100 px-6 pb-3 pt-2">
             <div className="flex flex-wrap gap-2">
               {cat.inspecciones.map(ins => (
-                <button key={ins.id} onClick={() => navigate(`/inspecciones/${ins.id}`)}
-                  className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs hover:border-roka-300 hover:bg-roka-50 transition-colors">
-                  {ins.equipo_codigo && (
-                    <span className="font-mono text-roka-600 font-semibold">{ins.equipo_codigo}</span>
+                <div key={ins.id} className="flex items-center gap-1">
+                  <button onClick={() => navigate(`/inspecciones/${ins.id}`)}
+                    className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs hover:border-roka-300 hover:bg-roka-50 transition-colors">
+                    {ins.equipo_codigo && (
+                      <span className="font-mono text-roka-600 font-semibold">{ins.equipo_codigo}</span>
+                    )}
+                    <span className="font-mono text-gray-400">{ins.codigo}</span>
+                    <span className="text-gray-600">{ins.area}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${ESTADO_CFG[ins.estado]?.cls || ''}`}>
+                      {ESTADO_CFG[ins.estado]?.label || ins.estado}
+                    </span>
+                    {ins.pct != null && <span className={`font-bold text-[10px] ${pctColor(ins.pct)}`}>{Number(ins.pct).toFixed(0)}%</span>}
+                  </button>
+                  {ins.estado === 'programada' && (
+                    <button onClick={() => onEliminar(ins.id)}
+                      title="Eliminar programada 0%"
+                      className="flex items-center justify-center w-6 h-6 text-red-400 hover:text-red-600 hover:bg-red-50 rounded border border-transparent hover:border-red-200 transition-colors">
+                      <Trash2 size={11}/>
+                    </button>
                   )}
-                  <span className="font-mono text-gray-400">{ins.codigo}</span>
-                  <span className="text-gray-600">{ins.area}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${ESTADO_CFG[ins.estado]?.cls || ''}`}>
-                    {ESTADO_CFG[ins.estado]?.label || ins.estado}
-                  </span>
-                  {ins.pct != null && <span className={`font-bold text-[10px] ${pctColor(ins.pct)}`}>{Number(ins.pct).toFixed(0)}%</span>}
-                </button>
+                </div>
               ))}
             </div>
           </td>
@@ -818,6 +841,8 @@ export default function InspeccionMensualPage() {
   const [modalGen, setModalGen]           = useState(false)
   const [generando, setGenerando]         = useState(false)
   const [usuarios, setUsuarios]           = useState([])
+  const [limpiando, setLimpiando]         = useState(false)
+  const [confirmarLimpiar, setConfirmarLimpiar] = useState(false)
 
   useEffect(() => {
     api.get('/usuarios', { params: { per_page: 1000, activo: true } })
@@ -857,6 +882,26 @@ export default function InspeccionMensualPage() {
       toast.success('Inspector asignado')
       cargar()
     } catch (e) { toast.error(e.response?.data?.message || 'Error al asignar inspector') }
+  }
+
+  const eliminarInspeccion = async (id) => {
+    if (!window.confirm('¿Eliminar esta inspección programada?')) return
+    try {
+      await api.delete(`/inspecciones/${id}`)
+      toast.success('Inspección eliminada')
+      cargar()
+    } catch (e) { toast.error(e.response?.data?.message || 'Error al eliminar') }
+  }
+
+  const limpiarProgramadas = async () => {
+    setLimpiando(true)
+    try {
+      const { data: res } = await api.delete('/inspecciones/limpiar-programadas', { params: { anio, mes } })
+      toast.success(res.message)
+      setConfirmarLimpiar(false)
+      cargar()
+    } catch (e) { toast.error(e.response?.data?.message || 'Error al limpiar') }
+    finally { setLimpiando(false) }
   }
 
   const programarInspeccion = async (catalogo, equipoEspecifico = null) => {
@@ -1067,9 +1112,18 @@ export default function InspeccionMensualPage() {
                 }`}>
                 <TrendingUp size={11}/> Por riesgo
               </button>
-              <button onClick={cargar} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-2 ml-auto">
-                <RefreshCw size={12}/> Actualizar
-              </button>
+              <div className="ml-auto flex items-center gap-2">
+                {r.programadas > 0 && (
+                  <button onClick={() => setConfirmarLimpiar(true)}
+                    title={`Eliminar todas las ${r.programadas} inspecciones programadas (0%) de este mes`}
+                    className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 px-2.5 py-1.5 rounded-lg transition-colors font-medium">
+                    <Trash2 size={12}/> Limpiar programadas ({r.programadas})
+                  </button>
+                )}
+                <button onClick={cargar} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-2">
+                  <RefreshCw size={12}/> Actualizar
+                </button>
+              </div>
             </div>
 
             <table className="w-full text-sm">
@@ -1090,7 +1144,8 @@ export default function InspeccionMensualPage() {
                   <FilaCatalogo key={cat.catalogo_id} cat={cat} navigate={navigate}
                     onProgramar={programarInspeccion}
                     usuarios={usuarios}
-                    onAsignarInspector={handleAsignarInspector}/>
+                    onAsignarInspector={handleAsignarInspector}
+                    onEliminar={eliminarInspeccion}/>
                 ))}
               </tbody>
             </table>
@@ -1129,6 +1184,40 @@ export default function InspeccionMensualPage() {
 
       {/* Sección Revisión */}
       <SeccionRevisionMensual navigate={navigate} />
+
+      {/* Modal confirmar limpiar programadas */}
+      {confirmarLimpiar && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
+              <div className="w-9 h-9 bg-red-50 rounded-xl flex items-center justify-center">
+                <Trash2 size={17} className="text-red-600"/>
+              </div>
+              <div>
+                <h2 className="font-bold text-gray-900">Limpiar programadas 0%</h2>
+                <p className="text-xs text-gray-400">{MESES_ES[mes-1]} {anio}</p>
+              </div>
+            </div>
+            <div className="p-5">
+              <p className="text-sm text-gray-600">
+                Se eliminarán <strong className="text-red-600">{r.programadas} inspecciones</strong> en estado <em>Programada</em> (0% de avance) del mes actual.
+              </p>
+              <p className="text-xs text-gray-400 mt-2">Las inspecciones en progreso o completadas no se ven afectadas.</p>
+            </div>
+            <div className="px-5 pb-5 flex gap-2">
+              <button onClick={() => setConfirmarLimpiar(false)}
+                className="flex-1 border border-gray-300 text-gray-600 rounded-lg py-2 text-sm hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={limpiarProgramadas} disabled={limpiando}
+                className="flex-1 flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-40">
+                {limpiando ? <RefreshCw size={13} className="animate-spin"/> : <Trash2 size={13}/>}
+                {limpiando ? 'Eliminando...' : 'Eliminar todas'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal generar programa */}
       {modalGen && (

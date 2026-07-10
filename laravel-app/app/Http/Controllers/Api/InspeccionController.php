@@ -619,6 +619,29 @@ class InspeccionController extends Controller
         return response()->json($inspeccion->fresh(['items', 'area', 'sede', 'inspector', 'inspectorUsuario']));
     }
 
+    // ── Eliminar todas las inspecciones programadas 0% de un mes ─────────────
+    public function limpiarProgramadas(Request $request): JsonResponse
+    {
+        $eid  = $request->user()->empresa_id;
+        $anio = $request->integer('anio', now()->year);
+        $mes  = $request->integer('mes',  now()->month);
+
+        $desde = sprintf('%04d-%02d-01', $anio, $mes);
+        $hasta = date('Y-m-t', strtotime($desde));
+
+        $eliminadas = Inspeccion::where('empresa_id', $eid)
+            ->where('estado', 'programada')
+            ->whereBetween('planificada_para', [$desde, $hasta])
+            ->where(fn($q) => $q->whereNull('porcentaje_cumplimiento')
+                                ->orWhere('porcentaje_cumplimiento', 0))
+            ->delete();
+
+        return response()->json([
+            'message'    => "{$eliminadas} inspección(es) programadas eliminadas.",
+            'eliminadas' => $eliminadas,
+        ]);
+    }
+
     /**
      * DELETE /api/inspecciones/{id}
      */

@@ -165,6 +165,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/catalogo/lista',         [EquipoCatalogoController::class, 'lista'])->name('inspecciones.catalogo-lista');
         Route::get('/catalogo/{id}/dashboard',[EquipoCatalogoController::class, 'dashboard'])->name('inspecciones.catalogo-dashboard');
         Route::post('/generar-programa',      [InspeccionController::class, 'generarPrograma']);
+        Route::delete('/limpiar-programadas', [InspeccionController::class, 'limpiarProgramadas']);
         Route::get('/programadas-checklist',  [InspeccionController::class, 'programadasChecklist']);
         Route::post('/programar-checklist',   [InspeccionController::class, 'programarChecklist']);
         Route::get('/pendientes-firma',       [InspeccionController::class, 'pendientesFirma']);
