@@ -35,11 +35,18 @@ class InspeccionController extends Controller
         $desde = sprintf('%04d-%02d-01', $anio, $mes);
         $hasta = date('Y-m-t', strtotime($desde));
 
-        // Solo catálogos con frecuencia mensual
+        // Solo catálogos activos con frecuencia mensual que tengan al menos 1 equipo activo
         $catalogos = DB::table('equipos_catalogo as ec')
             ->leftJoin('inspeccion_submodulos as sm', 'sm.id', '=', 'ec.submodulo_id')
             ->where('ec.activo', true)
             ->where('ec.frecuencia_inspeccion', 'mensual')
+            ->whereExists(fn($q) => $q
+                ->from('equipos')
+                ->whereColumn('equipos.equipo_catalogo_id', 'ec.id')
+                ->where('equipos.empresa_id', $eid)
+                ->whereIn('equipos.estado', ['operativo', 'en_mantenimiento'])
+                ->whereNull('equipos.deleted_at')
+            )
             ->orderBy('sm.codigo')
             ->orderBy('ec.orden')
             ->get(['ec.id','ec.codigo','ec.nombre','ec.submodulo_id','sm.codigo as submod_codigo','sm.nombre as submod_nombre']);
@@ -283,9 +290,14 @@ class InspeccionController extends Controller
         $desde = sprintf('%04d-%02d-01', $anio, $mes);
         $hasta = date('Y-m-t', strtotime($desde));
 
-        // Solo catálogos con frecuencia mensual
+        // Solo catálogos activos con frecuencia mensual que tengan equipos activos
         $catalogos = \App\Models\EquipoCatalogo::where('activo', true)
             ->where('frecuencia_inspeccion', 'mensual')
+            ->whereHas('equiposInventario', fn($q) => $q
+                ->where('empresa_id', $eid)
+                ->whereIn('estado', ['operativo', 'en_mantenimiento'])
+                ->whereNull('deleted_at')
+            )
             ->with('submodulo')
             ->get();
 
