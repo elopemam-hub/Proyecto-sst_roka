@@ -94,6 +94,7 @@ class EquipoAsignacionController extends Controller
             'en_proceso' => $asignaciones->where('estado', 'en_proceso')->count(),
             'completado' => $asignaciones->where('estado', 'completado')->count(),
             'omitido'    => $asignaciones->where('estado', 'omitido')->count(),
+            'vencido'    => $asignaciones->filter(fn ($a) => $a->vencida)->count(),
         ];
 
         return response()->json([
@@ -137,6 +138,7 @@ class EquipoAsignacionController extends Controller
         $completado = $baseP()->where('estado', 'completado')->count();
         $pendiente  = $baseP()->where('estado', 'pendiente')->count();
         $omitido    = $baseP()->where('estado', 'omitido')->count();
+        $vencido    = $baseP()->where('estado', 'pendiente')->whereDate('fecha', '<', $hoy)->count();
         $porcentaje = $total > 0 ? round(($completado / $total) * 100, 1) : null;
 
         // Cumplimiento por área
@@ -146,7 +148,11 @@ class EquipoAsignacionController extends Controller
             ->where('ea.empresa_id', $empresaId)
             ->whereBetween('ea.fecha', [$inicio->toDateString(), $fin->toDateString()])
             ->whereNull('ea.deleted_at')
-            ->selectRaw('a.nombre as area, ea.estado, count(*) as total')
+            ->selectRaw(
+                "a.nombre as area, ea.estado, count(*) as total, "
+                . "sum(case when ea.estado = 'pendiente' and ea.fecha < ? then 1 else 0 end) as vencido",
+                [$hoy->toDateString()]
+            )
             ->groupBy('a.nombre', 'ea.estado')
             ->get()
             ->groupBy('area')
@@ -155,6 +161,7 @@ class EquipoAsignacionController extends Controller
                 'completado' => $rows->where('estado', 'completado')->sum('total'),
                 'pendiente'  => $rows->where('estado', 'pendiente')->sum('total'),
                 'omitido'    => $rows->where('estado', 'omitido')->sum('total'),
+                'vencido'    => $rows->sum('vencido'),
             ]);
 
         // Cumplimiento por usuario (solo trabajadores con asignaciones regulares en el período)
@@ -193,7 +200,7 @@ class EquipoAsignacionController extends Controller
 
         return response()->json([
             'periodo'         => $periodo,
-            'kpis'            => compact('total', 'completado', 'pendiente', 'omitido', 'porcentaje'),
+            'kpis'            => compact('total', 'completado', 'pendiente', 'omitido', 'vencido', 'porcentaje'),
             'por_area'        => $porArea,
             'por_usuario'     => $porUsuario->values(),
             'tendencia_semana'=> $tendenciaSemana,

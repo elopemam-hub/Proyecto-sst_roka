@@ -5,7 +5,7 @@ import {
   PieChart, Pie, Legend,
 } from 'recharts'
 import {
-  Package, CalendarCheck, AlertTriangle, CheckCircle2, ChevronUp, ChevronDown, RefreshCw,
+  Package, CalendarCheck, AlertTriangle, CheckCircle2, ChevronUp, ChevronDown, RefreshCw, ArrowLeft,
 } from 'lucide-react'
 import api from '../../services/api'
 
@@ -29,6 +29,39 @@ function PctCell({ v }) {
   return (
     <td className={`px-3 py-2 text-center text-xs font-bold ${pctColor(v)}`}>
       {v}%
+    </td>
+  )
+}
+
+const RESULT_MAP = {
+  C:          { label: 'Sí',      cls: 'text-emerald-600' },
+  S:          { label: 'Sí',      cls: 'text-emerald-600' },
+  A:          { label: 'Acción',  cls: 'text-orange-600 font-bold' },
+  N:          { label: 'No',      cls: 'text-red-500' },
+  NA:         { label: 'N/A',     cls: 'text-gray-400' },
+  conforme:   { label: 'Sí',      cls: 'text-emerald-600' },
+  no_conforme:{ label: 'No',      cls: 'text-red-500' },
+  observacion:{ label: 'Obs',     cls: 'text-amber-600' },
+}
+
+// Resultado categórico → porcentaje de cumplimiento (Sí = 100%, No = 0%)
+const RESULT_PCT = {
+  C: 100, S: 100, conforme: 100,
+  A: 50,  observacion: 50,
+  N: 0,   no_conforme: 0,
+}
+
+function ResultCell({ v }) {
+  if (v == null) return <td className="px-3 py-2 text-center text-gray-300 text-xs">—</td>
+  if (v === 'NA' || v === 'na') return <td className="px-3 py-2 text-center text-gray-400 text-xs">N/A</td>
+  const pct = RESULT_PCT[v]
+  if (pct == null) {
+    const cfg = RESULT_MAP[v] || { label: v, cls: 'text-gray-500' }
+    return <td className={`px-3 py-2 text-center text-xs font-semibold ${cfg.cls}`}>{cfg.label}</td>
+  }
+  return (
+    <td className={`px-3 py-2 text-center text-xs font-bold ${pctColor(pct)}`}>
+      {pct}%
     </td>
   )
 }
@@ -135,9 +168,10 @@ export default function EquipoCatalogDashboardPage() {
         <div className="flex items-center gap-3 flex-wrap">
           <button
             onClick={() => navigate('/inspecciones/catalogo')}
-            className="text-sm text-gray-500 hover:text-gray-700"
+            className="group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-all"
           >
-            ← Tipos de equipo
+            <ArrowLeft size={15} className="transition-transform group-hover:-translate-x-0.5" />
+            Tipos de equipo
           </button>
           <h1 className="text-xl font-bold text-gray-900">
             Dashboard — {data.catalogo_nombre}
@@ -240,8 +274,12 @@ export default function EquipoCatalogDashboardPage() {
       )}
 
       {/* Matriz de anomalías */}
-      {anomalias_matrix.filas.length > 0 && (
-        <Section title={`Matriz de Verificación (${anomalias_matrix.extintores?.length ?? 0} unidades)`} defaultOpen={false}>
+      <Section title={`Matriz de Verificación (${anomalias_matrix.extintores?.length ?? 0} unidades)`} defaultOpen={false}>
+        {anomalias_matrix.filas.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-8">
+            Sin datos de checklist — la inspección no registró ítems de verificación.
+          </p>
+        ) : (
           <div className="overflow-x-auto mt-2">
             <table className="text-xs border-collapse min-w-max w-full">
               <thead>
@@ -266,15 +304,15 @@ export default function EquipoCatalogDashboardPage() {
                     </td>
                     {anomalias_matrix.extintores.map(eq => {
                       const v = fila.por_equipo?.[eq.id] ?? null
-                      return <PctCell key={eq.id} v={v} />
+                      return <ResultCell key={eq.id} v={v} />
                     })}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </Section>
-      )}
+        )}
+      </Section>
 
       {/* Tabla de ubicaciones */}
       {ubicaciones.length > 0 && (

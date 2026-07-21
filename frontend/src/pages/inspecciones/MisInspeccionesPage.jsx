@@ -116,8 +116,8 @@ export default function MisInspeccionesPage() {
     setNavMes(m); setNavAnio(a)
   }
 
-  const handleEjecutar = (insp) => navigate(`/inspecciones/checklist/${insp.id}`)
-  const handleVer      = (insp) => navigate(`/inspecciones/${insp.id}`)
+  const handleEjecutar = (insp) => navigate(`/inspecciones/checklist/${insp.id}`, { state: { from: 'mis-inspecciones' } })
+  const handleVer      = (insp) => navigate(`/inspecciones/${insp.id}`, { state: { from: 'mis-inspecciones' } })
 
   const r = data?.resumen || {}
 

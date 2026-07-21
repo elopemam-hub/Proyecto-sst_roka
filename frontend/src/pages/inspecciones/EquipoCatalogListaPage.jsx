@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BarChart3, Package, CalendarCheck, AlertTriangle, ChevronRight, RefreshCw, Search, X } from 'lucide-react'
+import { BarChart3, Package, CalendarCheck, AlertTriangle, ChevronRight, RefreshCw, Search, X, ArrowLeft } from 'lucide-react'
 import api from '../../services/api'
 
 const SUBMOD_COLORS = {
@@ -70,8 +70,9 @@ export default function EquipoCatalogListaPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3 flex-wrap">
           <button onClick={() => navigate('/inspecciones')}
-            className="text-sm text-gray-500 hover:text-gray-700">
-            ← Inspecciones
+            className="group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-all">
+            <ArrowLeft size={15} className="transition-transform group-hover:-translate-x-0.5" />
+            Inspecciones
           </button>
           <div className="flex items-center gap-2">
             <BarChart3 size={22} className="text-blue-600" />

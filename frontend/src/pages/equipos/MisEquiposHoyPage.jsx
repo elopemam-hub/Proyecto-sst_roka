@@ -131,13 +131,20 @@ function BarraProgreso({ resumen }) {
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />{resumen.pendiente} pendiente</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />{resumen.en_proceso} en proceso</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />{resumen.completado} completado</span>
+        {resumen.vencido > 0 && (
+          <span className="flex items-center gap-1 text-red-600 font-medium"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" />{resumen.vencido} vencida</span>
+        )}
       </div>
     </div>
   )
 }
 
+const VENCIDA_CFG = { label: 'Vencida', icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50 border-red-200' }
+
 function TarjetaEquipo({ asignacion, onIniciar, onVerResultado, cargando }) {
-  const est   = ESTADO_CFG[asignacion.estado] || ESTADO_CFG.pendiente
+  // "Vencida": sigue pendiente pero su día ya pasó. Se resalta en rojo pero
+  // conserva el botón para iniciar/continuar (no se bloquea).
+  const est   = asignacion.vencida ? VENCIDA_CFG : (ESTADO_CFG[asignacion.estado] || ESTADO_CFG.pendiente)
   const EstIcon = est.icon
   const equipo  = asignacion.equipo
 

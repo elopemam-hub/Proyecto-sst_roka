@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect, useRef } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
   ArrowLeft, Edit, CheckCircle, AlertTriangle, Clock, Calendar,
   ClipboardCheck, Plus, Lock, Download, Camera, X,
@@ -402,12 +402,15 @@ function ModalEjecucion({ insp, onClose, onEjecutado }) {
 }
 
 export default function InspeccionDetailPage() {
-  const navigate = useNavigate()
-  const { id }   = useParams()
+  const navigate  = useNavigate()
+  const { id }    = useParams()
+  const location  = useLocation()
+  const fromMisInspecciones = location.state?.from === 'mis-inspecciones'
   const [insp, setInsp]                   = useState(null)
 
   // Determinar ruta de retorno según tipo y frecuencia de inspección
   const getRutaRetorno = () => {
+    if (fromMisInspecciones) return '/inspecciones/mis-inspecciones'
     if (!insp) return '/inspecciones'
 
     // Inspecciones de equipos (Mis Equipos Hoy) → siempre a diarias
@@ -602,7 +605,7 @@ export default function InspeccionDetailPage() {
             insp.equipo_catalogo_id ? (
               // Inspección de CHECKLIST → abre el wizard del checklist
               <button
-                onClick={() => navigate(`/inspecciones/checklist/${id}`)}
+                onClick={() => navigate(`/inspecciones/checklist/${id}`, fromMisInspecciones ? { state: { from: 'mis-inspecciones' } } : undefined)}
                 className="flex items-center gap-2 text-sm px-3 py-2 bg-roka-500 hover:bg-roka-600 text-white rounded-lg font-medium">
                 <ClipboardCheck size={15} /> Ejecutar checklist
               </button>
@@ -636,7 +639,7 @@ export default function InspeccionDetailPage() {
           {/* Ver checklist ejecutado (solo lectura) para inspecciones cerradas */}
           {insp.equipo_catalogo_id && ['ejecutada','con_hallazgos','cerrada'].includes(insp.estado) && (
             <button
-              onClick={() => navigate(`/inspecciones/checklist/${id}`)}
+              onClick={() => navigate(`/inspecciones/checklist/${id}`, fromMisInspecciones ? { state: { from: 'mis-inspecciones' } } : undefined)}
               className="flex items-center gap-2 text-sm px-3 py-2 bg-white border border-roka-300 text-roka-600 hover:bg-roka-50 rounded-lg">
               <ClipboardCheck size={15} /> Ver checklist
             </button>

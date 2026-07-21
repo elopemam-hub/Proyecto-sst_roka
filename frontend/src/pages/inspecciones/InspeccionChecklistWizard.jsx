@@ -353,8 +353,9 @@ export default function InspeccionChecklistWizard() {
   const preselCatalogoId = searchParams.get('catalogo_id')
   const progId           = searchParams.get('prog_id')
   // asignacion_id viene de query params o de location.state (reanudación)
-  const asignacionId   = searchParams.get('asignacion_id') || location.state?.asignacion_id || null
-  const fromMisEquipos = Boolean(asignacionId) || location.state?.from === 'mis-equipos'
+  const asignacionId      = searchParams.get('asignacion_id') || location.state?.asignacion_id || null
+  const fromMisEquipos    = Boolean(asignacionId) || location.state?.from === 'mis-equipos'
+  const fromMisInspecciones = location.state?.from === 'mis-inspecciones'
 
   const [paso, setPaso]               = useState(inspId ? 3 : 1)
   const [submodulos, setSubmodulos]   = useState([])
@@ -558,6 +559,7 @@ export default function InspeccionChecklistWizard() {
 
   // Determinar ruta de retorno según origen y frecuencia de inspección
   const getRutaRetorno = () => {
+    if (fromMisInspecciones) return '/inspecciones/mis-inspecciones'
     if (fromMisEquipos) return '/equipos/mis-equipos'
     if (inspeccion?.frecuencia_inspeccion === 'mensual') return '/inspecciones/mensual'
     if (inspeccion?.frecuencia_inspeccion === 'diaria') return '/inspecciones/diarias'
@@ -609,7 +611,7 @@ export default function InspeccionChecklistWizard() {
         <div className="flex items-center gap-3 mb-1">
           <button onClick={() => navigate(getRutaRetorno())}
             className="btn-back">
-            <ArrowLeft size={14} /> {fromMisEquipos ? 'Mis equipos' : 'Inspecciones'}
+            <ArrowLeft size={14} /> {fromMisInspecciones ? 'Mis inspecciones' : fromMisEquipos ? 'Mis equipos' : 'Inspecciones'}
           </button>
           <h1 className="text-2xl font-bold text-gray-900">
             {inspId ? 'Continuar inspección' : 'Nueva inspección por catálogo'}

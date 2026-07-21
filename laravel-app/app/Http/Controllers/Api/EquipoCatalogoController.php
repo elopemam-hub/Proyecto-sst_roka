@@ -187,12 +187,29 @@ class EquipoCatalogoController extends Controller
             ->get();
 
         // ── Evolución mensual ─────────────────────────────────────────────────
-        $mensualRaw = DB::table('inspecciones')
+        // Inspecciones a nivel catálogo (sin unidad específica) tienen prioridad;
+        // se usa el promedio de unidades como fallback en meses sin inspección de catálogo.
+        $mensualCatalogoChart = DB::table('inspecciones')
             ->where('empresa_id', $eid)
             ->where('equipo_catalogo_id', $id)
             ->whereYear('planificada_para', $año)
             ->whereIn('estado', $estadosOk)
             ->whereNull('deleted_at')
+            ->whereNull('equipo_id')
+            ->selectRaw('MONTH(planificada_para) as mes,
+                ROUND(AVG(porcentaje_cumplimiento),1) as pct,
+                COUNT(*) as n')
+            ->groupBy(DB::raw('MONTH(planificada_para)'))
+            ->get()
+            ->keyBy('mes');
+
+        $mensualUnidadChart = DB::table('inspecciones')
+            ->where('empresa_id', $eid)
+            ->where('equipo_catalogo_id', $id)
+            ->whereYear('planificada_para', $año)
+            ->whereIn('estado', $estadosOk)
+            ->whereNull('deleted_at')
+            ->whereNotNull('equipo_id')
             ->selectRaw('MONTH(planificada_para) as mes,
                 ROUND(AVG(porcentaje_cumplimiento),1) as pct,
                 COUNT(*) as n')
@@ -204,12 +221,16 @@ class EquipoCatalogoController extends Controller
         $mensual  = collect(range(1, 12))->map(fn($m) => [
             'mes'   => $m,
             'label' => $labMeses[$m - 1],
-            'pct'   => isset($mensualRaw[$m]) ? (float) $mensualRaw[$m]->pct : null,
-            'n'     => isset($mensualRaw[$m]) ? (int)   $mensualRaw[$m]->n   : 0,
+            'pct'   => isset($mensualCatalogoChart[$m])
+                       ? (float) $mensualCatalogoChart[$m]->pct
+                       : (isset($mensualUnidadChart[$m]) ? (float) $mensualUnidadChart[$m]->pct : null),
+            'n'     => isset($mensualCatalogoChart[$m])
+                       ? (int) $mensualCatalogoChart[$m]->n
+                       : (isset($mensualUnidadChart[$m]) ? (int) $mensualUnidadChart[$m]->n : 0),
         ]);
 
-        // ── Matriz de anomalías — via checklist wizard ────────────────────────
-        $anomaliasRows = DB::table('inspeccion_respuestas as ir')
+        // ── Matriz de verificación — resultado real de la inspección más reciente ─
+        $allRespRaw = DB::table('inspeccion_respuestas as ir')
             ->join('checklist_preguntas as cp', 'ir.pregunta_id', '=', 'cp.id')
             ->join('inspecciones as i', 'ir.inspeccion_id', '=', 'i.id')
             ->where('i.empresa_id', $eid)
@@ -218,19 +239,64 @@ class EquipoCatalogoController extends Controller
             ->whereIn('i.estado', $estadosOk)
             ->whereNull('i.deleted_at')
             ->whereNotNull('i.equipo_id')
-            ->selectRaw("i.equipo_id, cp.id as pregunta_id, cp.texto as descripcion, cp.orden,
-                ROUND(AVG(CASE
-                    WHEN ir.resultado IN ('C','S','A') THEN 100.0
-                    WHEN ir.resultado = 'N'            THEN 0.0
-                    ELSE NULL
-                END),1) as pct")
-            ->groupBy('i.equipo_id', 'cp.id', 'cp.texto', 'cp.orden')
+            ->selectRaw("i.equipo_id, i.id as inspeccion_id, i.planificada_para,
+                         cp.id as pregunta_id, cp.texto as descripcion, cp.orden, ir.resultado")
+            ->orderByDesc('i.planificada_para')
             ->orderBy('cp.orden')
             ->get();
 
-        // Fallback: inspecciones_items (formato clásico)
+        // Retener solo respuestas de la inspección más reciente por unidad
+        $latestInspPerUnit = $allRespRaw
+            ->groupBy('equipo_id')
+            ->map(fn($rows) => $rows->first()?->inspeccion_id);
+
+        $anomaliasRows = $allRespRaw->filter(fn($row) =>
+            $latestInspPerUnit->get($row->equipo_id) === $row->inspeccion_id
+        );
+
+        // Fallback A: inspeccion_respuestas a nivel catálogo (equipo_id IS NULL)
+        // → la inspección cubre el área completa; se replica para cada unidad del catálogo
         if ($anomaliasRows->isEmpty()) {
-            $anomaliasRows = DB::table('inspecciones_items as ii')
+            $catalogRespRaw = DB::table('inspeccion_respuestas as ir')
+                ->join('checklist_preguntas as cp', 'ir.pregunta_id', '=', 'cp.id')
+                ->join('inspecciones as i', 'ir.inspeccion_id', '=', 'i.id')
+                ->where('i.empresa_id', $eid)
+                ->where('i.equipo_catalogo_id', $id)
+                ->whereYear('i.planificada_para', $año)
+                ->whereIn('i.estado', $estadosOk)
+                ->whereNull('i.deleted_at')
+                ->whereNull('i.equipo_id')
+                ->selectRaw("i.id as inspeccion_id, i.planificada_para,
+                             cp.id as pregunta_id, cp.texto as descripcion, cp.orden, ir.resultado")
+                ->orderByDesc('i.planificada_para')
+                ->orderBy('cp.orden')
+                ->get();
+
+            if ($catalogRespRaw->isNotEmpty()) {
+                $latestCatalogId   = $catalogRespRaw->first()?->inspeccion_id;
+                $latestCatalogResp = $catalogRespRaw->filter(fn($r) => $r->inspeccion_id === $latestCatalogId);
+
+                $expanded   = collect();
+                $unitIds    = $equipos->isEmpty() ? [0] : $equipos->pluck('id')->toArray();
+                foreach ($unitIds as $uid) {
+                    foreach ($latestCatalogResp as $resp) {
+                        $expanded->push((object) [
+                            'equipo_id'     => $uid,
+                            'inspeccion_id' => $resp->inspeccion_id,
+                            'pregunta_id'   => $resp->pregunta_id,
+                            'descripcion'   => $resp->descripcion,
+                            'orden'         => $resp->orden,
+                            'resultado'     => $resp->resultado,
+                        ]);
+                    }
+                }
+                $anomaliasRows = $expanded;
+            }
+        }
+
+        // Fallback B: inspecciones_items (formato clásico) a nivel de unidad
+        if ($anomaliasRows->isEmpty()) {
+            $allItemsRaw = DB::table('inspecciones_items as ii')
                 ->join('inspecciones as i', 'ii.inspeccion_id', '=', 'i.id')
                 ->where('i.empresa_id', $eid)
                 ->where('i.equipo_catalogo_id', $id)
@@ -239,16 +305,37 @@ class EquipoCatalogoController extends Controller
                 ->whereNull('i.deleted_at')
                 ->whereNotNull('i.equipo_id')
                 ->whereNotNull('ii.descripcion')
-                ->selectRaw("i.equipo_id, ii.descripcion,
-                    ROUND(AVG(CASE WHEN ii.resultado = 'conforme' THEN 100.0 ELSE 0 END),1) as pct")
-                ->groupBy('i.equipo_id', 'ii.descripcion')
+                ->selectRaw("i.equipo_id, i.id as inspeccion_id, i.planificada_para,
+                             ii.descripcion, ii.resultado")
+                ->orderByDesc('i.planificada_para')
                 ->get();
+
+            $latestInspPerUnit = $allItemsRaw
+                ->groupBy('equipo_id')
+                ->map(fn($rows) => $rows->first()?->inspeccion_id);
+
+            $anomaliasRows = $allItemsRaw->filter(fn($row) =>
+                $latestInspPerUnit->get($row->equipo_id) === $row->inspeccion_id
+            )->map(function ($row) {
+                // Normalizar resultado numérico (formato antiguo) → código categórico
+                if (is_numeric($row->resultado)) {
+                    $pct = (float) $row->resultado;
+                    $row->resultado = $pct >= 100 ? 'C' : ($pct <= 0 ? 'N' : 'A');
+                } elseif ($row->resultado === 'conforme') {
+                    $row->resultado = 'C';
+                } elseif ($row->resultado === 'no_conforme') {
+                    $row->resultado = 'N';
+                } elseif ($row->resultado === 'observacion') {
+                    $row->resultado = 'A';
+                }
+                return $row;
+            });
         }
 
         $anomaliasLista = $anomaliasRows->pluck('descripcion')->unique()->values();
         $matrixPivot    = [];
         foreach ($anomaliasRows as $row) {
-            $matrixPivot[$row->descripcion][$row->equipo_id] = $row->pct;
+            $matrixPivot[$row->descripcion][$row->equipo_id] = $row->resultado;
         }
 
         // ── Estado mensual por unidad ─────────────────────────────────────────
@@ -309,6 +396,7 @@ class EquipoCatalogoController extends Controller
         });
 
         return response()->json([
+            '_v'              => 'v2-fallbackA',
             'año'             => $año,
             'catalogo_id'     => $id,
             'catalogo_nombre' => $catalogo->nombre,
@@ -325,12 +413,16 @@ class EquipoCatalogoController extends Controller
             'por_tipo'        => $porTipo,
             'mensual'         => $mensual,
             'anomalias_matrix' => [
-                'extintores' => $equipos->map(fn($e) => [
-                    'id'     => $e->id,
-                    'codigo' => $e->codigo,
-                    'nombre' => $e->nombre,
-                    'area'   => $e->area?->nombre,
-                ]),
+                'extintores' => $equipos->isNotEmpty()
+                    ? $equipos->map(fn($e) => [
+                        'id'     => $e->id,
+                        'codigo' => $e->codigo,
+                        'nombre' => $e->nombre,
+                        'area'   => $e->area?->nombre,
+                    ])
+                    : ($anomaliasLista->isNotEmpty()
+                        ? collect([['id' => 0, 'codigo' => 'ÁREA', 'nombre' => $catalogo->nombre, 'area' => null]])
+                        : collect()),
                 'filas' => $anomaliasLista->map(fn($a) => [
                     'descripcion' => $a,
                     'por_equipo'  => (object) ($matrixPivot[$a] ?? []),

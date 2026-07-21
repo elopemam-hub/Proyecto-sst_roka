@@ -136,11 +136,12 @@ function TabDashboard({ onIrGenerar }) {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
           { label: totalLabel,     value: kpis.total,      color: 'text-gray-800' },
           { label: 'Completados',  value: kpis.completado,  color: 'text-emerald-600' },
           { label: 'Pendientes',   value: kpis.pendiente,   color: 'text-amber-600' },
+          { label: 'Vencidas',     value: kpis.vencido ?? 0, color: (kpis.vencido ?? 0) > 0 ? 'text-red-600' : 'text-gray-400' },
           { label: 'Cumplimiento', value: kpis.porcentaje != null ? `${kpis.porcentaje}%` : '—', color: kpis.porcentaje >= 80 ? 'text-emerald-600' : 'text-amber-600' },
         ].map(k => (
           <div key={k.label} className="bg-white rounded-xl border border-gray-200 p-4 text-center shadow-sm">
@@ -160,7 +161,7 @@ function TabDashboard({ onIrGenerar }) {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  {['Área', 'Total', 'Completado', 'Pendiente', '%'].map(h => (
+                  {['Área', 'Total', 'Completado', 'Pendiente', 'Vencido', '%'].map(h => (
                     <th key={h} className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase text-left">{h}</th>
                   ))}
                 </tr>
@@ -174,6 +175,7 @@ function TabDashboard({ onIrGenerar }) {
                       <td className="px-4 py-2.5 text-sm text-gray-600">{datos.total}</td>
                       <td className="px-4 py-2.5 text-sm text-emerald-600 font-medium">{datos.completado}</td>
                       <td className="px-4 py-2.5 text-sm text-amber-600">{datos.pendiente}</td>
+                      <td className={`px-4 py-2.5 text-sm ${datos.vencido > 0 ? 'text-red-600 font-medium' : 'text-gray-400'}`}>{datos.vencido ?? 0}</td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
                           <div className="flex-1 h-1.5 bg-gray-100 rounded-full">

@@ -23,6 +23,20 @@ class EquipoAsignacion extends Model
         'fecha' => 'date',
     ];
 
+    protected $appends = ['vencida'];
+
+    /**
+     * Vencida = sigue pendiente y su fecha ya pasó (día anterior a hoy).
+     * No cambia el estado; solo es una marca visual. La inspección aún se
+     * puede ejecutar.
+     */
+    public function getVencidaAttribute(): bool
+    {
+        return $this->estado === 'pendiente'
+            && $this->fecha
+            && $this->fecha->lt(Carbon::today());
+    }
+
     public function empresa(): BelongsTo   { return $this->belongsTo(Empresa::class); }
     public function equipo(): BelongsTo    { return $this->belongsTo(Equipo::class); }
     public function usuario(): BelongsTo   { return $this->belongsTo(Usuario::class); }
@@ -41,9 +55,9 @@ class EquipoAsignacion extends Model
 
     public static function marcarVencidas(int $empresaId): void
     {
-        self::where('empresa_id', $empresaId)
-            ->where('estado', 'pendiente')
-            ->where('fecha', '<', Carbon::today())
-            ->update(['estado' => 'omitido']);
+        // Desactivado: las asignaciones de días pasados NO se marcan como
+        // "omitido" automáticamente. Se mantienen en "pendiente" para que el
+        // inspector todavía pueda ejecutar la inspección aunque sea tarde.
+        // El estado "omitido" solo se aplica de forma manual (endpoint omitir).
     }
 }
