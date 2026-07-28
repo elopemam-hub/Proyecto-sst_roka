@@ -96,6 +96,144 @@ class SaludController extends Controller
         return response()->json($emo->load('personal:id,nombres,apellidos'), 201);
     }
 
+    /**
+     * POST /api/salud/emo/importar
+     *
+     * Carga masiva de la programación de EMOs desde plantilla Excel.
+     * Cada fila se identifica por el DNI del trabajador; el resto de campos
+     * son los mismos que el alta manual. En modo "upsert" se actualiza el EMO
+     * que coincida en trabajador + tipo + fecha de examen, en vez de duplicarlo.
+     */
+    public function importarEmos(Request $request): JsonResponse
+    {
+        $request->validate([
+            'registros' => 'required|array|min:1|max:1000',
+            'modo'      => 'in:insertar,upsert',
+        ]);
+
+        $empresaId = $request->user()->empresa_id;
+        $modo      = $request->input('modo', 'insertar');
+
+        $tiposValidos      = ['pre_ocupacional', 'periodico', 'retiro', 'por_cambio_ocupacional'];
+        $resultadosValidos = ['apto', 'apto_con_restricciones', 'no_apto'];
+
+        // Un solo lookup de DNIs en vez de una consulta por fila
+        $dnis = collect($request->registros)
+            ->map(fn($r) => trim((string)($r['dni'] ?? '')))
+            ->filter()
+            ->unique();
+
+        $personalPorDni = Personal::where('empresa_id', $empresaId)
+            ->whereIn('dni', $dnis)
+            ->pluck('id', 'dni');
+
+        $insertados = 0; $actualizados = 0; $errores = [];
+
+        foreach ($request->registros as $idx => $reg) {
+            $fila = $reg['_fila'] ?? ($idx + 2);
+            $dni  = trim((string)($reg['dni'] ?? ''));
+
+            $fallo = function (string $msg) use (&$errores, $fila, $dni) {
+                $errores[] = ['fila' => $fila, 'dni' => $dni, 'error' => $msg];
+            };
+
+            if (!$dni) { $fallo('DNI vacío'); continue; }
+
+            $personalId = $personalPorDni[$dni] ?? null;
+            if (!$personalId) { $fallo("El DNI {$dni} no está registrado en Gestión Humana"); continue; }
+
+            $tipo = strtolower(trim((string)($reg['tipo'] ?? 'periodico')));
+            if (!in_array($tipo, $tiposValidos, true)) { $fallo("Tipo de examen inválido: \"{$tipo}\""); continue; }
+
+            $resultado = strtolower(trim((string)($reg['resultado'] ?? 'apto')));
+            if (!in_array($resultado, $resultadosValidos, true)) { $fallo("Resultado inválido: \"{$resultado}\""); continue; }
+
+            $fechaExamen = $this->fechaValida($reg['fecha_examen'] ?? null);
+            if (!$fechaExamen) { $fallo('Fecha de examen vacía o con formato inválido'); continue; }
+
+            // Sin fecha de vencimiento se asume vigencia de un año (EMO periódico anual)
+            $fechaVenc = $this->fechaValida($reg['fecha_vencimiento'] ?? null)
+                ?? $fechaExamen->copy()->addYear();
+
+            if ($fechaVenc->lte($fechaExamen)) {
+                $fallo('La fecha de vencimiento debe ser posterior a la del examen');
+                continue;
+            }
+
+            $datos = [
+                'empresa_id'        => $empresaId,
+                'personal_id'       => $personalId,
+                'tipo'              => $tipo,
+                'fecha_examen'      => $fechaExamen->toDateString(),
+                'fecha_vencimiento' => $fechaVenc->toDateString(),
+                'clinica'           => $this->valorONull($reg['clinica'] ?? null),
+                'medico'            => $this->valorONull($reg['medico'] ?? null),
+                'resultado'         => $resultado,
+                'restricciones'     => $this->valorONull($reg['restricciones'] ?? null),
+                'observaciones'     => $this->valorONull($reg['observaciones'] ?? null),
+            ];
+
+            try {
+                $existente = Emo::where('empresa_id', $empresaId)
+                    ->where('personal_id', $personalId)
+                    ->where('tipo', $tipo)
+                    ->whereDate('fecha_examen', $fechaExamen->toDateString())
+                    ->first();
+
+                if ($existente) {
+                    if ($modo === 'upsert') {
+                        $existente->update($datos);
+                        $actualizados++;
+                    } else {
+                        $fallo('Ya existe un EMO de ese tipo y fecha para este trabajador');
+                    }
+                    continue;
+                }
+
+                Emo::create($datos);
+                $insertados++;
+            } catch (\Throwable $e) {
+                $fallo('No se pudo guardar: ' . $e->getMessage());
+            }
+        }
+
+        $this->auditoria->registrar(
+            modulo: 'salud', accion: 'importar_emo', usuario: $request->user(),
+            modelo: 'Emo', modeloId: null,
+            valorNuevo: ['insertados' => $insertados, 'actualizados' => $actualizados, 'fallidos' => count($errores)],
+            request: $request
+        );
+
+        return response()->json([
+            'total'        => count($request->registros),
+            'insertados'   => $insertados,
+            'actualizados' => $actualizados,
+            'errores'      => $errores,
+        ]);
+    }
+
+    /** Acepta yyyy-mm-dd y dd/mm/yyyy; devuelve null si no es una fecha usable */
+    private function fechaValida($valor): ?\Carbon\Carbon
+    {
+        $valor = trim((string) $valor);
+        if ($valor === '') return null;
+
+        foreach (['Y-m-d', 'd/m/Y', 'd-m-Y'] as $formato) {
+            try {
+                return \Carbon\Carbon::createFromFormat($formato, $valor)->startOfDay();
+            } catch (\Throwable) {
+                continue;
+            }
+        }
+        return null;
+    }
+
+    private function valorONull($valor): ?string
+    {
+        $valor = trim((string) $valor);
+        return $valor === '' ? null : $valor;
+    }
+
     /** GET /api/salud/{id} */
     public function show(Request $request, int $id): JsonResponse
     {

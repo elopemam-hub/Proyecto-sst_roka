@@ -101,6 +101,7 @@ const FichaMedicaFormPage    = lazy(() => import('./pages/salud/FichaMedicaFormP
 const FichasMedicasListPage  = lazy(() => import('./pages/salud/FichasMedicasListPage'))
 const SaludDocumentosPage    = lazy(() => import('./pages/salud/SaludDocumentosPage'))
 const CronogramaMedicoPage   = lazy(() => import('./pages/salud/CronogramaMedicoPage'))
+const SaludImportPage        = lazy(() => import('./pages/salud/SaludImportPage'))
 const CertificadoAptitudPage = lazy(() => import('./pages/salud/CertificadoAptitudPage'))
 
 // Fase 5 — Capacitaciones
@@ -355,6 +356,7 @@ export default function App() {
             <Route path="salud/fichas-medicas"             element={<FichasMedicasListPage />} />
             <Route path="salud/documentos"                 element={<SaludDocumentosPage />} />
             <Route path="salud/cronograma"                 element={<CronogramaMedicoPage />} />
+            <Route path="salud/importar"                   element={<SaludImportPage />} />
             <Route path="salud/certificado/:personalId"    element={<CertificadoAptitudPage />} />
             <Route path="salud/nuevo"                      element={<SaludFormPage />} />
             <Route path="salud/:id"                        element={<SaludDetailPage />} />

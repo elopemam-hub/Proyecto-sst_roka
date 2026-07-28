@@ -4,7 +4,7 @@ import { useSelector } from 'react-redux'
 import {
   HeartPulse, Plus, AlertTriangle, CheckCircle, Clock,
   Users, ChevronRight, CalendarRange, FileText, ShieldCheck,
-  Scale, ClipboardList,
+  Scale, ClipboardList, FileSpreadsheet,
 } from 'lucide-react'
 import api from '../../services/api'
 import { format } from 'date-fns'
@@ -91,6 +91,10 @@ export default function SaludDashboardPage() {
           <button onClick={() => navigate('/salud/cronograma')}
             className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm">
             <CalendarRange size={14} /> Cronograma
+          </button>
+          <button onClick={() => navigate('/salud/importar')}
+            className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm">
+            <FileSpreadsheet size={14} /> Importar programación
           </button>
           <button onClick={() => navigate('/salud/nuevo')}
             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium">

@@ -306,6 +306,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/mi-panel',                              [SaludController::class, 'miPanel']);
         Route::get('/mi-ficha',                              [SaludController::class, 'miFicha']);
         Route::get('/cronograma-medico',                     [SaludController::class, 'cronogramaMedico']);
+        Route::post('/emo/importar',                         [SaludController::class, 'importarEmos']);
         Route::get('/certificado/{personalId}',              [SaludController::class, 'certificado']);
         Route::get('/personal/{personalId}/restricciones',   [SaludController::class, 'restricciones']);
         Route::post('/restricciones',                        [SaludController::class, 'registrarRestriccion']);
