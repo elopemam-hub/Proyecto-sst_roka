@@ -50,6 +50,12 @@ export default function IpercFormPage() {
   const [areas,       setAreas]       = useState([])
   const [codigoLabel, setCodigoLabel] = useState('')
 
+  // Banco de datos IPERC — biblioteca reutilizable para autocompletado
+  const [banco, setBanco] = useState({
+    proceso: [], actividad: [], tarea: [],
+    peligro: [], riesgo: [], consecuencia: [], control: [],
+  })
+
   const [form, setForm] = useState({
     sede_id:           '',
     area_id:           '',
@@ -63,6 +69,7 @@ export default function IpercFormPage() {
 
   useEffect(() => {
     cargarMaestros()
+    cargarBanco()
   }, [])
 
   useEffect(() => {
@@ -74,6 +81,27 @@ export default function IpercFormPage() {
       const areasRes = await api.get('/areas', { params: { per_page: 1000 } })
       setAreas(areasRes.data.data || areasRes.data || [])
     } catch (_) {}
+  }
+
+  // Cargar todo el banco activo y agruparlo por tipo (una sola llamada)
+  const cargarBanco = async () => {
+    try {
+      const { data } = await api.get('/iperc-banco', { params: { all: 1, activo: 1 } })
+      const items = Array.isArray(data) ? data : (data.data || [])
+      const grupos = { proceso: [], actividad: [], tarea: [], peligro: [], riesgo: [], consecuencia: [], control: [] }
+      for (const it of items) {
+        if (it.activo === false) continue
+        if (grupos[it.tipo]) grupos[it.tipo].push(it)
+      }
+      setBanco(grupos)
+    } catch (_) { /* silencioso: el banco es opcional */ }
+  }
+
+  // Buscar un ítem del banco por nombre exacto (case-insensitive)
+  const buscarBanco = (tipo, valor) => {
+    const v = (valor || '').trim().toLowerCase()
+    if (!v) return null
+    return (banco[tipo] || []).find(i => (i.nombre || '').trim().toLowerCase() === v) || null
   }
 
   const cargarIperc = async () => {
@@ -178,7 +206,20 @@ export default function IpercFormPage() {
 
   const actualizarPeligro = (procIdx, pelIdx, campo, valor) => {
     const procesos = [...form.procesos]
-    procesos[procIdx].peligros[pelIdx][campo] = valor
+    const peligro  = procesos[procIdx].peligros[pelIdx]
+    peligro[campo] = valor
+
+    // Smart-fill: al escribir/elegir un peligro del banco, autocompletar su tipo
+    if (campo === 'descripcion_peligro') {
+      const item = buscarBanco('peligro', valor)
+      const tiposValidos = TIPOS_PELIGRO.map(t => t.value)
+      if (item?.categoria && tiposValidos.includes(item.categoria)) {
+        peligro.tipo_peligro = item.categoria
+      }
+      // Si el banco trae un riesgo/consecuencia sugerido en la descripción y el campo está vacío
+      if (item?.descripcion && !peligro.riesgo) peligro.riesgo = item.descripcion
+    }
+
     setForm({ ...form, procesos })
   }
 
@@ -201,7 +242,18 @@ export default function IpercFormPage() {
 
   const actualizarControl = (procIdx, pelIdx, ctrlIdx, campo, valor) => {
     const procesos = [...form.procesos]
-    procesos[procIdx].peligros[pelIdx].controles[ctrlIdx][campo] = valor
+    const control  = procesos[procIdx].peligros[pelIdx].controles[ctrlIdx]
+    control[campo] = valor
+
+    // Smart-fill: al elegir un control del banco, autocompletar su jerarquía
+    if (campo === 'descripcion') {
+      const item = buscarBanco('control', valor)
+      const tiposValidos = TIPOS_CONTROL.map(t => t.value)
+      if (item?.tipo_control && tiposValidos.includes(item.tipo_control)) {
+        control.tipo_control = item.tipo_control
+      }
+    }
+
     setForm({ ...form, procesos })
   }
 
@@ -266,8 +318,40 @@ export default function IpercFormPage() {
     )
   }
 
+  // Opciones únicas de datalist para un tipo del banco
+  const opcionesBanco = (tipo) => {
+    const vistos = new Set()
+    const out = []
+    for (const it of (banco[tipo] || [])) {
+      const n = (it.nombre || '').trim()
+      if (n && !vistos.has(n.toLowerCase())) { vistos.add(n.toLowerCase()); out.push(it) }
+    }
+    return out
+  }
+
   return (
     <div className="space-y-6 animate-fade-in max-w-5xl">
+
+      {/* ── Datalists del banco (autocompletado global por id) ───────── */}
+      <datalist id="iperc-banco-proceso">
+        {opcionesBanco('proceso').map(i => <option key={i.id} value={i.nombre} />)}
+      </datalist>
+      <datalist id="iperc-banco-actividad">
+        {opcionesBanco('actividad').map(i => <option key={i.id} value={i.nombre} />)}
+      </datalist>
+      <datalist id="iperc-banco-peligro">
+        {opcionesBanco('peligro').map(i => (
+          <option key={i.id} value={i.nombre}>{i.categoria ? `(${i.categoria})` : ''}</option>
+        ))}
+      </datalist>
+      <datalist id="iperc-banco-riesgo">
+        {opcionesBanco('riesgo').map(i => <option key={i.id} value={i.nombre} />)}
+      </datalist>
+      <datalist id="iperc-banco-control">
+        {opcionesBanco('control').map(i => (
+          <option key={i.id} value={i.nombre}>{i.tipo_control ? i.tipo_control : ''}</option>
+        ))}
+      </datalist>
 
       {/* ── Encabezado ──────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-4">
@@ -454,6 +538,7 @@ function ProcesoCard({
         <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
           <input
             type="text"
+            list="iperc-banco-proceso"
             value={proceso.proceso}
             onChange={(e) => onActualizar(idx, 'proceso', e.target.value)}
             placeholder="Proceso"
@@ -461,6 +546,7 @@ function ProcesoCard({
           />
           <input
             type="text"
+            list="iperc-banco-actividad"
             value={proceso.actividad}
             onChange={(e) => onActualizar(idx, 'actividad', e.target.value)}
             placeholder="Actividad"
@@ -520,6 +606,7 @@ function ProcesoCard({
                   </select>
                   <input
                     type="text"
+                    list="iperc-banco-peligro"
                     value={pel.descripcion_peligro}
                     onChange={(e) => onActualizarPeligro(idx, pelIdx, 'descripcion_peligro', e.target.value)}
                     placeholder="Descripción del peligro"
@@ -527,6 +614,7 @@ function ProcesoCard({
                   />
                   <input
                     type="text"
+                    list="iperc-banco-riesgo"
                     value={pel.riesgo}
                     onChange={(e) => onActualizarPeligro(idx, pelIdx, 'riesgo', e.target.value)}
                     placeholder="Riesgo / consecuencia"
@@ -628,6 +716,7 @@ function ProcesoCard({
                       </select>
                       <input
                         type="text"
+                        list="iperc-banco-control"
                         value={ctrl.descripcion}
                         onChange={(e) => onActualizarControl(idx, pelIdx, ctrlIdx, 'descripcion', e.target.value)}
                         placeholder="Descripción del control"

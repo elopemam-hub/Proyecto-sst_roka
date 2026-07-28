@@ -76,8 +76,8 @@ function TabDashboard({ onIrGenerar }) {
   if (!dash)   return null
 
   const kpis = dash.kpis
-  const periodoLabel = { hoy: 'hoy', semana: 'esta semana', mes: 'este mes' }[periodo]
-  const totalLabel   = { hoy: 'Total hoy', semana: 'Total semana', mes: 'Total mes' }[periodo]
+  const periodoLabel = { hoy: 'hoy', semana: 'esta semana', semana_pasada: 'semana pasada', mes: 'este mes' }[periodo]
+  const totalLabel   = { hoy: 'Total hoy', semana: 'Total semana', semana_pasada: 'Total sem. pasada', mes: 'Total mes' }[periodo]
 
   // Detectar días sin asignaciones esta semana
   const diasVacios = (dash.tendencia_semana || []).filter(d => d.total === 0)
@@ -109,9 +109,10 @@ function TabDashboard({ onIrGenerar }) {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
           {[
-            { value: 'hoy',    label: 'Hoy' },
-            { value: 'semana', label: 'Semana' },
-            { value: 'mes',    label: 'Mes' },
+            { value: 'hoy',           label: 'Hoy' },
+            { value: 'semana',        label: 'Semana' },
+            { value: 'semana_pasada', label: 'Semana pasada' },
+            { value: 'mes',           label: 'Mes' },
           ].map(opt => (
             <button
               key={opt.value}
@@ -198,7 +199,7 @@ function TabDashboard({ onIrGenerar }) {
 
       {/* Tendencia semanal */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-        <h3 className="font-semibold text-gray-800 mb-4">Tendencia semanal</h3>
+        <h3 className="font-semibold text-gray-800 mb-4">Tendencia {periodo === 'semana_pasada' ? '— semana pasada' : 'semanal'}</h3>
         <div className="flex items-end gap-2">
           {dash.tendencia_semana.map(d => {
             const pct = d.total > 0 ? Math.round((d.completado / d.total) * 100) : 0

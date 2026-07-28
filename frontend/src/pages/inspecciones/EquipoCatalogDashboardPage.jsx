@@ -130,18 +130,21 @@ export default function EquipoCatalogDashboardPage() {
   const navigate = useNavigate()
   const currentYear = new Date().getFullYear()
   const [año, setAño] = useState(currentYear)
+  const [mesDiario, setMesDiario] = useState(null)   // filtro del gráfico diario (null = automático)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    setLoading(true)
+    const initial = data === null
+    if (initial) setLoading(true)
     setError(null)
-    api.get(`/inspecciones/catalogo/${catalogoId}/dashboard`, { params: { año } })
+    api.get(`/inspecciones/catalogo/${catalogoId}/dashboard`, { params: { año, mes_diario: mesDiario } })
       .then(r => setData(r.data))
       .catch(() => setError('No se pudo cargar el dashboard'))
-      .finally(() => setLoading(false))
-  }, [catalogoId, año])
+      .finally(() => { if (initial) setLoading(false) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogoId, año, mesDiario])
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -157,7 +160,9 @@ export default function EquipoCatalogDashboardPage() {
 
   if (!data) return null
 
-  const { kpis, por_area, por_tipo, mensual, anomalias_matrix, ubicaciones } = data
+  const { kpis, por_area, por_tipo, mensual, anomalias_matrix, ubicaciones,
+    es_diaria, semanal = [], diario = [], diario_periodo,
+    diario_mes, diario_meses = [] } = data
 
   const pieData = por_tipo.map(t => ({ name: t.tipo_equipo, value: t.cantidad }))
 
@@ -181,7 +186,7 @@ export default function EquipoCatalogDashboardPage() {
           {[currentYear - 1, currentYear].map(y => (
             <button
               key={y}
-              onClick={() => setAño(y)}
+              onClick={() => { setAño(y); setMesDiario(null) }}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 año === y ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
@@ -273,8 +278,94 @@ export default function EquipoCatalogDashboardPage() {
         </div>
       )}
 
-      {/* Matriz de anomalías */}
-      <Section title={`Matriz de Verificación (${anomalias_matrix.extintores?.length ?? 0} unidades)`} defaultOpen={false}>
+      {/* Evolución semanal y diaria (solo equipos con inspección diaria) */}
+      {es_diaria && (semanal.length > 0 || diario.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Semanal */}
+          {semanal.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+              <h2 className="font-semibold text-gray-800 mb-4">Cumplimiento semanal {año}</h2>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={semanal} margin={{ top: 16, right: 16, bottom: 0, left: 0 }}>
+                  <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} tickFormatter={v => `${v}%`} />
+                  <Tooltip
+                    formatter={v => [`${v}%`, 'Cumplimiento']}
+                    labelFormatter={(_, pl) => {
+                      const p = pl?.[0]?.payload
+                      return p ? `Semana ${p.semana} (${p.rango}) — ${p.n} insp.` : ''
+                    }} />
+                  <Bar dataKey="pct" radius={[3, 3, 0, 0]}>
+                    {semanal.map((w, i) => (
+                      <Cell key={i} fill={w.pct >= 90 ? '#10b981' : w.pct >= 70 ? '#f59e0b' : '#ef4444'} />
+                    ))}
+                    <LabelList dataKey="pct" position="top"
+                      formatter={v => v != null ? `${v}%` : ''}
+                      style={{ fontSize: 9, fill: '#6b7280' }} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Diario */}
+          {diario.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+              <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+                <div>
+                  <h2 className="font-semibold text-gray-800 mb-1">Cumplimiento diario</h2>
+                  <p className="text-xs text-gray-400">{diario_periodo || 'Mes con más inspecciones'}</p>
+                </div>
+                {diario_meses.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {diario_meses.map(m => {
+                      const activo = diario_mes === m.mes
+                      const cls = activo
+                        ? 'bg-blue-600 text-white'
+                        : m.tiene_datos
+                          ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          : 'bg-gray-50 text-gray-300 hover:bg-gray-100'
+                      return (
+                        <button
+                          key={m.mes}
+                          onClick={() => setMesDiario(m.mes)}
+                          title={m.tiene_datos ? '' : 'Sin inspecciones este mes'}
+                          className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${cls}`}
+                        >
+                          {m.label.slice(0, 3)}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={diario} margin={{ top: 16, right: 16, bottom: 0, left: 0 }}>
+                  <XAxis dataKey="label" tick={{ fontSize: 9 }} interval={0} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} tickFormatter={v => `${v}%`} />
+                  <Tooltip
+                    formatter={v => [`${v}%`, 'Cumplimiento']}
+                    labelFormatter={(l, pl) => {
+                      const p = pl?.[0]?.payload
+                      return p ? `${p.fecha} — ${p.n} insp.` : `Día ${l}`
+                    }} />
+                  <Bar dataKey="pct" radius={[3, 3, 0, 0]}>
+                    {diario.map((d, i) => (
+                      <Cell key={i} fill={d.pct >= 90 ? '#10b981' : d.pct >= 70 ? '#f59e0b' : '#ef4444'} />
+                    ))}
+                    <LabelList dataKey="pct" position="top"
+                      formatter={v => v != null ? `${v}%` : ''}
+                      style={{ fontSize: 9, fill: '#6b7280' }} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Matriz de verificación por mes */}
+      <Section title={`Matriz de Verificación (${anomalias_matrix.unidades ?? 0} unidades)`} defaultOpen={false}>
         {anomalias_matrix.filas.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-8">
             Sin datos de checklist — la inspección no registró ítems de verificación.
@@ -287,28 +378,58 @@ export default function EquipoCatalogDashboardPage() {
                   <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-semibold text-gray-700 border border-gray-200 whitespace-nowrap">
                     Ítem de verificación
                   </th>
-                  {anomalias_matrix.extintores.map(eq => (
-                    <th key={eq.id} className="px-3 py-2 text-center font-medium text-gray-600 border border-gray-200 whitespace-nowrap min-w-[64px]">
-                      <div>{eq.codigo}</div>
-                      {eq.area && <div className="font-normal text-gray-400">{eq.area}</div>}
+                  {MESES.map((m, i) => (
+                    <th key={i} className="px-3 py-2 text-center font-medium text-gray-600 border border-gray-200 whitespace-nowrap min-w-[52px]">
+                      {m}
                     </th>
                   ))}
+                  <th className="px-3 py-2 text-center font-semibold text-gray-700 border border-gray-200 whitespace-nowrap min-w-[56px]">Prom.</th>
                 </tr>
               </thead>
               <tbody>
-                {anomalias_matrix.filas.map((fila, ri) => (
-                  <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    <td className="sticky left-0 z-10 px-3 py-2 border border-gray-200 font-medium text-gray-700 whitespace-nowrap max-w-[260px] truncate"
-                      style={{ backgroundColor: ri % 2 === 0 ? '#fff' : '#f9fafb' }}>
-                      {fila.descripcion}
-                    </td>
-                    {anomalias_matrix.extintores.map(eq => {
-                      const v = fila.por_equipo?.[eq.id] ?? null
-                      return <ResultCell key={eq.id} v={v} />
-                    })}
-                  </tr>
-                ))}
+                {anomalias_matrix.filas.map((fila, ri) => {
+                  const rowPcts = MESES.map((_, i) => RESULT_PCT[fila.por_mes?.[i + 1]]).filter(v => v != null)
+                  const rowProm = rowPcts.length ? Math.round(rowPcts.reduce((a, b) => a + b, 0) / rowPcts.length * 10) / 10 : null
+                  return (
+                    <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                      <td className="sticky left-0 z-10 px-3 py-2 border border-gray-200 font-medium text-gray-700 whitespace-nowrap max-w-[260px] truncate"
+                        style={{ backgroundColor: ri % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                        {fila.descripcion}
+                      </td>
+                      {MESES.map((_, i) => {
+                        const v = fila.por_mes?.[i + 1] ?? null
+                        return <ResultCell key={i} v={v} />
+                      })}
+                      <td className={`px-3 py-2 text-center border border-gray-200 font-bold ${pctColor(rowProm)}`}>
+                        {rowProm != null ? `${rowProm}%` : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
+              <tfoot>
+                <tr className="bg-gray-100 font-bold">
+                  <td className="sticky left-0 z-10 bg-gray-100 px-3 py-2 border border-gray-200 text-gray-800 whitespace-nowrap">
+                    Promedio
+                  </td>
+                  {MESES.map((_, i) => {
+                    const colPcts = anomalias_matrix.filas
+                      .map(f => RESULT_PCT[f.por_mes?.[i + 1]]).filter(v => v != null)
+                    const colProm = colPcts.length ? Math.round(colPcts.reduce((a, b) => a + b, 0) / colPcts.length * 10) / 10 : null
+                    return <PctCell key={i} v={colProm} />
+                  })}
+                  {(() => {
+                    const allPcts = anomalias_matrix.filas.flatMap(f =>
+                      MESES.map((_, i) => RESULT_PCT[f.por_mes?.[i + 1]]).filter(v => v != null))
+                    const totProm = allPcts.length ? Math.round(allPcts.reduce((a, b) => a + b, 0) / allPcts.length * 10) / 10 : null
+                    return (
+                      <td className={`px-3 py-2 text-center border border-gray-200 font-bold ${pctColor(totProm)}`}>
+                        {totProm != null ? `${totProm}%` : '—'}
+                      </td>
+                    )
+                  })()}
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}

@@ -123,9 +123,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/peligros-all',         [IpercController::class, 'peligrosAll']);
         Route::get('/controles-all',        [IpercController::class, 'controlesAll']);
         Route::get('/riesgo-residual',      [IpercController::class, 'riesgoResidual']);
+        Route::get('/matriz-grid',          [IpercController::class, 'matrizGrid']);
+        Route::get('/exposicion',           [IpercController::class, 'exposicion']);
+        Route::get('/plan-accion',          [IpercController::class, 'planAccion']);
+        Route::patch('/controles/{controlId}', [IpercController::class, 'actualizarControl']);
         Route::get('/puestos',              [IpercController::class, 'puestos']);
         Route::get('/alertas',              [IpercController::class, 'alertas']);
         Route::post('/{id}/enviar-a-firma', [IpercController::class, 'enviarAFirma']);
+        Route::post('/{id}/nueva-version',  [IpercController::class, 'nuevaVersion']);
     });
     Route::apiResource('iperc', IpercController::class);
 
@@ -139,10 +144,19 @@ Route::middleware('auth:sanctum')->group(function () {
     // ─── ATS ───────────────────────────────────────────────────────────────
     Route::prefix('ats')->group(function () {
         Route::get('/estadisticas',                  [AtsController::class, 'estadisticas']);
+        Route::get('/analitica',                     [AtsController::class, 'analitica']);
         Route::get('/alertas',                       [AtsController::class, 'alertas']);
+        Route::get('/permisos/requisitos',           [AtsController::class, 'requisitosPermiso']);
+        Route::post('/{id}/permisos',                [AtsController::class, 'crearPermiso']);
+        Route::put('/permisos/{permisoId}',          [AtsController::class, 'actualizarPermiso']);
+        Route::post('/permisos/{permisoId}/aprobar', [AtsController::class, 'aprobarPermiso']);
+        Route::delete('/permisos/{permisoId}',       [AtsController::class, 'eliminarPermiso']);
         Route::post('/{id}/solicitar-firmas',        [AtsController::class, 'solicitarFirmas']);
         Route::post('/{id}/autorizar',               [AtsController::class, 'autorizar']);
         Route::post('/{id}/iniciar',                 [AtsController::class, 'iniciarEjecucion']);
+        Route::post('/{id}/detener',                 [AtsController::class, 'detener']);
+        Route::post('/{id}/reanudar',                [AtsController::class, 'reanudar']);
+        Route::post('/{id}/participantes/{participanteId}/firmar', [AtsController::class, 'firmarParticipante']);
         Route::post('/{id}/cancelar',                [AtsController::class, 'cancelar']);
         Route::post('/{id}/cerrar',                  [AtsController::class, 'cerrar']);
         Route::patch('/{id}/tareas/{tareaId}',       [AtsController::class, 'actualizarEstadoTarea']);
@@ -169,6 +183,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/programadas-checklist',  [InspeccionController::class, 'programadasChecklist']);
         Route::post('/programar-checklist',   [InspeccionController::class, 'programarChecklist']);
         Route::get('/pendientes-firma',       [InspeccionController::class, 'pendientesFirma']);
+        Route::post('/aprobar-lote',          [InspeccionController::class, 'aprobarLote']);
 
         // Rutas con parámetro {id} - DESPUÉS de las rutas fijas
         Route::post('/{id}/ejecutar',         [InspeccionController::class, 'ejecutar']);
@@ -276,6 +291,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/capacitaciones-epp',        [EppController::class, 'capacitaciones']);
         Route::post('/capacitaciones-epp',       [EppController::class, 'storeCapacitacion']);
         Route::get('/{id}/entregas',             [EppController::class, 'entregas']);
+        Route::post('/{id}/imagen',              [EppController::class, 'subirImagen']);
+        Route::delete('/{id}/imagen',            [EppController::class, 'eliminarImagen']);
     });
     Route::apiResource('epps', EppController::class);
 

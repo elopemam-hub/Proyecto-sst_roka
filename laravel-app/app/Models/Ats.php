@@ -22,6 +22,7 @@ class Ats extends Model
         'supervisor_id', 'elaborado_por',
         'estado', 'autorizado_en', 'cerrado_en', 'cerrado_por',
         'observaciones_cierre',
+        'charla_seguridad', 'detenido', 'detenido_en', 'motivo_detencion',
     ];
 
     protected $appends = ['puede_ejecutarse'];
@@ -33,6 +34,8 @@ class Ats extends Model
         'requiere_permiso_especial' => 'boolean',
         'tipos_permiso'             => 'array',
         'epps_requeridos'           => 'array',
+        'detenido'                  => 'boolean',
+        'detenido_en'               => 'datetime',
     ];
 
     // Relaciones

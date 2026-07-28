@@ -1650,6 +1650,96 @@ class InspeccionController extends Controller
     }
 
     /**
+     * POST /api/inspecciones/aprobar-lote
+     * Aprobación masiva: una firma dibujada se aplica a N inspecciones.
+     * Solo administrador / supervisor_sst.
+     */
+    public function aprobarLote(Request $request): JsonResponse
+    {
+        $usuario = $request->user();
+
+        // Solo roles que aprueban inspecciones
+        if (!in_array($usuario->rol, ['administrador', 'supervisor_sst'])) {
+            return response()->json(['message' => 'No tiene permiso para aprobar inspecciones.'], 403);
+        }
+
+        $validated = $request->validate([
+            'ids'             => 'required|array|min:1|max:200',
+            'ids.*'           => 'integer',
+            'firma_imagen'    => 'required|string',
+            'observaciones'   => 'nullable|string|max:500',
+        ]);
+
+        $observaciones = $validated['observaciones']
+            ?? 'Aprobación masiva de ' . count($validated['ids']) . ' inspecciones.';
+
+        // Inspecciones de la empresa dentro del lote solicitado
+        $inspecciones = Inspeccion::where('empresa_id', $usuario->empresa_id)
+            ->whereIn('id', $validated['ids'])
+            ->get()
+            ->keyBy('id');
+
+        // Inspecciones que ya tienen firma de aprobación (cualquier usuario)
+        $yaAprobadas = DB::table('firmas')
+            ->where('documento_tipo', Inspeccion::class)
+            ->whereIn('documento_id', $validated['ids'])
+            ->where('accion_firma', 'aprueba')
+            ->where('rechazada', false)
+            ->pluck('documento_id')
+            ->flip();
+
+        $aprobadas = [];
+        $omitidas  = [];
+        $errores   = [];
+
+        foreach ($validated['ids'] as $id) {
+            $insp = $inspecciones->get($id);
+
+            if (!$insp) {
+                $omitidas[] = ['id' => $id, 'motivo' => 'No encontrada'];
+                continue;
+            }
+            if ($yaAprobadas->has($id)) {
+                $omitidas[] = ['id' => $id, 'motivo' => 'Ya aprobada'];
+                continue;
+            }
+            if (!in_array($insp->estado, ['ejecutada', 'con_hallazgos', 'cerrada'])) {
+                $omitidas[] = ['id' => $id, 'motivo' => 'Estado no aprobable'];
+                continue;
+            }
+
+            try {
+                $this->firmaService->registrarFirma(
+                    solicitud: null,
+                    documento: $insp,
+                    usuario: $usuario,
+                    accion: 'aprueba',
+                    metodo: 'canvas',
+                    request: $request,
+                    firmaImagenBase64: $validated['firma_imagen'],
+                    observaciones: $observaciones,
+                );
+                $aprobadas[] = $id;
+            } catch (\Exception $e) {
+                $errores[] = ['id' => $id, 'motivo' => $e->getMessage()];
+            }
+        }
+
+        return response()->json([
+            'message'   => count($aprobadas) . ' inspección(es) aprobada(s).',
+            'aprobadas' => $aprobadas,
+            'omitidas'  => $omitidas,
+            'errores'   => $errores,
+            'resumen'   => [
+                'total'     => count($validated['ids']),
+                'aprobadas' => count($aprobadas),
+                'omitidas'  => count($omitidas),
+                'errores'   => count($errores),
+            ],
+        ]);
+    }
+
+    /**
      * GET /api/inspecciones/alertas
      */
     public function alertas(Request $request): JsonResponse

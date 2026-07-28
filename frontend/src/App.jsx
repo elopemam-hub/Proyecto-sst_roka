@@ -23,12 +23,8 @@ const IpercListPage           = lazy(() => import('./pages/iperc/IpercListPage')
 const IpercFormPage           = lazy(() => import('./pages/iperc/IpercFormPage'))
 const IpercDetailPage         = lazy(() => import('./pages/iperc/IpercDetailPage'))
 const IpercRiesgoResidualPage = lazy(() => import('./pages/iperc/IpercRiesgoResidualPage'))
-const IpercContinuoPage       = lazy(() => import('./pages/iperc/IpercContinuoPage'))
-const IpercIntegracionPage    = lazy(() => import('./pages/iperc/IpercIntegracionPage'))
-const IpercAprobacionPage     = lazy(() => import('./pages/iperc/IpercAprobacionPage'))
 const IpercAlertasPage        = lazy(() => import('./pages/iperc/IpercAlertasPage'))
 const IpercReportesPage       = lazy(() => import('./pages/iperc/IpercReportesPage'))
-const IpercGuiaPage           = lazy(() => import('./pages/iperc/IpercGuiaPage'))
 const IpercBancoPage          = lazy(() => import('./pages/iperc/IpercBancoPage'))
 const IpercTablaPage          = lazy(() => import('./pages/iperc/IpercTablaPage'))
 
@@ -37,7 +33,6 @@ const AtsDashboardPage   = lazy(() => import('./pages/ats/AtsDashboardPage'))
 const AtsListPage        = lazy(() => import('./pages/ats/AtsListPage'))
 const AtsFormPage        = lazy(() => import('./pages/ats/AtsFormPage'))
 const AtsDetailPage      = lazy(() => import('./pages/ats/AtsDetailPage'))
-const AtsAlertasPage     = lazy(() => import('./pages/ats/AtsAlertasPage'))
 
 // Fase 2 — Firmas
 const FirmasPendientesPage = lazy(() => import('./pages/firmas/FirmasPendientesPage'))
@@ -275,12 +270,8 @@ export default function App() {
             <Route path="iperc/gestion"              element={<IpercListPage />} />
             <Route path="iperc/nuevo"                element={<IpercFormPage />} />
             <Route path="iperc/riesgo-residual"      element={<IpercRiesgoResidualPage />} />
-            <Route path="iperc/continuo"             element={<IpercContinuoPage />} />
-            <Route path="iperc/integracion"          element={<IpercIntegracionPage />} />
-            <Route path="iperc/aprobacion"           element={<IpercAprobacionPage />} />
             <Route path="iperc/alertas"              element={<IpercAlertasPage />} />
             <Route path="iperc/reportes"             element={<IpercReportesPage />} />
-            <Route path="iperc/guia"                 element={<IpercGuiaPage />} />
             <Route path="iperc/banco"                element={<IpercBancoPage />} />
             <Route path="iperc/tabla"                element={<IpercTablaPage />} />
             <Route path="iperc/:id"                  element={<IpercDetailPage />} />
@@ -289,7 +280,6 @@ export default function App() {
             {/* ATS */}
             <Route path="ats"                  element={<AtsDashboardPage />} />
             <Route path="ats/gestion"          element={<AtsListPage />} />
-            <Route path="ats/alertas"          element={<AtsAlertasPage />} />
             <Route path="ats/nuevo"            element={<AtsFormPage />} />
             <Route path="ats/:id"              element={<AtsDetailPage />} />
             <Route path="ats/:id/editar"       element={<AtsFormPage />} />

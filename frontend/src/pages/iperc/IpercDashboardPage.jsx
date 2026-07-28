@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Shield, TrendingDown, RefreshCw, Link2, CheckSquare,
-  Bell, BarChart3, BookOpen, Plus, ArrowRight,
+  Shield, TrendingDown, CheckSquare,
+  Bell, BarChart3, Plus, ArrowRight,
   AlertCircle, Clock, CheckCircle2, Database, FileSpreadsheet
 } from 'lucide-react'
 import api from '../../services/api'
@@ -18,12 +18,8 @@ const CLASIF_COLOR = {
 const SUBMODULOS = [
   { key: 'gestion',        label: 'Gestión',                icon: Shield,       to: '/iperc/gestion',        desc: 'Matrices IPERC registradas',    color: 'text-blue-400' },
   { key: 'riesgo-residual',label: 'Riesgo Residual',        icon: TrendingDown, to: '/iperc/riesgo-residual',desc: 'Riesgos tras controles',         color: 'text-cyan-400' },
-  { key: 'continuo',       label: 'IPERC Continuo',         icon: RefreshCw,    to: '/iperc/continuo',       desc: 'Metodología continua',           color: 'text-green-400' },
-  { key: 'integracion',    label: 'Integración SST',        icon: Link2,        to: '/iperc/integracion',    desc: 'Vínculos con otros módulos',     color: 'text-purple-400' },
-  { key: 'aprobacion',     label: 'Aprobación',             icon: CheckSquare,  to: '/iperc/aprobacion',     desc: 'Flujo de aprobación',            color: 'text-emerald-400' },
   { key: 'alertas',        label: 'Alertas',                icon: Bell,         to: '/iperc/alertas',        desc: 'Riesgos críticos y vencimientos', color: 'text-rose-400' },
   { key: 'reportes',       label: 'Reportes',               icon: BarChart3,    to: '/iperc/reportes',       desc: 'Resúmenes y estadísticas',       color: 'text-sky-400' },
-  { key: 'guia',           label: 'Guía Referencial',       icon: BookOpen,     to: '/iperc/guia',           desc: 'Catálogo de peligros y riesgos', color: 'text-orange-400' },
   { key: 'banco',          label: 'Banco de Datos',         icon: Database,        to: '/iperc/banco',          desc: 'Peligros, controles y más',      color: 'text-slate-400' },
   { key: 'tabla',          label: 'Tabla IPERC',            icon: FileSpreadsheet, to: '/iperc/tabla',          desc: 'Formato oficial RM 050-2013-TR',  color: 'text-lime-400' },
 ]

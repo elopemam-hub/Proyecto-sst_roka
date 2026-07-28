@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, HardHat, AlertTriangle, Package, TrendingDown, Truck, Wrench, BarChart3, Settings, Download, PackagePlus, Search, User } from 'lucide-react'
+import { Plus, HardHat, AlertTriangle, Package, TrendingDown, Truck, Wrench, BarChart3, Settings, Download, PackagePlus, Search, User, ImagePlus, Camera, Trash2, X, Loader2 } from 'lucide-react'
+import toast from 'react-hot-toast'
 import api from '../../services/api'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -17,6 +18,7 @@ export default function EppListPage() {
   const [items, setItems]       = useState([])
   const [entregas, setEntregas] = useState([])
   const [ingresos, setIngresos] = useState([])
+  const [filtroTipoIngreso, setFiltroTipoIngreso] = useState('')
   const [categorias, setCategorias] = useState([])
   const [stats, setStats]       = useState(null)
   const [editandoConsumo, setEditandoConsumo] = useState(null)
@@ -26,6 +28,12 @@ export default function EppListPage() {
   const [busqueda, setBusqueda] = useState('')
   const [pagina, setPagina]     = useState(1)
   const [meta, setMeta]         = useState(null)
+
+  // Imágenes de EPP
+  const inputImagenRef = useRef(null)
+  const itemImagenIdRef = useRef(null)
+  const [subiendoImagen, setSubiendoImagen] = useState(null)
+  const [imagenAmpliada, setImagenAmpliada] = useState(null)
 
   // Estados para tab Tallas
   const [busquedaPersonal, setBusquedaPersonal] = useState('')
@@ -111,7 +119,7 @@ export default function EppListPage() {
   const cargarIngresos = async () => {
     setLoading(true)
     try {
-      const params = { tipo: 'ingreso', limit: 50 }
+      const params = { tipo: 'ingreso' }
       const { data } = await api.get('/epps/movimientos', { params })
       setIngresos(data.data || data || [])
       setMeta(null) // Los movimientos no tienen paginación
@@ -124,6 +132,34 @@ export default function EppListPage() {
     }
   }
 
+  // Tipos de ingreso distintos presentes en los datos (para el filtro)
+  const tiposIngreso = [...new Set(ingresos.map(i => i.motivo).filter(Boolean))].sort()
+
+  // Ingresos aplicando el filtro por tipo
+  const ingresosFiltrados = filtroTipoIngreso
+    ? ingresos.filter(i => i.motivo === filtroTipoIngreso)
+    : ingresos
+
+  const exportarIngresosExcel = async () => {
+    if (ingresosFiltrados.length === 0) return
+    const XLSX = await import('xlsx')
+    const rows = ingresosFiltrados.map(i => ({
+      'Fecha': i.created_at ? format(new Date(i.created_at), 'dd/MM/yyyy HH:mm', { locale: es }) : '—',
+      'EPP': i.inventario?.nombre || '—',
+      'Tipo Ingreso': i.motivo || 'Ingreso',
+      'Cantidad': i.cantidad || 0,
+      'Stock Anterior': i.stock_anterior || 0,
+      'Stock Nuevo': i.stock_nuevo || 0,
+      'Documento': i.documento_referencia || '',
+      'Usuario': i.usuario?.name || '',
+      'Observaciones': i.observaciones || '',
+    }))
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.json_to_sheet(rows)
+    XLSX.utils.book_append_sheet(wb, ws, 'Ingresos EPP')
+    XLSX.writeFile(wb, `ingresos_epp_${new Date().toISOString().split('T')[0]}.xlsx`)
+  }
+
   const actualizarConsumoAnual = async (itemId, consumoAnual) => {
     try {
       await api.patch(`/epps/${itemId}`, { consumo_anual: consumoAnual })
@@ -131,6 +167,56 @@ export default function EppListPage() {
       setEditandoConsumo(null)
     } catch (err) {
       alert('Error al actualizar consumo anual')
+    }
+  }
+
+  // Imagen del EPP
+  const abrirSelectorImagen = (itemId) => {
+    itemImagenIdRef.current = itemId
+    inputImagenRef.current?.click()
+  }
+
+  const subirImagen = async (e) => {
+    const file = e.target.files?.[0]
+    const itemId = itemImagenIdRef.current
+    e.target.value = '' // permite volver a elegir el mismo archivo
+    if (!file || !itemId) return
+
+    if (file.size > 4 * 1024 * 1024) {
+      toast.error('La imagen no debe superar 4 MB')
+      return
+    }
+
+    setSubiendoImagen(itemId)
+    try {
+      const formData = new FormData()
+      formData.append('imagen', file)
+      const { data } = await api.post(`/epps/${itemId}/imagen`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setItems(prev => prev.map(i =>
+        i.id === itemId ? { ...i, imagen_path: data.imagen_path, imagen_url: data.imagen_url } : i
+      ))
+      setImagenAmpliada(prev => prev?.id === itemId ? { ...prev, imagen_url: data.imagen_url } : prev)
+      toast.success('Imagen actualizada')
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error al subir la imagen')
+    } finally {
+      setSubiendoImagen(null)
+    }
+  }
+
+  const eliminarImagen = async (itemId) => {
+    if (!confirm('¿Eliminar la imagen de este EPP?')) return
+    try {
+      await api.delete(`/epps/${itemId}/imagen`)
+      setItems(prev => prev.map(i =>
+        i.id === itemId ? { ...i, imagen_path: null, imagen_url: null } : i
+      ))
+      setImagenAmpliada(null)
+      toast.success('Imagen eliminada')
+    } catch (err) {
+      toast.error('Error al eliminar la imagen')
     }
   }
 
@@ -260,6 +346,10 @@ export default function EppListPage() {
 
   return (
     <div className="space-y-6">
+      {/* Input oculto compartido para subir imágenes de EPP */}
+      <input ref={inputImagenRef} type="file" accept="image/jpeg,image/png,image/webp"
+        onChange={subirImagen} className="hidden" />
+
       {/* Header */}
       <div>
         <div className="flex items-center justify-between gap-4 mb-2">
@@ -395,16 +485,16 @@ export default function EppListPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
               <tr>
-                {['Código', 'Nombre', 'Categoría', 'Talla', 'Consumo Anual', 'Stock Mín.', 'Stock Máx.', 'Stock Disp.', 'Estado'].map(h => (
+                {['Imagen', 'Código', 'Nombre', 'Categoría', 'Talla', 'Consumo Anual', 'Stock Mín.', 'Stock Máx.', 'Stock Disp.', 'Estado'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={9} className="text-center py-12 text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={10} className="text-center py-12 text-gray-400">Cargando...</td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-12 text-gray-400">No hay EPPs registrados</td></tr>
+                <tr><td colSpan={10} className="text-center py-12 text-gray-400">No hay EPPs registrados</td></tr>
               ) : items.map(item => {
                 const stockDisponible = item.stock_total - (item.total_entregas_activas || 0)
                 const stockMinimo = item.stock_minimo_calculado || 0
@@ -414,6 +504,31 @@ export default function EppListPage() {
                   <tr key={item.id}
                     className={`hover:bg-gray-50 transition-colors ${critico ? 'bg-red-50/50' : ''}`}
                   >
+                    <td className="px-4 py-3">
+                      <div className="relative w-12 h-12 group">
+                        {item.imagen_url ? (
+                          <>
+                            <img src={item.imagen_url} alt={item.nombre}
+                              onClick={() => setImagenAmpliada(item)}
+                              className="w-12 h-12 rounded-lg object-cover border border-gray-200 bg-white cursor-zoom-in" />
+                            <button type="button" onClick={() => abrirSelectorImagen(item.id)} title="Cambiar imagen"
+                              className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white border border-gray-300 text-gray-500 hover:text-roka-600 hover:border-roka-400 flex items-center justify-center shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Camera size={11} />
+                            </button>
+                          </>
+                        ) : (
+                          <button type="button" onClick={() => abrirSelectorImagen(item.id)} title="Subir imagen"
+                            className="w-12 h-12 rounded-lg border-2 border-dashed border-gray-300 text-gray-400 hover:border-roka-400 hover:text-roka-500 hover:bg-roka-50 flex items-center justify-center transition-colors">
+                            <ImagePlus size={16} />
+                          </button>
+                        )}
+                        {subiendoImagen === item.id && (
+                          <div className="absolute inset-0 rounded-lg bg-white/80 flex items-center justify-center">
+                            <Loader2 size={16} className="text-roka-500 animate-spin" />
+                          </div>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-500 cursor-pointer" onClick={() => navigate(`/epps/${item.id}/editar`)}>{item.codigo_interno || '—'}</td>
                     <td className="px-4 py-3 cursor-pointer" onClick={() => navigate(`/epps/${item.id}/editar`)}>
                       <div className="text-gray-800 font-medium">{item.nombre}</div>
@@ -529,7 +644,14 @@ export default function EppListPage() {
                     {entrega.fecha_entrega ? format(new Date(entrega.fecha_entrega), 'dd/MM/yyyy', { locale: es }) : '—'}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="text-gray-800 font-medium">{entrega.inventario?.nombre || '—'}</div>
+                    <div className="flex items-center gap-2">
+                      {entrega.inventario?.imagen_url && (
+                        <img src={entrega.inventario.imagen_url} alt={entrega.inventario.nombre}
+                          onClick={() => setImagenAmpliada(entrega.inventario)}
+                          className="w-9 h-9 rounded-lg object-cover border border-gray-200 bg-white cursor-zoom-in shrink-0" />
+                      )}
+                      <div className="text-gray-800 font-medium">{entrega.inventario?.nombre || '—'}</div>
+                    </div>
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-500">{entrega.inventario?.codigo_interno || '—'}</td>
                   <td className="px-4 py-3 text-gray-600">{entrega.inventario?.categoria?.nombre || '—'}</td>
@@ -575,6 +697,35 @@ export default function EppListPage() {
       {/* Tab Ingresos */}
       {tab === 'ingresos' && (
         <div className="space-y-4">
+          {/* Barra de filtro y exportación */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-600">Tipo de ingreso:</label>
+              <select
+                value={filtroTipoIngreso}
+                onChange={(e) => setFiltroTipoIngreso(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              >
+                <option value="">Todos</option>
+                {tiposIngreso.map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+            <div className="ml-auto flex items-center gap-3">
+              <span className="text-sm text-gray-500">
+                {ingresosFiltrados.length} registro{ingresosFiltrados.length !== 1 ? 's' : ''}
+              </span>
+              <button
+                onClick={exportarIngresosExcel}
+                disabled={ingresosFiltrados.length === 0}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                Exportar Excel
+              </button>
+            </div>
+          </div>
           {/* Tabla */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-auto max-h-[calc(100vh-360px)]">
             <table className="w-full text-sm">
@@ -588,9 +739,9 @@ export default function EppListPage() {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr><td colSpan={9} className="text-center py-12 text-gray-400">Cargando...</td></tr>
-              ) : ingresos.length === 0 ? (
+              ) : ingresosFiltrados.length === 0 ? (
                 <tr><td colSpan={9} className="text-center py-12 text-gray-400">No hay ingresos registrados</td></tr>
-              ) : ingresos.map(ingreso => (
+              ) : ingresosFiltrados.map(ingreso => (
                 <tr key={ingreso.id} className="hover:bg-green-50 transition-colors">
                   <td className="px-4 py-3 text-gray-700">
                     {ingreso.created_at ? format(new Date(ingreso.created_at), 'dd/MM/yyyy HH:mm', { locale: es }) : '—'}
@@ -857,6 +1008,39 @@ export default function EppListPage() {
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* Visor de imagen */}
+      {imagenAmpliada && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+          onClick={() => setImagenAmpliada(null)}>
+          <div className="bg-white rounded-xl overflow-hidden max-w-lg w-full shadow-2xl"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <div>
+                <p className="font-semibold text-gray-800">{imagenAmpliada.nombre}</p>
+                <p className="text-xs text-gray-500 font-mono">{imagenAmpliada.codigo_interno || '—'}</p>
+              </div>
+              <button onClick={() => setImagenAmpliada(null)} className="text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="bg-gray-50 flex items-center justify-center p-4">
+              <img src={imagenAmpliada.imagen_url} alt={imagenAmpliada.nombre}
+                className="max-h-[60vh] w-auto object-contain rounded-lg" />
+            </div>
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-gray-200">
+              <button onClick={() => abrirSelectorImagen(imagenAmpliada.id)}
+                className="flex items-center gap-1.5 text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50">
+                <Camera size={13} /> Cambiar imagen
+              </button>
+              <button onClick={() => eliminarImagen(imagenAmpliada.id)}
+                className="flex items-center gap-1.5 text-xs border border-red-200 text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-50">
+                <Trash2 size={13} /> Eliminar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

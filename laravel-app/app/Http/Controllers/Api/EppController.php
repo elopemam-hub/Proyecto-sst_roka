@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 
 class EppController extends Controller
 {
@@ -153,6 +154,60 @@ class EppController extends Controller
         );
 
         return response()->json($item->load('categoria'));
+    }
+
+    /**
+     * POST /api/epps/{id}/imagen
+     */
+    public function subirImagen(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'imagen' => 'required|image|mimes:jpg,jpeg,png,webp|max:4096',
+        ]);
+
+        $item = EppInventario::where('empresa_id', $request->user()->empresa_id)->findOrFail($id);
+
+        // Borrar la imagen anterior para no dejar archivos huérfanos
+        if ($item->imagen_path) {
+            Storage::disk('public')->delete($item->imagen_path);
+        }
+
+        $file     = $request->file('imagen');
+        $filename = 'epp_' . $item->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+        $path     = $file->storeAs('epps/imagenes', $filename, 'public');
+
+        $item->update(['imagen_path' => $path]);
+
+        $this->auditoria->registrar(
+            modulo: 'epps',
+            accion: 'actualizar',
+            usuario: $request->user(),
+            modelo: 'EppInventario',
+            modeloId: $item->id,
+            valorNuevo: ['imagen_path' => $path],
+            request: $request
+        );
+
+        return response()->json([
+            'message'     => 'Imagen actualizada',
+            'imagen_path' => $path,
+            'imagen_url'  => $item->imagen_url,
+        ]);
+    }
+
+    /**
+     * DELETE /api/epps/{id}/imagen
+     */
+    public function eliminarImagen(Request $request, int $id): JsonResponse
+    {
+        $item = EppInventario::where('empresa_id', $request->user()->empresa_id)->findOrFail($id);
+
+        if ($item->imagen_path) {
+            Storage::disk('public')->delete($item->imagen_path);
+            $item->update(['imagen_path' => null]);
+        }
+
+        return response()->json(['message' => 'Imagen eliminada']);
     }
 
     /**
@@ -386,7 +441,7 @@ class EppController extends Controller
         $query = EppEntrega::where('empresa_id', $request->user()->empresa_id)
             ->with([
                 'inventario' => function($q) {
-                    $q->select('id', 'nombre', 'codigo_interno', 'categoria_id')
+                    $q->select('id', 'nombre', 'codigo_interno', 'categoria_id', 'imagen_path')
                       ->with('categoria:id,nombre');
                 },
                 'personal' => function($q) {

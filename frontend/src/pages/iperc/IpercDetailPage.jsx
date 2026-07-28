@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Shield, FileText, Calendar, User,
   AlertTriangle, CheckCircle2, Edit, Send, Pen,
-  AlertCircle, Clock, Eye, Download
+  AlertCircle, Clock, Eye, Download, Copy
 } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
@@ -54,6 +54,83 @@ export default function IpercDetailPage() {
     }
   }
 
+  const handleExportRegistro05 = async () => {
+    if (!iperc?.procesos?.length) { toast.error('El IPERC no tiene procesos para exportar'); return }
+    const XLSX = await import('xlsx')
+
+    const clasifLabel = (c) => (c || '').charAt(0).toUpperCase() + (c || '').slice(1)
+    const rows = []
+    for (const proc of iperc.procesos) {
+      for (const pel of (proc.peligros || [])) {
+        const controles = (pel.controles || [])
+          .map(c => `[${(c.tipo_control || '').toUpperCase()}] ${c.descripcion}`)
+          .join('\n')
+        rows.push({
+          'Proceso': proc.proceso,
+          'Actividad': proc.actividad,
+          'Tarea': proc.tarea || '',
+          'Tipo actividad': (proc.tipo_actividad || '').replace('_', ' '),
+          'Tipo de peligro': pel.tipo_peligro,
+          'Peligro': pel.descripcion_peligro,
+          'Riesgo': pel.riesgo,
+          'Consecuencia': pel.consecuencia || '',
+          'P. Personas': pel.prob_personas_expuestas,
+          'P. Procedimientos': pel.prob_procedimientos,
+          'P. Capacitación': pel.prob_capacitacion,
+          'P. Exposición': pel.prob_exposicion,
+          'Índice Probabilidad (IP)': pel.indice_probabilidad,
+          'Severidad (IS)': pel.indice_severidad,
+          'Nivel de Riesgo (IP×IS)': pel.nivel_riesgo_inicial,
+          'Clasificación': clasifLabel(pel.clasificacion_inicial),
+          'Riesgo significativo': pel.es_riesgo_significativo ? 'SÍ' : 'No',
+          'Medidas de control (jerarquía)': controles,
+          'IP Residual': pel.ip_residual ?? '',
+          'IS Residual': pel.is_residual ?? '',
+          'NR Residual': pel.nivel_riesgo_residual ?? '',
+          'Clasificación residual': clasifLabel(pel.clasificacion_residual),
+        })
+      }
+    }
+
+    const wb = XLSX.utils.book_new()
+
+    // Hoja de cabecera (datos del registro)
+    const cab = [
+      ['REGISTRO DE IDENTIFICACIÓN DE PELIGROS, EVALUACIÓN Y CONTROL DE RIESGOS (IPERC)'],
+      ['Ley 29783 · RM 050-2013-TR (Registro 05)'],
+      [],
+      ['Código', iperc.codigo],
+      ['Título', iperc.titulo],
+      ['Área', iperc.area?.nombre || ''],
+      ['Sede', iperc.sede?.nombre || ''],
+      ['Metodología', iperc.metodologia],
+      ['Versión', iperc.version],
+      ['Estado', iperc.estado],
+      ['Fecha elaboración', iperc.fecha_elaboracion ? String(iperc.fecha_elaboracion).substring(0, 10) : ''],
+      ['Fecha vigencia', iperc.fecha_vigencia ? String(iperc.fecha_vigencia).substring(0, 10) : ''],
+      ['Elaborado por', iperc.elaborador?.nombre || ''],
+    ]
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cab), 'Cabecera')
+
+    // Hoja matriz
+    const ws = XLSX.utils.json_to_sheet(rows)
+    XLSX.utils.book_append_sheet(wb, ws, 'Matriz IPERC')
+
+    XLSX.writeFile(wb, `IPERC_${iperc.codigo}_Registro05.xlsx`)
+    toast.success('Registro 05 exportado')
+  }
+
+  const handleNuevaVersion = async () => {
+    if (!confirm('¿Crear una nueva versión? Se clonará esta matriz como borrador (v' + (Number(iperc.version) + 1) + ') y la versión actual quedará archivada.')) return
+    try {
+      const { data } = await api.post(`/iperc/${id}/nueva-version`)
+      toast.success(data.message || 'Nueva versión creada')
+      navigate(`/iperc/${data.iperc.id}/editar`)
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error al crear nueva versión')
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -98,6 +175,14 @@ export default function IpercDetailPage() {
         </div>
 
         <div className="flex gap-2">
+          <button
+            onClick={handleExportRegistro05}
+            className="btn-secondary flex items-center gap-2"
+            title="Exportar en formato Registro 05 (Excel)"
+          >
+            <Download size={14} />
+            Registro 05
+          </button>
           {iperc.estado === 'borrador' && (
             <>
               <button
@@ -125,8 +210,28 @@ export default function IpercDetailPage() {
               Firmar
             </button>
           )}
+          {['aprobado', 'vencido'].includes(iperc.estado) && (
+            <button
+              onClick={handleNuevaVersion}
+              className="btn-secondary flex items-center gap-2"
+              title="Clonar como nuevo borrador para revisión"
+            >
+              <Copy size={14} />
+              Nueva versión
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Enlace a versión anterior */}
+      {iperc.version_padre_id && (
+        <button
+          onClick={() => navigate(`/iperc/${iperc.version_padre_id}`)}
+          className="text-xs text-slate-400 hover:text-roka-400 flex items-center gap-1 -mt-2"
+        >
+          <Clock size={12} /> Ver versión anterior (v{Number(iperc.version) - 1})
+        </button>
+      )}
 
       {/* ── Resumen de riesgos ─────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3">

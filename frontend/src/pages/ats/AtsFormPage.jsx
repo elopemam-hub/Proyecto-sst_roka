@@ -2,7 +2,7 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   Save, ArrowLeft, Plus, Trash2, AlertTriangle,
-  Users, MapPin, Calendar, Shield, HardHat, Settings2
+  Users, MapPin, Calendar, Shield, HardHat, Settings2, Download
 } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
@@ -59,6 +59,22 @@ const SEV_COLOR = {
   muy_grave: 'text-red-400',
 }
 
+// Severidad enum → escala 1-4 (para el cálculo P×S)
+const SEV_NUM = { leve: 1, moderada: 2, grave: 3, muy_grave: 4 }
+
+// Clasificación P×S (nivel 1-16) alineada al modelo backend
+function clasificarPS(prob, sevKey) {
+  const nivel = (Number(prob) || 1) * (SEV_NUM[sevKey] || 1)
+  if (nivel <= 2)  return { nivel, label: 'Trivial',     color: '#10b981' }
+  if (nivel <= 4)  return { nivel, label: 'Tolerable',   color: '#84cc16' }
+  if (nivel <= 8)  return { nivel, label: 'Moderado',    color: '#f59e0b' }
+  if (nivel <= 12) return { nivel, label: 'Importante',  color: '#f97316' }
+  return             { nivel, label: 'Intolerable', color: '#ef4444' }
+}
+
+// Mapea severidad IPERC (1-4) → enum ATS
+const IS_TO_SEV = { 1: 'leve', 2: 'moderada', 3: 'grave', 4: 'muy_grave' }
+
 export default function AtsFormPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -70,6 +86,8 @@ export default function AtsFormPage() {
   const [personal, setPersonal] = useState([])
   const [epps, setEpps]         = useState([])
   const [ipercs, setIpercs]     = useState([])
+  const [banco, setBanco]       = useState({ peligro: [], riesgo: [], control: [] })
+  const [importandoIperc, setImportandoIperc] = useState(false)
 
   const [form, setForm] = useState({
     titulo: '',
@@ -95,18 +113,65 @@ export default function AtsFormPage() {
 
   const cargarMaestros = async () => {
     try {
-      const [ar, pe, ep, ip] = await Promise.all([
+      const [ar, pe, ep, ip, bn] = await Promise.all([
         api.get('/areas', { params: { per_page: 1000 } }),
         api.get('/personal'),
         api.get('/epps/categorias'),
         api.get('/iperc', { params: { estado: 'aprobado', per_page: 100 } }),
+        api.get('/iperc-banco', { params: { all: 1, activo: 1 } }).catch(() => ({ data: [] })),
       ])
       setAreas(ar.data.data || ar.data || [])
       setPersonal(pe.data.data || pe.data || [])
       setEpps(Array.isArray(ep.data) ? ep.data : ep.data.data || [])
       setIpercs(ip.data.data || ip.data || [])
+
+      // Agrupar banco por tipo (peligro, riesgo, control) para autocompletado
+      const items = Array.isArray(bn.data) ? bn.data : (bn.data.data || [])
+      const grupos = { peligro: [], riesgo: [], control: [] }
+      for (const it of items) {
+        if (it.activo === false) continue
+        if (grupos[it.tipo]) grupos[it.tipo].push(it)
+      }
+      setBanco(grupos)
     } catch (e) {
       toast.error('Error al cargar datos maestros')
+    }
+  }
+
+  // Prefill: importar procesos/peligros/controles del IPERC seleccionado como tareas del ATS
+  const importarDesdeIperc = async () => {
+    if (!form.iperc_id) { toast.error('Primero selecciona un IPERC'); return }
+    setImportandoIperc(true)
+    try {
+      const { data } = await api.get(`/iperc/${form.iperc_id}`)
+      const nuevasTareas = (data.procesos || []).map(proc => ({
+        id: `tmp-${Date.now()}-${proc.id}`,
+        descripcion: [proc.proceso, proc.actividad].filter(Boolean).join(' — '),
+        peligros: (proc.peligros || []).map(p => ({
+          id: `tmp-${Date.now()}-p${p.id}`,
+          tipo_peligro:    p.tipo_peligro || 'fisico',
+          descripcion:     p.descripcion_peligro || '',
+          riesgo_asociado: p.riesgo || '',
+          severidad:       IS_TO_SEV[p.indice_severidad] || 'leve',
+          probabilidad:    2,
+        })),
+        controles: (proc.peligros || []).flatMap(p => (p.controles || []).map(c => ({
+          id: `tmp-${Date.now()}-c${c.id}`,
+          tipo_control: c.tipo_control || 'administrativo',
+          descripcion:  c.descripcion || '',
+          implementado: c.estado_implementacion === 'implementado' || c.estado_implementacion === 'verificado',
+        }))),
+      }))
+      if (nuevasTareas.length === 0) {
+        toast.error('El IPERC seleccionado no tiene procesos para importar')
+        return
+      }
+      setForm(f => ({ ...f, tareas: [...f.tareas, ...nuevasTareas] }))
+      toast.success(`${nuevasTareas.length} tarea(s) importada(s) del IPERC`)
+    } catch (e) {
+      toast.error('No se pudo importar el IPERC')
+    } finally {
+      setImportandoIperc(false)
     }
   }
 
@@ -136,6 +201,7 @@ export default function AtsFormPage() {
             descripcion:  p.descripcion  || '',
             riesgo_asociado: p.riesgo   || '',
             severidad:    p.severidad    || 'leve',
+            probabilidad: p.probabilidad || 1,
           })),
           controles: (t.controles || []).map(c => ({
             id:           c.id,
@@ -188,6 +254,7 @@ export default function AtsFormPage() {
           descripcion:     '',
           riesgo_asociado: '',
           severidad:       'leve',
+          probabilidad:    1,
         }],
       } : t),
     }))
@@ -330,6 +397,7 @@ export default function AtsFormPage() {
           descripcion:  p.descripcion     || '',
           riesgo:       p.riesgo_asociado || '',
           severidad:    p.severidad       || 'leve',
+          probabilidad: Number(p.probabilidad) || 1,
         })),
         controles: (t.controles || []).map(c => ({
           tipo_control: c.tipo_control || 'administrativo',
@@ -371,6 +439,17 @@ export default function AtsFormPage() {
 
   return (
     <form onSubmit={guardar} className="max-w-6xl mx-auto pb-12">
+
+      {/* Datalists del banco IPERC (autocompletado global por id) */}
+      <datalist id="ats-banco-peligro">
+        {banco.peligro.map(i => <option key={i.id} value={i.nombre} />)}
+      </datalist>
+      <datalist id="ats-banco-riesgo">
+        {banco.riesgo.map(i => <option key={i.id} value={i.nombre} />)}
+      </datalist>
+      <datalist id="ats-banco-control">
+        {banco.control.map(i => <option key={i.id} value={i.nombre} />)}
+      </datalist>
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -425,16 +504,27 @@ export default function AtsFormPage() {
           </div>
           <div>
             <label className="block text-sm text-slate-300 mb-1">IPERC de referencia (opcional)</label>
-            <select
-              value={form.iperc_id}
-              onChange={e => setForm({ ...form, iperc_id: e.target.value })}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
-            >
-              <option value="">Sin vinculación a IPERC</option>
-              {ipercs.map(ip => (
-                <option key={ip.id} value={ip.id}>{ip.codigo} — {ip.titulo}</option>
-              ))}
-            </select>
+            <div className="flex gap-2">
+              <select
+                value={form.iperc_id}
+                onChange={e => setForm({ ...form, iperc_id: e.target.value })}
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+              >
+                <option value="">Sin vinculación a IPERC</option>
+                {ipercs.map(ip => (
+                  <option key={ip.id} value={ip.id}>{ip.codigo} — {ip.titulo}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={importarDesdeIperc}
+                disabled={!form.iperc_id || importandoIperc}
+                title="Importar procesos, peligros y controles del IPERC como tareas"
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-roka-500 hover:bg-roka-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors"
+              >
+                <Download size={14} /> {importandoIperc ? 'Importando…' : 'Importar'}
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-sm text-slate-300 mb-1">
@@ -636,6 +726,7 @@ export default function AtsFormPage() {
                         </select>
                         <input
                           type="text"
+                          list="ats-banco-peligro"
                           placeholder="Peligro identificado…"
                           value={peligro.descripcion}
                           onChange={e => actualizarPeligro(ti, pi, 'descripcion', e.target.value)}
@@ -643,13 +734,14 @@ export default function AtsFormPage() {
                         />
                         <input
                           type="text"
+                          list="ats-banco-riesgo"
                           placeholder="Riesgo asociado…"
                           value={peligro.riesgo_asociado}
                           onChange={e => actualizarPeligro(ti, pi, 'riesgo_asociado', e.target.value)}
                           className="input text-sm py-1.5"
                         />
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 flex-wrap">
                         <span className="text-xs text-gray-500">Severidad:</span>
                         <div className="flex gap-1">
                           {SEVERIDADES.map(s => (
@@ -667,6 +759,35 @@ export default function AtsFormPage() {
                             </button>
                           ))}
                         </div>
+                        <span className="text-xs text-gray-500 ml-1">Prob.:</span>
+                        <div className="flex gap-1">
+                          {[1, 2, 3, 4].map(n => (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() => actualizarPeligro(ti, pi, 'probabilidad', n)}
+                              className={`w-6 h-6 rounded text-xs font-bold border transition-colors ${
+                                Number(peligro.probabilidad) === n
+                                  ? 'bg-slate-700 border-slate-500 text-white'
+                                  : 'text-gray-400 border-gray-300 hover:border-gray-400'
+                              }`}
+                            >
+                              {n}
+                            </button>
+                          ))}
+                        </div>
+                        {(() => {
+                          const c = clasificarPS(peligro.probabilidad, peligro.severidad)
+                          return (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold"
+                              style={{ background: `${c.color}22`, color: c.color, boxShadow: `inset 0 0 0 1px ${c.color}55` }}
+                              title="Nivel de riesgo = Probabilidad × Severidad"
+                            >
+                              NR {c.nivel} · {c.label}
+                            </span>
+                          )
+                        })()}
                         <button type="button" onClick={() => eliminarPeligro(ti, pi)}
                           className="ml-auto text-xs text-red-500 hover:underline">
                           Eliminar
@@ -705,6 +826,7 @@ export default function AtsFormPage() {
                       </select>
                       <input
                         type="text"
+                        list="ats-banco-control"
                         placeholder="Descripción de la medida de control…"
                         value={ctrl.descripcion}
                         onChange={e => actualizarControl(ti, ci, 'descripcion', e.target.value)}

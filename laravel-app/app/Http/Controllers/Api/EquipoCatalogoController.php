@@ -48,13 +48,13 @@ class EquipoCatalogoController extends Controller
                   ->whereIn('i.estado', $estadosOk)
                   ->whereNull('i.deleted_at');
             })
-            ->selectRaw("ec.id, ec.nombre, ec.submodulo_id, ec.categoria_emergencia,
+            ->selectRaw("ec.id, ec.nombre, ec.submodulo_id, ec.categoria_emergencia, ec.frecuencia_inspeccion,
                 sm.codigo as submodulo_codigo, sm.nombre as submodulo_nombre, sm.color as submodulo_color,
                 COUNT(DISTINCT e.id)   as total_unidades,
                 COUNT(DISTINCT i.id)   as inspecciones_año,
                 ROUND(AVG(CASE WHEN i.id IS NOT NULL THEN i.porcentaje_cumplimiento END), 1) as cumplimiento,
                 MAX(i.planificada_para) as ultima_inspeccion")
-            ->groupBy('ec.id', 'ec.nombre', 'ec.submodulo_id', 'ec.categoria_emergencia',
+            ->groupBy('ec.id', 'ec.nombre', 'ec.submodulo_id', 'ec.categoria_emergencia', 'ec.frecuencia_inspeccion',
                       'sm.codigo', 'sm.nombre', 'sm.color')
             ->havingRaw('total_unidades > 0 OR inspecciones_año > 0')
             ->orderBy('sm.orden')
@@ -68,6 +68,66 @@ class EquipoCatalogoController extends Controller
         }
 
         $rows = $query->get();
+
+        // ── Unificar variantes del mismo equipo (Insp. diaria / mensual / pre-turno) ──
+        // Se agrupan por "hermandad" (mismo nombre base, alias o prefijo diario) y
+        // cada grupo se muestra como UNA sola tarjeta con los totales sumados.
+        $arr = $rows->values()->all();
+        $n   = count($arr);
+        $parent = range(0, $n - 1);
+        $find = function ($x) use (&$parent) {
+            while ($parent[$x] !== $x) { $parent[$x] = $parent[$parent[$x]]; $x = $parent[$x]; }
+            return $x;
+        };
+        for ($i = 0; $i < $n; $i++) {
+            for ($j = $i + 1; $j < $n; $j++) {
+                if ($this->sonHermanosCatalogo($arr[$i], $arr[$j])) {
+                    $parent[$find($i)] = $find($j);
+                }
+            }
+        }
+
+        // Miembros por componente
+        $comp = [];
+        for ($i = 0; $i < $n; $i++) { $comp[$find($i)][] = $arr[$i]; }
+
+        // Fusiona cada componente en un "primario" (prefiere el que NO es diaria)
+        $primaryOf = [];
+        foreach ($comp as $root => $grupo) {
+            $col = collect($grupo);
+            $primario = $col->sortBy(fn($r) => mb_stripos($r->nombre, 'diari') !== false ? 1 : 0)
+                            ->sortByDesc(fn($r) => (int) $r->inspecciones_año)
+                            ->first();
+            foreach ($grupo as $r) {
+                if ($r->id === $primario->id) continue;
+                $nP = (int) $primario->inspecciones_año;
+                $nH = (int) $r->inspecciones_año;
+                $nT = $nP + $nH;
+                if ($nT > 0) {
+                    $primario->cumplimiento = round(
+                        (((float) ($primario->cumplimiento ?? 0)) * $nP
+                       + ((float) ($r->cumplimiento ?? 0)) * $nH) / $nT, 1);
+                }
+                $primario->inspecciones_año = $nT;
+                $primario->total_unidades   = (int) $primario->total_unidades + (int) $r->total_unidades;
+                if ($r->ultima_inspeccion && $r->ultima_inspeccion > (string) $primario->ultima_inspeccion) {
+                    $primario->ultima_inspeccion = $r->ultima_inspeccion;
+                }
+            }
+            if (count($grupo) > 1) {
+                $primario->nombre = $this->baseNombreCatalogo($primario->nombre);
+            }
+            $primaryOf[$root] = $primario;
+        }
+
+        // Reconstruye conservando el orden original (submódulo, nombre)
+        $seen = [];
+        $out  = [];
+        for ($i = 0; $i < $n; $i++) {
+            $r = $find($i);
+            if (!isset($seen[$r])) { $seen[$r] = true; $out[] = $primaryOf[$r]; }
+        }
+        $rows = collect($out);
 
         // Submodulos disponibles para el filtro (con actividad en la empresa)
         $submodulos = DB::table('inspeccion_submodulos as sm')
@@ -116,6 +176,7 @@ class EquipoCatalogoController extends Controller
     {
         $eid = $request->user()->empresa_id;
         $año = (int) $request->input('año', now()->year);
+        $mesDiarioParam = $request->input('mes_diario'); // 1-12 opcional (filtro gráfico diario)
 
         $catalogo = EquipoCatalogo::find($id);
         if (!$catalogo) {
@@ -229,6 +290,126 @@ class EquipoCatalogoController extends Controller
                        : (isset($mensualUnidadChart[$m]) ? (int) $mensualUnidadChart[$m]->n : 0),
         ]);
 
+        // ── Evolución semanal y diaria ────────────────────────────────────────
+        // Los gráficos por semana / por día se alimentan de TODAS las variantes
+        // del mismo equipo (catálogos hermanos: Insp. diaria + mensual + pre-turno),
+        // para mostrar todo en el mismo dashboard sin cambiar de tipo de equipo.
+        // Fuentes del gráfico: el catálogo actual + sus hermanos (para que cualquier
+        // inspección del equipo aparezca por día).
+        $hermanos = $this->catalogosHermanos($id);
+        $dailyIds = $hermanos;
+
+        // Un equipo "tiene inspección diaria" si en algún mes registró inspecciones
+        // en 2+ días distintos (actividad más frecuente que mensual). Señal por datos,
+        // no por nombre/frecuencia del catálogo, para que aplique a todos los equipos.
+        $maxDiasMes = (int) DB::table('inspecciones')
+            ->where('empresa_id', $eid)
+            ->whereIn('equipo_catalogo_id', $dailyIds)
+            ->whereYear('planificada_para', $año)
+            ->whereIn('estado', $estadosOk)
+            ->whereNull('deleted_at')
+            ->selectRaw('COUNT(DISTINCT DATE(planificada_para)) as dias')
+            ->groupBy(DB::raw('MONTH(planificada_para)'))
+            ->orderByDesc('dias')
+            ->limit(1)
+            ->value('dias');
+
+        $esDiaria = $maxDiasMes >= 2;
+        $semanal  = [];
+        $diario   = [];
+        $diarioPeriodo = null;
+        $diarioMeses   = [];
+        $diarioMes     = null;
+
+        if ($esDiaria) {
+            // Semanal: promedio por semana ISO del año, con rango de fechas
+            $semanalRaw = DB::table('inspecciones')
+                ->where('empresa_id', $eid)
+                ->whereIn('equipo_catalogo_id', $dailyIds)
+                ->whereYear('planificada_para', $año)
+                ->whereIn('estado', $estadosOk)
+                ->whereNull('deleted_at')
+                ->selectRaw('WEEK(planificada_para, 3) as semana,
+                    MIN(DATE(planificada_para)) as desde,
+                    MAX(DATE(planificada_para)) as hasta,
+                    ROUND(AVG(porcentaje_cumplimiento),1) as pct,
+                    COUNT(*) as n')
+                ->groupBy(DB::raw('WEEK(planificada_para, 3)'))
+                ->orderBy('semana')
+                ->get();
+
+            $semanal = $semanalRaw->map(fn($w) => [
+                'semana' => (int) $w->semana,
+                'label'  => 'S' . $w->semana,
+                'rango'  => \Carbon\Carbon::parse($w->desde)->format('d/m') . '–' . \Carbon\Carbon::parse($w->hasta)->format('d/m'),
+                'pct'    => (float) $w->pct,
+                'n'      => (int) $w->n,
+            ])->values();
+
+            // Diario: se muestran todos los días del mes con más inspecciones del
+            // año. Cada día del mes aparece (aunque no tenga inspección) para leer
+            // el gráfico como un calendario mensual.
+            $diarioRaw = DB::table('inspecciones')
+                ->where('empresa_id', $eid)
+                ->whereIn('equipo_catalogo_id', $dailyIds)
+                ->whereYear('planificada_para', $año)
+                ->whereIn('estado', $estadosOk)
+                ->whereNull('deleted_at')
+                ->selectRaw('DATE(planificada_para) as dia,
+                    MONTH(planificada_para) as mes,
+                    ROUND(AVG(porcentaje_cumplimiento),1) as pct,
+                    COUNT(*) as n')
+                ->groupBy(DB::raw('DATE(planificada_para)'), DB::raw('MONTH(planificada_para)'))
+                ->get();
+
+            if ($diarioRaw->isNotEmpty()) {
+                // Filtro: los 12 meses del año, marcando cuáles tienen inspecciones
+                $mesesConDatos = $diarioRaw->pluck('mes')->map(fn($m) => (int) $m)->unique()->flip();
+                $diarioMeses = collect(range(1, 12))->map(fn($m) => [
+                    'mes'         => $m,
+                    'label'       => ucfirst(\Carbon\Carbon::create($año, $m, 1)->locale('es')->isoFormat('MMMM')),
+                    'tiene_datos' => $mesesConDatos->has($m),
+                ]);
+
+                // Mes objetivo: el del filtro (aunque esté vacío) o el de más inspecciones
+                $mesTarget = null;
+                if ($mesDiarioParam !== null && (int) $mesDiarioParam >= 1 && (int) $mesDiarioParam <= 12) {
+                    $mesTarget = (int) $mesDiarioParam;
+                } else {
+                    $mesTarget = (int) $diarioRaw
+                        ->groupBy('mes')
+                        ->map(fn($rows) => $rows->sum('n'))
+                        ->sortDesc()
+                        ->keys()
+                        ->first();
+                }
+
+                $porDia    = $diarioRaw->where('mes', $mesTarget)->keyBy('dia');
+                $inicioMes = \Carbon\Carbon::create($año, $mesTarget, 1)->startOfDay();
+                $diasEnMes = $inicioMes->daysInMonth;
+                $diarioPeriodo = ucfirst($inicioMes->locale('es')->isoFormat('MMMM YYYY'));
+                $diarioMes = $mesTarget;
+
+                $diario = collect(range(1, $diasEnMes))->map(function ($d) use ($año, $mesTarget, $porDia) {
+                    $fecha = \Carbon\Carbon::create($año, $mesTarget, $d)->startOfDay();
+                    $key   = $fecha->format('Y-m-d');
+                    $row   = $porDia->get($key);
+                    return [
+                        'dia'   => $key,
+                        'label' => (string) $d,          // enumeración 1..31
+                        'fecha' => $fecha->format('d/m/Y'),
+                        'pct'   => $row ? (float) $row->pct : null,
+                        'n'     => $row ? (int) $row->n : 0,
+                    ];
+                })->values();
+            }
+
+            // Si no hay ninguna inspección diaria registrada, no mostramos los gráficos
+            if ($semanal->isEmpty() && (is_array($diario) ? empty($diario) : $diario->isEmpty())) {
+                $esDiaria = false;
+            }
+        }
+
         // ── Matriz de verificación — resultado real de la inspección más reciente ─
         $allRespRaw = DB::table('inspeccion_respuestas as ir')
             ->join('checklist_preguntas as cp', 'ir.pregunta_id', '=', 'cp.id')
@@ -338,6 +519,78 @@ class EquipoCatalogoController extends Controller
             $matrixPivot[$row->descripcion][$row->equipo_id] = $row->resultado;
         }
 
+        // ── Matriz de verificación por MES (Ene…Dic), agregada para todas las unidades ─
+        // Cada celda = peor resultado del ítem en ese mes (N > A > C; NA neutro).
+        $matrizRespRaw = DB::table('inspeccion_respuestas as ir')
+            ->join('checklist_preguntas as cp', 'ir.pregunta_id', '=', 'cp.id')
+            ->join('inspecciones as i', 'ir.inspeccion_id', '=', 'i.id')
+            ->where('i.empresa_id', $eid)
+            ->where('i.equipo_catalogo_id', $id)
+            ->whereYear('i.planificada_para', $año)
+            ->whereIn('i.estado', $estadosOk)
+            ->whereNull('i.deleted_at')
+            ->selectRaw("cp.texto as descripcion, cp.orden,
+                         MONTH(i.planificada_para) as mes, ir.resultado")
+            ->orderBy('cp.orden')
+            ->get();
+
+        // Fallback: inspecciones_items (formato clásico) si no hay respuestas de checklist
+        if ($matrizRespRaw->isEmpty()) {
+            $matrizRespRaw = DB::table('inspecciones_items as ii')
+                ->join('inspecciones as i', 'ii.inspeccion_id', '=', 'i.id')
+                ->where('i.empresa_id', $eid)
+                ->where('i.equipo_catalogo_id', $id)
+                ->whereYear('i.planificada_para', $año)
+                ->whereIn('i.estado', $estadosOk)
+                ->whereNull('i.deleted_at')
+                ->whereNotNull('ii.descripcion')
+                ->selectRaw("ii.descripcion, 0 as orden,
+                             MONTH(i.planificada_para) as mes, ii.resultado")
+                ->get()
+                ->map(function ($row) {
+                    if (is_numeric($row->resultado)) {
+                        $pct = (float) $row->resultado;
+                        $row->resultado = $pct >= 100 ? 'C' : ($pct <= 0 ? 'N' : 'A');
+                    } elseif ($row->resultado === 'conforme')    { $row->resultado = 'C'; }
+                    elseif ($row->resultado === 'no_conforme')   { $row->resultado = 'N'; }
+                    elseif ($row->resultado === 'observacion')   { $row->resultado = 'A'; }
+                    return $row;
+                });
+        }
+
+        // Peor resultado de un conjunto (prioridad: menor = peor)
+        $peorResultado = function ($resultados) {
+            $prio = ['N' => 0, 'no_conforme' => 0, 'A' => 1, 'observacion' => 1,
+                     'C' => 2, 'S' => 2, 'conforme' => 2];
+            $best = null; $bestP = 99;
+            foreach ($resultados as $r) {
+                if ($r === null || $r === '') continue;
+                $p = $prio[$r] ?? (($r === 'NA' || $r === 'na') ? 3 : 2);
+                if ($p < $bestP) { $bestP = $p; $best = $r; }
+            }
+            return $best;
+        };
+
+        $matrizMensual = $matrizRespRaw
+            ->groupBy('descripcion')
+            ->map(function ($rows) use ($peorResultado) {
+                $byMonth = $rows->groupBy('mes');
+                $porMes  = [];
+                for ($m = 1; $m <= 12; $m++) {
+                    $porMes[$m] = isset($byMonth[$m])
+                        ? $peorResultado($byMonth[$m]->pluck('resultado'))
+                        : null;
+                }
+                return [
+                    'orden'       => (int) $rows->min('orden'),
+                    'descripcion' => $rows->first()->descripcion,
+                    'por_mes'     => (object) $porMes,
+                ];
+            })
+            ->sortBy('orden')
+            ->values()
+            ->map(fn($f) => ['descripcion' => $f['descripcion'], 'por_mes' => $f['por_mes']]);
+
         // ── Estado mensual por unidad ─────────────────────────────────────────
         $mensualPorEquipoRaw = DB::table('inspecciones')
             ->where('empresa_id', $eid)
@@ -412,23 +665,67 @@ class EquipoCatalogoController extends Controller
             'por_area'        => $porArea,
             'por_tipo'        => $porTipo,
             'mensual'         => $mensual,
+            'es_diaria'       => $esDiaria,
+            'semanal'         => $semanal,
+            'diario'          => $diario,
+            'diario_periodo'  => $diarioPeriodo,
+            'diario_mes'      => $diarioMes,
+            'diario_meses'    => $diarioMeses,
             'anomalias_matrix' => [
-                'extintores' => $equipos->isNotEmpty()
-                    ? $equipos->map(fn($e) => [
-                        'id'     => $e->id,
-                        'codigo' => $e->codigo,
-                        'nombre' => $e->nombre,
-                        'area'   => $e->area?->nombre,
-                    ])
-                    : ($anomaliasLista->isNotEmpty()
-                        ? collect([['id' => 0, 'codigo' => 'ÁREA', 'nombre' => $catalogo->nombre, 'area' => null]])
-                        : collect()),
-                'filas' => $anomaliasLista->map(fn($a) => [
-                    'descripcion' => $a,
-                    'por_equipo'  => (object) ($matrixPivot[$a] ?? []),
-                ]),
+                'unidades' => $totalUnidades,
+                'filas'    => $matrizMensual,
             ],
             'ubicaciones'     => $ubicaciones,
         ]);
+    }
+
+    /**
+     * Nombre base de un catálogo, sin el sufijo de variante de inspección
+     * (p. ej. "… - Insp. diaria", "… — Inspección mensual", "… — Insp. pre-turno").
+     */
+    private function baseNombreCatalogo(string $nombre): string
+    {
+        $b = preg_replace('/\s*[-–—]\s*insp.*$/iu', '', $nombre);
+        return trim(($b === null || $b === '') ? $nombre : $b);
+    }
+
+    /**
+     * ¿Dos catálogos representan el mismo equipo (variantes de inspección)?
+     * Reglas: mismo nombre base; alias equivalentes; o un nombre base es prefijo
+     * de palabra del otro cuando al menos uno es de frecuencia diaria.
+     */
+    private function sonHermanosCatalogo($a, $b): bool
+    {
+        $ba = mb_strtolower($this->baseNombreCatalogo($a->nombre));
+        $bb = mb_strtolower($this->baseNombreCatalogo($b->nombre));
+        if ($ba === $bb) return true;
+
+        $aliasGrupos = [['stoka', 'transpaleta manual']];
+        foreach ($aliasGrupos as $g) {
+            if (in_array($ba, $g, true) && in_array($bb, $g, true)) return true;
+        }
+
+        $algunoDiaria = ($a->frecuencia_inspeccion === 'diaria') || ($b->frecuencia_inspeccion === 'diaria');
+        if ($algunoDiaria) {
+            $short = mb_strlen($ba) <= mb_strlen($bb) ? $ba : $bb;
+            $long  = $short === $ba ? $bb : $ba;
+            if ($short !== $long && \Illuminate\Support\Str::startsWith($long, $short . ' ')) return true;
+        }
+        return false;
+    }
+
+    /** IDs de catálogos que representan el mismo equipo que $id (incluye $id). */
+    private function catalogosHermanos(int $id): array
+    {
+        $todos  = DB::table('equipos_catalogo')->select('id', 'nombre', 'frecuencia_inspeccion')->get();
+        $target = $todos->firstWhere('id', $id);
+        if (!$target) return [$id];
+
+        $ids = [$id];
+        foreach ($todos as $c) {
+            if ((int) $c->id === $id) continue;
+            if ($this->sonHermanosCatalogo($target, $c)) $ids[] = (int) $c->id;
+        }
+        return array_values(array_unique($ids));
     }
 }

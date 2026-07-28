@@ -5,11 +5,12 @@ import {
   ArrowLeft, Edit, Send, CheckCircle2, XCircle, Clock,
   MapPin, Calendar, Users, AlertTriangle, FileSignature,
   Shield, HardHat, Printer, Trash2, Settings2, ChevronDown,
-  PlayCircle, SkipForward, Play, Ban
+  PlayCircle, SkipForward, Play, Ban, Camera, PenLine
 } from 'lucide-react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
 import FirmaModal from '../../components/firmas/FirmaModal'
+import PetarSection from './PetarSection'
 import { format, parseISO, isValid } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -166,14 +167,79 @@ export default function AtsDetailPage() {
   }
 
   const iniciarEjecucion = async () => {
-    if (!confirm('¿Iniciar la ejecución del trabajo? Los participantes podrán registrar el avance de tareas.')) return
+    const charla = prompt('Charla de seguridad de 5 min (opcional) — puntos tratados antes de iniciar:')
+    if (charla === null) return
     try {
-      await api.post(`/ats/${id}/iniciar`)
+      await api.post(`/ats/${id}/iniciar`, { charla_seguridad: charla || undefined })
       toast.success('Trabajo iniciado')
       cargar()
     } catch (e) {
       toast.error(e.response?.data?.message || 'Error al iniciar ejecución')
     }
+  }
+
+  // Geolocalización con timeout (para evidencia de campo)
+  const obtenerGeo = () => new Promise(resolve => {
+    if (!navigator.geolocation) return resolve({})
+    const t = setTimeout(() => resolve({}), 3500)
+    navigator.geolocation.getCurrentPosition(
+      p => { clearTimeout(t); resolve({ geo_lat: p.coords.latitude, geo_lng: p.coords.longitude }) },
+      () => { clearTimeout(t); resolve({}) },
+      { timeout: 3500, enableHighAccuracy: false }
+    )
+  })
+
+  const detenerAts = async () => {
+    const motivo = prompt('⛔ PARAR EL TRABAJO — motivo de la detención (condición insegura):')
+    if (!motivo) return
+    try {
+      await api.post(`/ats/${id}/detener`, { motivo_detencion: motivo })
+      toast.success('Trabajo detenido')
+      cargar()
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Error al detener')
+    }
+  }
+
+  const reanudarAts = async () => {
+    if (!confirm('¿Confirmas que la condición insegura fue corregida y se reanuda el trabajo?')) return
+    try {
+      await api.post(`/ats/${id}/reanudar`)
+      toast.success('Trabajo reanudado')
+      cargar()
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Error al reanudar')
+    }
+  }
+
+  const firmarParticipante = async (participanteId) => {
+    try {
+      await api.post(`/ats/${id}/participantes/${participanteId}/firmar`)
+      toast.success('Firma registrada')
+      cargar()
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Error al firmar')
+    }
+  }
+
+  const subirFotoTarea = async (tareaId, file) => {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const geo = await obtenerGeo()
+      try {
+        await api.patch(`/ats/${id}/tareas/${tareaId}`, {
+          estado_ejecucion: 'ejecutada',
+          evidencia_foto: reader.result,
+          ...geo,
+        })
+        toast.success('Evidencia registrada')
+        cargar()
+      } catch (e) {
+        toast.error(e.response?.data?.message || 'Error al subir evidencia')
+      }
+    }
+    reader.readAsDataURL(file)
   }
 
   const cancelarAts = async () => {
@@ -190,9 +256,11 @@ export default function AtsDetailPage() {
 
   const actualizarTarea = async (tareaId, estado, observaciones = '') => {
     try {
+      const geo = estado === 'ejecutada' ? await obtenerGeo() : {}
       await api.patch(`/ats/${id}/tareas/${tareaId}`, {
         estado_ejecucion: estado,
         observaciones:    observaciones || undefined,
+        ...geo,
       })
       toast.success(estado === 'ejecutada' ? 'Tarea ejecutada' : estado === 'omitida' ? 'Tarea omitida' : 'Tarea restablecida')
       setObsModal(null)
@@ -324,7 +392,19 @@ export default function AtsDetailPage() {
             </>
           )}
 
-          {/* En ejecución: cerrar */}
+          {/* En ejecución: parar trabajo + cerrar */}
+          {ats.estado === 'en_ejecucion' && !ats.detenido && (
+            <button onClick={detenerAts}
+              className="flex items-center gap-1 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/40 rounded-lg text-sm font-semibold">
+              <AlertTriangle size={14} /> Parar trabajo
+            </button>
+          )}
+          {ats.estado === 'en_ejecucion' && ats.detenido && (
+            <button onClick={reanudarAts}
+              className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-sm font-semibold">
+              <CheckCircle2 size={14} /> Reanudar
+            </button>
+          )}
           {ats.estado === 'en_ejecucion' && (
             <button onClick={() => setCerrarModal(true)}
               className="flex items-center gap-1 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm">
@@ -341,6 +421,32 @@ export default function AtsDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Banner de trabajo detenido (stop work) */}
+      {ats.detenido && (
+        <div className="mb-6 bg-red-500/10 border border-red-500/40 rounded-xl p-4 flex items-start gap-3">
+          <AlertTriangle size={20} className="text-red-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-red-300 font-semibold text-sm">⛔ Trabajo detenido</p>
+            <p className="text-red-200/80 text-sm mt-0.5">{ats.motivo_detencion}</p>
+            {ats.detenido_en && (
+              <p className="text-red-200/50 text-xs mt-1">
+                Detenido {isValid(parseISO(ats.detenido_en)) ? format(parseISO(ats.detenido_en), "dd/MM/yyyy HH:mm", { locale: es }) : ''}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Charla de seguridad pre-inicio */}
+      {ats.charla_seguridad && (
+        <div className="mb-6 bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
+          <p className="text-blue-300 font-semibold text-sm mb-1 flex items-center gap-2">
+            <Users size={15} /> Charla de seguridad (pre-inicio)
+          </p>
+          <p className="text-slate-300 text-sm whitespace-pre-wrap">{ats.charla_seguridad}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
@@ -402,21 +508,8 @@ export default function AtsDetailPage() {
             </dl>
           </div>
 
-          {/* Permiso de trabajo */}
-          {ats.requiere_permiso_especial && (
-            <div className="bg-amber-500/5 border border-amber-500/30 rounded-xl p-6">
-              <h2 className="text-lg font-semibold text-amber-300 mb-3 flex items-center gap-2">
-                <AlertTriangle size={18} /> Permiso de trabajo requerido (PETAR)
-              </h2>
-              <div className="flex flex-wrap gap-2">
-                {(ats.tipos_permiso || []).map(tp => (
-                  <span key={tp} className="px-3 py-1 bg-amber-500/15 text-amber-300 rounded-lg text-xs border border-amber-500/30">
-                    {tp.replace(/_/g, ' ')}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Permisos de trabajo (PETAR) — gestión completa */}
+          <PetarSection ats={ats} onChange={cargar} />
 
           {/* Progreso de tareas (solo en ejecución) */}
           {ats.estado === 'en_ejecucion' && tareasTotal > 0 && (
@@ -500,9 +593,38 @@ export default function AtsDetailPage() {
                         >
                           <SkipForward size={16} />
                         </button>
+                        <label
+                          title="Adjuntar foto de evidencia (marca la tarea como ejecutada)"
+                          className="p-1.5 rounded-lg cursor-pointer text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
+                        >
+                          <Camera size={16} />
+                          <input type="file" accept="image/*" capture="environment" className="hidden"
+                            onChange={e => subirFotoTarea(tarea.id, e.target.files?.[0])} />
+                        </label>
                       </div>
                     )}
                   </div>
+
+                  {/* Evidencia de campo (foto + geolocalización) */}
+                  {(tarea.evidencia_foto || tarea.geo_lat) && (
+                    <div className="ml-10 mb-3 flex items-center gap-3 flex-wrap">
+                      {tarea.evidencia_foto && (
+                        <a href={tarea.evidencia_foto} target="_blank" rel="noreferrer">
+                          <img src={tarea.evidencia_foto} alt="evidencia"
+                            className="w-20 h-20 object-cover rounded-lg border border-slate-700 hover:border-slate-500" />
+                        </a>
+                      )}
+                      {tarea.geo_lat && (
+                        <a
+                          href={`https://www.google.com/maps?q=${tarea.geo_lat},${tarea.geo_lng}`}
+                          target="_blank" rel="noreferrer"
+                          className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                        >
+                          <MapPin size={12} /> {Number(tarea.geo_lat).toFixed(5)}, {Number(tarea.geo_lng).toFixed(5)}
+                        </a>
+                      )}
+                    </div>
+                  )}
 
                   {/* Peligros */}
                   {(tarea.peligros || []).length > 0 && (
@@ -649,6 +771,19 @@ export default function AtsDetailPage() {
                   <span className="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-300 flex-shrink-0 capitalize">
                     {ROL_LABEL[p.rol] || p.rol}
                   </span>
+                  {p.firmado_en ? (
+                    <span className="text-xs text-emerald-400 flex items-center gap-1 flex-shrink-0" title={`Firmó ${safeDate(p.firmado_en, 'dd/MM HH:mm')}`}>
+                      <CheckCircle2 size={13} /> Firmó
+                    </span>
+                  ) : (
+                    ['pendiente_firma', 'autorizado', 'en_ejecucion'].includes(ats.estado) && (
+                      <button onClick={() => firmarParticipante(p.id)}
+                        className="text-xs flex items-center gap-1 text-roka-400 hover:text-roka-300 flex-shrink-0"
+                        title="Registrar firma/asistencia del participante">
+                        <PenLine size={12} /> Firmar
+                      </button>
+                    )
+                  )}
                 </div>
               ))}
             </div>

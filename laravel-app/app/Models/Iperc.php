@@ -17,7 +17,7 @@ class Iperc extends Model
     protected $fillable = [
         'empresa_id', 'sede_id', 'area_id',
         'codigo', 'titulo', 'alcance', 'metodologia',
-        'fecha_elaboracion', 'fecha_vigencia', 'version',
+        'fecha_elaboracion', 'fecha_vigencia', 'version', 'version_padre_id',
         'elaborado_por', 'revisado_por', 'aprobado_por',
         'fecha_revision', 'fecha_aprobacion',
         'estado', 'observaciones',
@@ -48,6 +48,8 @@ class Iperc extends Model
     public function revisor(): BelongsTo          { return $this->belongsTo(Usuario::class, 'revisado_por'); }
     public function aprobador(): BelongsTo        { return $this->belongsTo(Usuario::class, 'aprobado_por'); }
     public function procesos(): HasMany           { return $this->hasMany(IpercProceso::class); }
+    public function versionPadre(): BelongsTo     { return $this->belongsTo(Iperc::class, 'version_padre_id'); }
+    public function versionesHijas(): HasMany     { return $this->hasMany(Iperc::class, 'version_padre_id'); }
 
     public function firmas(): MorphMany
     {

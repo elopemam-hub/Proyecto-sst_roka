@@ -122,6 +122,10 @@ class EquipoAsignacionController extends Controller
                 $inicio = $hoy->copy()->startOfWeek();
                 $fin    = $hoy->copy()->endOfWeek();
                 break;
+            case 'semana_pasada':
+                $inicio = $hoy->copy()->subWeek()->startOfWeek();
+                $fin    = $hoy->copy()->subWeek()->endOfWeek();
+                break;
             case 'mes':
                 $inicio = $hoy->copy()->startOfMonth();
                 $fin    = $hoy->copy()->endOfMonth();
@@ -165,7 +169,7 @@ class EquipoAsignacionController extends Controller
             ]);
 
         // Cumplimiento por usuario (solo trabajadores con asignaciones regulares en el período)
-        $minTotal = match($periodo) { 'mes' => 5, 'semana' => 2, default => 1 };
+        $minTotal = match($periodo) { 'mes' => 5, 'semana', 'semana_pasada' => 2, default => 1 };
 
         $porUsuario = EquipoAsignacion::where('empresa_id', $empresaId)
             ->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()])
@@ -182,8 +186,10 @@ class EquipoAsignacionController extends Controller
             ])
             ->filter(fn($u) => $u['total'] >= $minTotal);
 
-        // Tendencia semanal (siempre la semana actual)
-        $inicioSemana = $hoy->copy()->startOfWeek();
+        // Tendencia semanal — la semana del período seleccionado (actual o pasada)
+        $inicioSemana = $periodo === 'semana_pasada'
+            ? $hoy->copy()->subWeek()->startOfWeek()
+            : $hoy->copy()->startOfWeek();
         $tendenciaSemana = [];
         for ($i = 0; $i < 7; $i++) {
             $dia   = $inicioSemana->copy()->addDays($i);

@@ -591,6 +591,295 @@ class IpercController extends Controller
     }
 
     /**
+     * GET /api/iperc/exposicion — Matriz de exposición: peligros por área ↔ cargos/personal expuesto.
+     * Deriva la exposición al nivel de área (el IPERC se elabora por área operativa).
+     */
+    public function exposicion(Request $request): JsonResponse
+    {
+        $empresaId = $request->user()->empresa_id;
+
+        // Peligros de IPERC aprobados, agrupados por área
+        $peligros = DB::table('iperc_peligros as p')
+            ->join('iperc_procesos as pr', 'p.iperc_proceso_id', '=', 'pr.id')
+            ->join('iperc', 'pr.iperc_id', '=', 'iperc.id')
+            ->where('iperc.empresa_id', $empresaId)
+            ->whereNull('iperc.deleted_at')
+            ->where('iperc.estado', 'aprobado')
+            ->select([
+                'iperc.area_id',
+                'p.tipo_peligro', 'p.descripcion_peligro',
+                'p.clasificacion_inicial', 'p.nivel_riesgo_inicial',
+                'p.es_riesgo_significativo',
+            ])
+            ->orderByRaw('p.nivel_riesgo_inicial DESC')
+            ->get()
+            ->groupBy('area_id');
+
+        // Cargos y conteo de personal por área
+        $cargos = DB::table('cargos as car')
+            ->leftJoin('personal as per', function ($j) {
+                $j->on('per.cargo_id', '=', 'car.id')->whereNull('per.deleted_at');
+            })
+            ->where('car.empresa_id', $empresaId)
+            ->select([
+                'car.area_id', 'car.id', 'car.nombre',
+                DB::raw('COUNT(DISTINCT per.id) as total_personal'),
+            ])
+            ->groupBy('car.area_id', 'car.id', 'car.nombre')
+            ->get()
+            ->groupBy('area_id');
+
+        $areas = DB::table('areas')
+            ->where('empresa_id', $empresaId)
+            ->select('id', 'nombre')
+            ->orderBy('nombre')
+            ->get();
+
+        $resultado = $areas->map(function ($area) use ($peligros, $cargos) {
+            $pels = $peligros->get($area->id, collect());
+            $cgs  = $cargos->get($area->id, collect());
+            return [
+                'area_id'        => $area->id,
+                'area_nombre'    => $area->nombre,
+                'total_peligros' => $pels->count(),
+                'significativos' => $pels->where('es_riesgo_significativo', true)->count(),
+                'peligros'       => $pels->take(30)->values(),
+                'cargos'         => $cgs->values(),
+                'total_personal' => $cgs->sum('total_personal'),
+            ];
+        })->filter(fn($a) => $a['total_peligros'] > 0 || $a['total_personal'] > 0)->values();
+
+        return response()->json(['areas' => $resultado]);
+    }
+
+    /**
+     * GET /api/iperc/matriz-grid — Distribución de peligros en la grilla IP × IS
+     * Devuelve el conteo de peligros por cada celda (índice_probabilidad, índice_severidad).
+     */
+    public function matrizGrid(Request $request): JsonResponse
+    {
+        $empresaId = $request->user()->empresa_id;
+
+        $q = DB::table('iperc_peligros as p')
+            ->join('iperc_procesos as pr', 'p.iperc_proceso_id', '=', 'pr.id')
+            ->join('iperc', 'pr.iperc_id', '=', 'iperc.id')
+            ->where('iperc.empresa_id', $empresaId)
+            ->whereNull('iperc.deleted_at');
+
+        // Filtro opcional: usar riesgo residual en vez de inicial
+        $usarResidual = $request->boolean('residual');
+
+        if ($request->filled('estado')) {
+            $q->where('iperc.estado', $request->estado);
+        }
+
+        $celdas = $q->selectRaw(
+            $usarResidual
+                ? 'COALESCE(p.ip_residual, p.indice_probabilidad) as ip, COALESCE(p.is_residual, p.indice_severidad) as is_val, COUNT(*) as total'
+                : 'p.indice_probabilidad as ip, p.indice_severidad as is_val, COUNT(*) as total'
+        )
+        ->groupBy('ip', 'is_val')
+        ->get();
+
+        // Construir grilla: severidad 1-4 (filas) × IP 4-16 (columnas)
+        $grid = [];
+        foreach ($celdas as $c) {
+            $ip = (int) $c->ip; $is = (int) $c->is_val;
+            if ($ip < 4 || $ip > 16 || $is < 1 || $is > 4) continue;
+            $nivel = $ip * $is;
+            $grid[] = [
+                'ip'            => $ip,
+                'is'            => $is,
+                'nivel'         => $nivel,
+                'clasificacion' => IpercPeligro::clasificar($nivel),
+                'total'         => (int) $c->total,
+            ];
+        }
+
+        return response()->json([
+            'celdas'  => $grid,
+            'niveles' => Iperc::NIVELES_RIESGO,
+            'ip_min'  => 4, 'ip_max' => 16,
+            'is_min'  => 1, 'is_max' => 4,
+        ]);
+    }
+
+    /**
+     * GET /api/iperc/plan-accion — Controles que requieren acción (plan de tratamiento)
+     * Prioriza controles pendientes/en proceso de riesgos significativos.
+     */
+    public function planAccion(Request $request): JsonResponse
+    {
+        $empresaId = $request->user()->empresa_id;
+        $hoy       = now()->toDateString();
+
+        $q = DB::table('iperc_controles as c')
+            ->join('iperc_peligros as p', 'c.iperc_peligro_id', '=', 'p.id')
+            ->join('iperc_procesos as pr', 'p.iperc_proceso_id', '=', 'pr.id')
+            ->join('iperc', 'pr.iperc_id', '=', 'iperc.id')
+            ->join('areas', 'iperc.area_id', '=', 'areas.id')
+            ->leftJoin('personal as per', 'c.responsable_id', '=', 'per.id')
+            ->where('iperc.empresa_id', $empresaId)
+            ->whereNull('iperc.deleted_at')
+            ->whereIn('c.estado_implementacion', ['pendiente', 'en_proceso']);
+
+        if ($request->boolean('solo_significativos')) {
+            $q->where('p.es_riesgo_significativo', true);
+        }
+        if ($request->filled('estado')) {
+            $q->where('c.estado_implementacion', $request->estado);
+        }
+
+        $items = $q->select([
+                'c.id', 'c.tipo_control', 'c.descripcion', 'c.estado_implementacion',
+                'c.fecha_implementacion', 'c.responsable_id',
+                'p.descripcion_peligro', 'p.clasificacion_inicial', 'p.nivel_riesgo_inicial',
+                'p.es_riesgo_significativo',
+                'pr.proceso', 'iperc.codigo', 'iperc.id as iperc_id',
+                'areas.nombre as area_nombre',
+                DB::raw("TRIM(CONCAT(COALESCE(per.nombres,''), ' ', COALESCE(per.apellidos,''))) as responsable_nombre"),
+            ])
+            ->orderByRaw('p.es_riesgo_significativo DESC, p.nivel_riesgo_inicial DESC')
+            ->limit(200)
+            ->get()
+            ->map(function ($it) use ($hoy) {
+                $it->vencido = $it->fecha_implementacion && $it->fecha_implementacion < $hoy;
+                return $it;
+            });
+
+        return response()->json([
+            'items'          => $items,
+            'total'          => $items->count(),
+            'vencidos'       => $items->where('vencido', true)->count(),
+            'significativos' => $items->where('es_riesgo_significativo', true)->count(),
+        ]);
+    }
+
+    /**
+     * PATCH /api/iperc/controles/{controlId} — Actualizar seguimiento de un control
+     */
+    public function actualizarControl(Request $request, int $controlId): JsonResponse
+    {
+        $validated = $request->validate([
+            'estado_implementacion' => ['sometimes', Rule::in(['pendiente','en_proceso','implementado','verificado'])],
+            'fecha_implementacion'  => 'nullable|date',
+            'responsable_id'        => 'nullable|exists:personal,id',
+        ]);
+
+        // Verificar que el control pertenezca a un IPERC de la empresa
+        $control = IpercControl::whereHas('peligro.proceso.iperc', function ($q) use ($request) {
+            $q->where('empresa_id', $request->user()->empresa_id);
+        })->findOrFail($controlId);
+
+        $control->update($validated);
+
+        return response()->json([
+            'message' => 'Control actualizado.',
+            'control' => $control->fresh(),
+        ]);
+    }
+
+    /**
+     * POST /api/iperc/{id}/nueva-version
+     * Clona un IPERC (aprobado o vencido) como nuevo borrador version+1,
+     * enlazado a su versión padre. Archiva la versión anterior.
+     */
+    public function nuevaVersion(Request $request, int $id): JsonResponse
+    {
+        $usuario = $request->user();
+        $origen  = Iperc::where('empresa_id', $usuario->empresa_id)
+            ->with('procesos.peligros.controles')
+            ->findOrFail($id);
+
+        if (!in_array($origen->estado, ['aprobado', 'vencido'])) {
+            return response()->json([
+                'message' => 'Solo se puede versionar un IPERC aprobado o vencido.',
+            ], 422);
+        }
+
+        $nueva = DB::transaction(function () use ($origen, $usuario) {
+            $nueva = Iperc::create([
+                'empresa_id'        => $origen->empresa_id,
+                'sede_id'           => $origen->sede_id,
+                'area_id'           => $origen->area_id,
+                'codigo'            => Iperc::generarCodigo($origen->empresa_id, $origen->area_id),
+                'titulo'            => $origen->titulo,
+                'alcance'           => $origen->alcance,
+                'metodologia'       => $origen->metodologia,
+                'fecha_elaboracion' => now()->toDateString(),
+                'fecha_vigencia'    => null,
+                'version'           => (int) $origen->version + 1,
+                'version_padre_id'  => $origen->id,
+                'elaborado_por'     => $usuario->id,
+                'estado'            => 'borrador',
+                'observaciones'     => "Nueva versión derivada de {$origen->codigo} (v{$origen->version}).",
+            ]);
+
+            // Clonar procesos → peligros → controles
+            foreach ($origen->procesos as $proc) {
+                $nuevoProc = IpercProceso::create([
+                    'iperc_id'       => $nueva->id,
+                    'proceso'        => $proc->proceso,
+                    'actividad'      => $proc->actividad,
+                    'tarea'          => $proc->tarea,
+                    'tipo_actividad' => $proc->tipo_actividad,
+                    'orden'          => $proc->orden,
+                ]);
+
+                foreach ($proc->peligros as $pel) {
+                    $nuevoPel = IpercPeligro::create([
+                        'iperc_proceso_id'        => $nuevoProc->id,
+                        'tipo_peligro'            => $pel->tipo_peligro,
+                        'descripcion_peligro'     => $pel->descripcion_peligro,
+                        'riesgo'                  => $pel->riesgo,
+                        'consecuencia'            => $pel->consecuencia,
+                        'prob_personas_expuestas' => $pel->prob_personas_expuestas,
+                        'prob_procedimientos'     => $pel->prob_procedimientos,
+                        'prob_capacitacion'       => $pel->prob_capacitacion,
+                        'prob_exposicion'         => $pel->prob_exposicion,
+                        'indice_severidad'        => $pel->indice_severidad,
+                        'ip_residual'             => $pel->ip_residual,
+                        'is_residual'             => $pel->is_residual,
+                        'indice_probabilidad'     => 0,
+                        'nivel_riesgo_inicial'    => 0,
+                        'clasificacion_inicial'   => 'trivial',
+                    ]);
+
+                    foreach ($pel->controles as $ctrl) {
+                        IpercControl::create([
+                            'iperc_peligro_id'      => $nuevoPel->id,
+                            'tipo_control'          => $ctrl->tipo_control,
+                            'descripcion'           => $ctrl->descripcion,
+                            'responsable_id'        => $ctrl->responsable_id,
+                            'estado_implementacion' => 'pendiente',
+                        ]);
+                    }
+                }
+            }
+
+            // Archivar la versión anterior
+            $origen->update(['estado' => 'archivado']);
+
+            return $nueva;
+        });
+
+        $this->auditoria->registrar(
+            modulo: 'iperc',
+            accion: 'nueva_version',
+            usuario: $usuario,
+            modelo: 'Iperc',
+            modeloId: $nueva->id,
+            valorNuevo: ['codigo' => $nueva->codigo, 'version' => $nueva->version, 'origen' => $origen->codigo],
+            request: $request
+        );
+
+        return response()->json([
+            'message' => "Nueva versión {$nueva->codigo} (v{$nueva->version}) creada como borrador.",
+            'iperc'   => $nueva->load(['procesos.peligros.controles', 'area', 'sede']),
+        ], 201);
+    }
+
+    /**
      * POST /api/iperc/{id}/enviar-a-firma — Iniciar flujo de firma
      */
     public function enviarAFirma(Request $request, int $id): JsonResponse

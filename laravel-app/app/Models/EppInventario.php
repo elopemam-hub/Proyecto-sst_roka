@@ -17,7 +17,7 @@ class EppInventario extends Model
         'empresa_id', 'categoria_id', 'nombre', 'marca', 'modelo',
         'codigo_interno', 'talla', 'stock_total', 'stock_disponible',
         'stock_minimo', 'consumo_anual', 'unidad', 'costo_unitario', 'proveedor',
-        'ficha_tecnica_path', 'activo',
+        'ficha_tecnica_path', 'imagen_path', 'activo',
     ];
 
     protected $casts = [
@@ -36,6 +36,7 @@ class EppInventario extends Model
         'valor_total_stock',
         'porcentaje_disponible',
         'requiere_reposicion',
+        'imagen_url',
     ];
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -100,6 +101,11 @@ class EppInventario extends Model
     public function getRequiereReposicionAttribute(): bool
     {
         return $this->stock_disponible < ($this->stock_minimo * 0.5);
+    }
+
+    public function getImagenUrlAttribute(): ?string
+    {
+        return $this->imagen_path ? '/storage/' . ltrim($this->imagen_path, '/') : null;
     }
 
     // ═══════════════════════════════════════════════════════════════════════

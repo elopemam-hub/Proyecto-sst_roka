@@ -11,10 +11,15 @@ import {
   Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 import { isToday } from 'date-fns'
+import { useSelector } from 'react-redux'
+import { selectUser } from '../../store/slices/authSlice'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
+import AprobacionLoteModal from '../../components/firmas/AprobacionLoteModal'
+
+const PUEDE_APROBAR = (rol) => ['administrador', 'supervisor_sst'].includes(rol)
 
 const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 const MESES_CORTO = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
@@ -412,6 +417,8 @@ function ModalGenerarPrograma({ anio, mes, resumen, onConfirmar, onClose, genera
 
 // ── Sección Revisión Mensual ──────────────────────────────────────────────
 function SeccionRevisionMensual({ navigate }) {
+  const user = useSelector(selectUser)
+  const puedeAprobar = PUEDE_APROBAR(user?.rol)
   const [data, setData]             = useState(null)
   const [abierto, setAbierto]       = useState(true)
   const [dias, setDias]             = useState(60)
@@ -420,11 +427,13 @@ function SeccionRevisionMensual({ navigate }) {
   const [modalRechazo, setModalRechazo] = useState(null)
   const [motivoRechazo, setMotivoRechazo] = useState('')
   const [rechazando, setRechazando] = useState(false)
+  const [seleccion, setSeleccion]   = useState(() => new Set())
+  const [modalLote, setModalLote]   = useState(false)
   const POR_PAG = 15
 
   const cargar = () => {
     api.get('/inspecciones/pendientes-firma', { params: { tipo: 'mensual', dias } })
-      .then(({ data }) => { setData(data); setPagina(1) })
+      .then(({ data }) => { setData(data); setPagina(1); setSeleccion(new Set()) })
       .catch(() => {})
   }
   useEffect(() => { cargar() }, [dias])
@@ -463,6 +472,24 @@ function SeccionRevisionMensual({ navigate }) {
   const listaFiltrada = listaBase.filter(i => !filtroPend || i.pendiente_aprobacion)
   const totalPags  = Math.ceil(listaFiltrada.length / POR_PAG)
   const listaPag   = listaFiltrada.slice((pagina-1)*POR_PAG, pagina*POR_PAG)
+
+  // ── Selección para aprobación masiva ──
+  const toggleSel = (id) => setSeleccion(prev => {
+    const s = new Set(prev)
+    s.has(id) ? s.delete(id) : s.add(id)
+    return s
+  })
+  const idsPagina = listaPag.map(i => i.id)
+  const todasPaginaSel = idsPagina.length > 0 && idsPagina.every(id => seleccion.has(id))
+  const toggleTodasPagina = () => setSeleccion(prev => {
+    const s = new Set(prev)
+    if (todasPaginaSel) idsPagina.forEach(id => s.delete(id))
+    else idsPagina.forEach(id => s.add(id))
+    return s
+  })
+  const seleccionarTodas = () => setSeleccion(new Set(listaFiltrada.map(i => i.id)))
+  const limpiarSeleccion = () => setSeleccion(new Set())
+  const idsSeleccionados = [...seleccion]
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
@@ -521,6 +548,27 @@ function SeccionRevisionMensual({ navigate }) {
             </button>
           </div>
 
+          {/* Barra de acción masiva */}
+          {puedeAprobar && idsSeleccionados.length > 0 && (
+            <div className="flex items-center gap-3 px-5 py-2.5 bg-emerald-50 border-b border-emerald-100 flex-wrap">
+              <span className="text-xs font-semibold text-emerald-800">
+                {idsSeleccionados.length} seleccionada(s)
+              </span>
+              {idsSeleccionados.length < listaFiltrada.length && (
+                <button onClick={seleccionarTodas} className="text-xs text-emerald-700 hover:text-emerald-900 underline">
+                  Seleccionar las {listaFiltrada.length} pendientes
+                </button>
+              )}
+              <button onClick={limpiarSeleccion} className="text-xs text-gray-500 hover:text-gray-700 underline">
+                Limpiar
+              </button>
+              <button onClick={() => setModalLote(true)}
+                className="ml-auto flex items-center gap-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-full transition-colors">
+                <ShieldCheck size={13}/> Aprobar {idsSeleccionados.length} seleccionada(s)
+              </button>
+            </div>
+          )}
+
           {/* Tabla */}
           <div className="overflow-x-auto">
             {listaFiltrada.length === 0 ? (
@@ -531,6 +579,12 @@ function SeccionRevisionMensual({ navigate }) {
               <table className="w-full text-xs">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
+                    {puedeAprobar && (
+                      <th className="px-4 py-2.5 w-8">
+                        <input type="checkbox" checked={todasPaginaSel} onChange={toggleTodasPagina}
+                          className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer" />
+                      </th>
+                    )}
                     {['Código','Catálogo','Área','Fecha','Estado','%','Firmas Checklist','Aprobación',''].map(h => (
                       <th key={h} className="text-left px-4 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                     ))}
@@ -538,7 +592,13 @@ function SeccionRevisionMensual({ navigate }) {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {listaPag.map(ins => (
-                    <tr key={ins.id} className="hover:bg-gray-50 bg-amber-50/20">
+                    <tr key={ins.id} className={`hover:bg-gray-50 ${seleccion.has(ins.id) ? 'bg-emerald-50/60' : 'bg-amber-50/20'}`}>
+                      {puedeAprobar && (
+                        <td className="px-4 py-2.5">
+                          <input type="checkbox" checked={seleccion.has(ins.id)} onChange={() => toggleSel(ins.id)}
+                            className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer" />
+                        </td>
+                      )}
                       <td className="px-4 py-2.5 font-mono text-[10px] text-roka-600">{ins.codigo}</td>
                       <td className="px-4 py-2.5">
                         <p className="font-medium text-gray-800 max-w-[200px] truncate">{ins.titulo}</p>
@@ -622,6 +682,14 @@ function SeccionRevisionMensual({ navigate }) {
             </div>
           )}
         </div>
+      )}
+
+      {modalLote && (
+        <AprobacionLoteModal
+          ids={idsSeleccionados}
+          onClose={() => setModalLote(false)}
+          onSuccess={cargar}
+        />
       )}
 
       {/* Modal Rechazo */}

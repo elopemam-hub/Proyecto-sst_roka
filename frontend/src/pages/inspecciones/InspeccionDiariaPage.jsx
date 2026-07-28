@@ -12,6 +12,9 @@ import api from '../../services/api'
 import toast from 'react-hot-toast'
 import { format, parseISO, isToday, isPast } from 'date-fns'
 import { es } from 'date-fns/locale'
+import AprobacionLoteModal from '../../components/firmas/AprobacionLoteModal'
+
+const PUEDE_APROBAR = (rol) => ['administrador', 'supervisor_sst'].includes(rol)
 
 const ESTADO_CFG = {
   programada:    { label: 'Programada',    cls: 'bg-blue-50 text-blue-700 border-blue-200',     icon: Clock },
@@ -391,15 +394,19 @@ const ESTADO_LABEL = {
 const POR_PAGINA = 15
 
 function SeccionRevision({ navigate }) {
+  const user = useSelector(selectUser)
+  const puedeAprobar = PUEDE_APROBAR(user?.rol)
   const [data, setData]             = useState(null)
   const [abierto, setAbierto]       = useState(true)
   const [dias, setDias]             = useState(7)
   const [filtroPend, setFiltroPend] = useState(false)
   const [pagina, setPagina]         = useState(1)
+  const [seleccion, setSeleccion]   = useState(() => new Set())
+  const [modalLote, setModalLote]   = useState(false)
 
   const cargar = () => {
     api.get('/inspecciones/pendientes-firma', { params: { dias } })
-      .then(({ data }) => { setData(data); setPagina(1) })
+      .then(({ data }) => { setData(data); setPagina(1); setSeleccion(new Set()) })
       .catch(() => {})
   }
   useEffect(() => { cargar() }, [dias])
@@ -412,6 +419,24 @@ function SeccionRevision({ navigate }) {
   const listaFiltrada = listaBase.filter(i => !filtroPend || i.pendiente_aprobacion)
   const totalPags = Math.ceil(listaFiltrada.length / POR_PAGINA)
   const lista = listaFiltrada.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA)
+
+  // ── Selección para aprobación masiva ──
+  const toggleSel = (id) => setSeleccion(prev => {
+    const s = new Set(prev)
+    s.has(id) ? s.delete(id) : s.add(id)
+    return s
+  })
+  const idsPagina = lista.map(i => i.id)
+  const todasPaginaSel = idsPagina.length > 0 && idsPagina.every(id => seleccion.has(id))
+  const toggleTodasPagina = () => setSeleccion(prev => {
+    const s = new Set(prev)
+    if (todasPaginaSel) idsPagina.forEach(id => s.delete(id))
+    else idsPagina.forEach(id => s.add(id))
+    return s
+  })
+  const seleccionarTodas = () => setSeleccion(new Set(listaFiltrada.map(i => i.id)))
+  const limpiarSeleccion = () => setSeleccion(new Set())
+  const idsSeleccionados = [...seleccion]
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
@@ -470,6 +495,27 @@ function SeccionRevision({ navigate }) {
             </button>
           </div>
 
+          {/* Barra de acción masiva */}
+          {puedeAprobar && idsSeleccionados.length > 0 && (
+            <div className="flex items-center gap-3 px-5 py-2.5 bg-emerald-50 border-b border-emerald-100 flex-wrap">
+              <span className="text-xs font-semibold text-emerald-800">
+                {idsSeleccionados.length} seleccionada(s)
+              </span>
+              {idsSeleccionados.length < listaFiltrada.length && (
+                <button onClick={seleccionarTodas} className="text-xs text-emerald-700 hover:text-emerald-900 underline">
+                  Seleccionar las {listaFiltrada.length} pendientes
+                </button>
+              )}
+              <button onClick={limpiarSeleccion} className="text-xs text-gray-500 hover:text-gray-700 underline">
+                Limpiar
+              </button>
+              <button onClick={() => setModalLote(true)}
+                className="ml-auto flex items-center gap-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-full transition-colors">
+                <ShieldCheck size={13}/> Aprobar {idsSeleccionados.length} seleccionada(s)
+              </button>
+            </div>
+          )}
+
           {/* Tabla */}
           <div className="overflow-x-auto">
             {lista.length === 0 ? (
@@ -480,6 +526,12 @@ function SeccionRevision({ navigate }) {
               <table className="w-full text-xs">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
+                    {puedeAprobar && (
+                      <th className="px-4 py-2.5 w-8">
+                        <input type="checkbox" checked={todasPaginaSel} onChange={toggleTodasPagina}
+                          className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer" />
+                      </th>
+                    )}
                     {['Equipo','Área','Fecha','Turno','Estado','%','Firmas Checklist','Aprobación',''].map(h => (
                       <th key={h} className="text-left px-4 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                     ))}
@@ -487,7 +539,13 @@ function SeccionRevision({ navigate }) {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {lista.map(ins => (
-                    <tr key={ins.id} className={`hover:bg-gray-50 ${ins.pendiente_firma ? 'bg-amber-50/30' : ''}`}>
+                    <tr key={ins.id} className={`hover:bg-gray-50 ${seleccion.has(ins.id) ? 'bg-emerald-50/60' : ins.pendiente_firma ? 'bg-amber-50/30' : ''}`}>
+                      {puedeAprobar && (
+                        <td className="px-4 py-2.5">
+                          <input type="checkbox" checked={seleccion.has(ins.id)} onChange={() => toggleSel(ins.id)}
+                            className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer" />
+                        </td>
+                      )}
                       <td className="px-4 py-2.5">
                         <p className="font-medium text-gray-800 max-w-[160px] truncate" title={ins.titulo}>
                           {ins.titulo?.replace(' — Inspección diaria pre-turno','').replace(' diaria','').replace(' - ','·')}
@@ -577,6 +635,14 @@ function SeccionRevision({ navigate }) {
             </div>
           )}
         </div>
+      )}
+
+      {modalLote && (
+        <AprobacionLoteModal
+          ids={idsSeleccionados}
+          onClose={() => setModalLote(false)}
+          onSuccess={cargar}
+        />
       )}
     </div>
   )

@@ -18,6 +18,14 @@ class AtsTarea extends Model
         'medidas_control',
         'estado_ejecucion',
         'observaciones',
+        'evidencia_foto',
+        'geo_lat',
+        'geo_lng',
+        'ejecutada_en',
+    ];
+
+    protected $casts = [
+        'ejecutada_en' => 'datetime',
     ];
 
     public function ats(): BelongsTo
