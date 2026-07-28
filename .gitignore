@@ -26,9 +26,22 @@ laravel-app/public/storage
 laravel-app/public/hot
 laravel-app/node_modules/
 
+# ── Salida del deploy local a XAMPP ──────────────────────────
+# laravel-app/public/ es el DocumentRoot local: recibe una copia de
+# frontend/dist/ en cada build. Es output regenerable, no fuente.
+# Producción NO usa esta carpeta (usa public_html/sst/ + frontend/dist/).
+# index.php, .htaccess, robots.txt, logos y opcache-reset.php SÍ se versionan.
+laravel-app/public/assets/
+laravel-app/public/index.html
+laravel-app/public/sw.js
+laravel-app/public/registerSW.js
+laravel-app/public/workbox-*.js
+laravel-app/public/manifest.webmanifest
+
 # ── Deploy temporal ───────────────────────────────────────────
 deploy/hostinger/dist_deploy/
 PARA_SUBIR/*.zip
+frontend_upload.zip
 
 # ── Composer local ────────────────────────────────────────────
 composer.phar
