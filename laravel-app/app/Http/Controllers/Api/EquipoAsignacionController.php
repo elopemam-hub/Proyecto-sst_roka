@@ -118,6 +118,10 @@ class EquipoAsignacionController extends Controller
         $periodo = $request->get('periodo', 'hoy');
 
         switch ($periodo) {
+            case 'ayer':
+                $inicio = $hoy->copy()->subDay();
+                $fin    = $inicio->copy();
+                break;
             case 'semana':
                 $inicio = $hoy->copy()->startOfWeek();
                 $fin    = $hoy->copy()->endOfWeek();
@@ -129,6 +133,14 @@ class EquipoAsignacionController extends Controller
             case 'mes':
                 $inicio = $hoy->copy()->startOfMonth();
                 $fin    = $hoy->copy()->endOfMonth();
+                break;
+            case 'personalizado':
+                $request->validate([
+                    'fecha_inicio' => 'required|date',
+                    'fecha_fin'    => 'required|date|after_or_equal:fecha_inicio',
+                ]);
+                $inicio = Carbon::parse($request->fecha_inicio)->startOfDay();
+                $fin    = Carbon::parse($request->fecha_fin)->startOfDay();
                 break;
             default:
                 $inicio = $hoy->copy();
@@ -204,12 +216,39 @@ class EquipoAsignacionController extends Controller
             ];
         }
 
+        // Quién no cumplió: todo lo que en el período no quedó completado
+        $incumplidas = EquipoAsignacion::where('empresa_id', $empresaId)
+            ->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()])
+            ->where('estado', '!=', 'completado')
+            ->with([
+                'usuario:id,nombre,email',
+                'equipo:id,nombre,codigo,area_id',
+                'equipo.area:id,nombre',
+            ])
+            ->orderBy('fecha')
+            ->orderBy('usuario_id')
+            ->limit(500)
+            ->get();
+
+        $incumplimientos = $incumplidas->map(fn($a) => [
+            'id'      => $a->id,
+            'fecha'   => $a->fecha?->toDateString(),
+            'turno'   => $a->turno,
+            'estado'  => $a->estado,
+            'vencida' => $a->vencida,
+            'usuario' => $a->usuario?->only('id', 'nombre'),
+            'equipo'  => $a->equipo?->only('id', 'nombre', 'codigo'),
+            'area'    => $a->equipo?->area?->nombre,
+        ]);
+
         return response()->json([
             'periodo'         => $periodo,
+            'rango'           => ['inicio' => $inicio->toDateString(), 'fin' => $fin->toDateString()],
             'kpis'            => compact('total', 'completado', 'pendiente', 'omitido', 'vencido', 'porcentaje'),
             'por_area'        => $porArea,
             'por_usuario'     => $porUsuario->values(),
             'tendencia_semana'=> $tendenciaSemana,
+            'incumplimientos' => $incumplimientos->values(),
         ]);
     }
 

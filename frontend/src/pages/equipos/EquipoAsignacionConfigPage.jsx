@@ -6,7 +6,17 @@ import {
   XCircle, Zap, ChevronRight, Pencil,
 } from 'lucide-react'
 import api from '../../services/api'
-import { format, addDays } from 'date-fns'
+import { format, addDays, parseISO } from 'date-fns'
+
+const fmtFecha = (iso) => (iso ? format(parseISO(iso), 'dd/MM/yyyy') : '—')
+
+// Etiqueta y color para una asignación que no se completó
+const ESTADO_INCUMPLIDO = (item) => {
+  if (item.estado === 'omitido')    return { label: 'Omitida',    clase: 'bg-gray-100 text-gray-600 border-gray-200' }
+  if (item.estado === 'en_proceso') return { label: 'En proceso', clase: 'bg-blue-50 text-blue-700 border-blue-200' }
+  if (item.vencida)                 return { label: 'Vencida',    clase: 'bg-red-50 text-red-600 border-red-200' }
+  return { label: 'Pendiente', clase: 'bg-amber-50 text-amber-700 border-amber-200' }
+}
 
 const DIAS_SEMANA = [
   { value: 1, label: 'L' },
@@ -34,14 +44,39 @@ function TabDashboard({ onIrGenerar }) {
   const [tick, setTick]           = useState(0)
   const [generando, setGenerando] = useState(false)
   const [periodo, setPeriodo]     = useState('hoy')
+  const [rango, setRango]         = useState({ inicio: '', fin: '' })
 
   useEffect(() => {
+    // Con rango personalizado esperamos a tener ambas fechas
+    if (periodo === 'personalizado' && (!rango.inicio || !rango.fin)) return
     setLoading(true)
-    api.get('/equipo-asignaciones/dashboard', { params: { periodo } })
+    const params = { periodo }
+    if (periodo === 'personalizado') {
+      params.fecha_inicio = rango.inicio
+      params.fecha_fin    = rango.fin
+    }
+    api.get('/equipo-asignaciones/dashboard', { params })
       .then(r => setDash(r.data))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [tick, periodo])
+  }, [tick, periodo, rango.inicio, rango.fin])
+
+  // Elegir una fecha activa el período personalizado; si falta el otro
+  // extremo se usa el mismo día, para consultar una jornada concreta.
+  const setFecha = (campo, valor) => {
+    setRango(r => {
+      const next = { ...r, [campo]: valor }
+      if (!next.inicio) next.inicio = valor
+      if (!next.fin || next.fin < next.inicio) next.fin = next.inicio
+      return next
+    })
+    setPeriodo('personalizado')
+  }
+
+  const elegirPeriodo = (value) => {
+    setPeriodo(value)
+    setRango({ inicio: '', fin: '' })
+  }
 
   // Genera asignaciones para los días de la semana actual que faltan
   const generarSemana = async () => {
@@ -76,8 +111,23 @@ function TabDashboard({ onIrGenerar }) {
   if (!dash)   return null
 
   const kpis = dash.kpis
-  const periodoLabel = { hoy: 'hoy', semana: 'esta semana', semana_pasada: 'semana pasada', mes: 'este mes' }[periodo]
-  const totalLabel   = { hoy: 'Total hoy', semana: 'Total semana', semana_pasada: 'Total sem. pasada', mes: 'Total mes' }[periodo]
+  const periodoLabel = periodo === 'personalizado'
+    ? (rango.inicio === rango.fin ? fmtFecha(rango.inicio) : `${fmtFecha(rango.inicio)} – ${fmtFecha(rango.fin)}`)
+    : { hoy: 'hoy', ayer: 'ayer', semana: 'esta semana', semana_pasada: 'semana pasada', mes: 'este mes' }[periodo]
+  const totalLabel   = periodo === 'personalizado'
+    ? 'Total período'
+    : { hoy: 'Total hoy', ayer: 'Total ayer', semana: 'Total semana', semana_pasada: 'Total sem. pasada', mes: 'Total mes' }[periodo]
+
+  // Quién no cumplió, agrupado por usuario y de mayor a menor incumplimiento
+  const incumplimientos = dash.incumplimientos || []
+  const gruposIncumplidos = Object.values(
+    incumplimientos.reduce((acc, item) => {
+      const key = item.usuario?.id ?? 'sin_usuario'
+      if (!acc[key]) acc[key] = { usuario: item.usuario, items: [] }
+      acc[key].items.push(item)
+      return acc
+    }, {})
+  ).sort((a, b) => b.items.length - a.items.length)
 
   // Detectar días sin asignaciones esta semana
   const diasVacios = (dash.tendencia_semana || []).filter(d => d.total === 0)
@@ -110,13 +160,14 @@ function TabDashboard({ onIrGenerar }) {
         <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
           {[
             { value: 'hoy',           label: 'Hoy' },
+            { value: 'ayer',          label: 'Ayer' },
             { value: 'semana',        label: 'Semana' },
             { value: 'semana_pasada', label: 'Semana pasada' },
             { value: 'mes',           label: 'Mes' },
           ].map(opt => (
             <button
               key={opt.value}
-              onClick={() => setPeriodo(opt.value)}
+              onClick={() => elegirPeriodo(opt.value)}
               className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
                 periodo === opt.value
                   ? 'bg-white text-blue-700 shadow-sm'
@@ -127,6 +178,38 @@ function TabDashboard({ onIrGenerar }) {
             </button>
           ))}
         </div>
+
+        {/* Filtro por fechas */}
+        <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1 transition-colors ${
+          periodo === 'personalizado' ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-white'
+        }`}>
+          <Calendar size={14} className={periodo === 'personalizado' ? 'text-blue-600' : 'text-gray-400'} />
+          <input
+            type="date"
+            value={rango.inicio}
+            max={rango.fin || undefined}
+            onChange={e => setFecha('inicio', e.target.value)}
+            className="text-sm text-gray-700 bg-transparent border-0 p-0 focus:outline-none focus:ring-0"
+          />
+          <span className="text-gray-300">–</span>
+          <input
+            type="date"
+            value={rango.fin}
+            min={rango.inicio || undefined}
+            onChange={e => setFecha('fin', e.target.value)}
+            className="text-sm text-gray-700 bg-transparent border-0 p-0 focus:outline-none focus:ring-0"
+          />
+          {periodo === 'personalizado' && (
+            <button
+              onClick={() => elegirPeriodo('hoy')}
+              title="Quitar filtro de fechas"
+              className="text-gray-400 hover:text-red-500 transition-colors"
+            >
+              <XCircle size={14} />
+            </button>
+          )}
+        </div>
+
         <button
           onClick={() => setTick(t => t + 1)}
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-blue-600 border border-gray-200 hover:border-blue-300 px-3 py-1.5 rounded-lg transition-colors"
@@ -148,6 +231,59 @@ function TabDashboard({ onIrGenerar }) {
           <div key={k.label} className="bg-white rounded-xl border border-gray-200 p-4 text-center shadow-sm">
             <p className={`text-2xl font-bold ${k.color}`}>{k.value}</p>
             <p className="text-xs text-gray-400 mt-0.5">{k.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Quién no cumplió */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+          <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+            <XCircle size={16} className="text-red-500" />
+            Quién no cumplió — {periodoLabel}
+          </h3>
+          {incumplimientos.length > 0 && (
+            <span className="text-xs font-semibold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
+              {incumplimientos.length} sin completar · {gruposIncumplidos.length} responsable{gruposIncumplidos.length !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+
+        {gruposIncumplidos.length === 0 ? (
+          <div className="px-5 py-10 text-center">
+            <CheckCircle2 size={26} className="mx-auto mb-2 text-emerald-500" />
+            <p className="text-sm text-gray-500">
+              {kpis.total === 0
+                ? 'No hay asignaciones en este período.'
+                : 'Todas las asignaciones del período se completaron.'}
+            </p>
+          </div>
+        ) : gruposIncumplidos.map(g => (
+          <div key={g.usuario?.id ?? 'sin_usuario'} className="border-b border-gray-100 last:border-0">
+            <div className="flex items-center gap-3 px-5 py-2.5 bg-gray-50">
+              <div className="w-7 h-7 rounded-full bg-red-100 flex items-center justify-center text-xs font-bold text-red-700">
+                {g.usuario?.nombre?.[0]?.toUpperCase() || '?'}
+              </div>
+              <p className="flex-1 text-sm font-semibold text-gray-800">
+                {g.usuario?.nombre || 'Sin usuario asignado'}
+              </p>
+              <span className="text-xs font-bold text-red-600">
+                {g.items.length} sin hacer
+              </span>
+            </div>
+            {g.items.map(it => {
+              const est = ESTADO_INCUMPLIDO(it)
+              return (
+                <div key={it.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-14 pr-5 py-2 text-xs border-t border-gray-50">
+                  <span className="font-medium text-gray-700">{it.equipo?.nombre || 'Equipo eliminado'}</span>
+                  {it.equipo?.codigo && <span className="font-mono text-gray-400">{it.equipo.codigo}</span>}
+                  {it.area && <span className="text-gray-500">· {it.area}</span>}
+                  <span className="text-gray-400">· {fmtFecha(it.fecha)}</span>
+                  <span className="text-gray-400 capitalize">· {it.turno?.replace('_', ' ')}</span>
+                  <span className={`ml-auto px-2 py-0.5 rounded-full border font-medium ${est.clase}`}>{est.label}</span>
+                </div>
+              )
+            })}
           </div>
         ))}
       </div>
