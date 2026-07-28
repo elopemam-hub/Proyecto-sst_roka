@@ -83,7 +83,11 @@ export default function CapacitacionDashboardPage() {
         <div className="flex gap-2">
           <button onClick={() => navigate('/capacitaciones/lista')}
             className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm">
-            <ClipboardList size={15} /> Lista
+            <ClipboardList size={15} /> Temas de capacitación
+          </button>
+          <button onClick={() => navigate('/capacitaciones/matriz')}
+            className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm">
+            <Users size={15} /> Matriz Trabajadores
           </button>
           <button onClick={() => navigate('/capacitaciones/cronograma')}
             className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm">

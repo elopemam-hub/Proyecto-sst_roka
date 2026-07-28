@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Plus, GraduationCap,
   CheckCircle, Clock, XCircle, RefreshCw, Calendar, BarChart2, LayoutGrid,
+  CopyPlus, AlertCircle, X,
 } from 'lucide-react'
+import toast from 'react-hot-toast'
 import api from '../../services/api'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -384,6 +386,11 @@ export default function CronogramaAnualPage() {
   const [loading, setLoading]   = useState(true)
   const [vista, setVista]       = useState('calendario')  // 'calendario' | 'gantt'
 
+  // Generar el programa del año siguiente con los mismos temas
+  const [showGenerar, setShowGenerar] = useState(false)
+  const [anioDestino, setAnioDestino] = useState(anio + 1)
+  const [generando, setGenerando]     = useState(false)
+
   useEffect(() => { cargar() }, [anio])
 
   const cargar = async () => {
@@ -397,6 +404,28 @@ export default function CronogramaAnualPage() {
   const irANueva = (mes) => {
     const fecha = `${anio}-${String(mes).padStart(2, '0')}-01`
     navigate(`/capacitaciones/nueva?fecha=${fecha}`)
+  }
+
+  const abrirGenerar = () => {
+    setAnioDestino(anio + 1)
+    setShowGenerar(true)
+  }
+
+  const generarPrograma = async () => {
+    setGenerando(true)
+    try {
+      const { data } = await api.post('/capacitaciones/generar-programa', {
+        anio_origen:  anio,
+        anio_destino: anioDestino,
+      })
+      toast.success(data.message)
+      setShowGenerar(false)
+      setAnio(anioDestino)   // saltar al año generado para revisarlo
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'No se pudo generar el programa')
+    } finally {
+      setGenerando(false)
+    }
   }
 
   if (loading) return (
@@ -450,8 +479,14 @@ export default function CronogramaAnualPage() {
             </button>
           </div>
 
+          <button onClick={abrirGenerar}
+            title={`Copiar los temas de ${anio} al año siguiente`}
+            className="flex items-center gap-2 border border-roka-500 text-roka-600 hover:bg-roka-50 px-3 py-2 rounded-lg text-sm font-medium ml-1">
+            <CopyPlus size={15} /> Generar programa
+          </button>
+
           <button onClick={() => navigate('/capacitaciones/nueva')}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium ml-1">
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
             <Plus size={15} /> Nueva
           </button>
         </div>
@@ -510,6 +545,77 @@ export default function CronogramaAnualPage() {
           onVerDetalle={(id) => navigate(`/capacitaciones/${id}`)}
           onNueva={irANueva}
         />
+      )}
+
+      {/* Generar programa del año siguiente */}
+      {showGenerar && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={() => !generando && setShowGenerar(false)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                <CopyPlus size={17} className="text-roka-500" /> Generar programa
+              </h3>
+              <button onClick={() => setShowGenerar(false)} disabled={generando}
+                className="text-gray-400 hover:text-gray-600 disabled:opacity-40">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              <p className="text-sm text-gray-600">
+                Copia los mismos temas de un año al siguiente para no rearmar el plan desde cero.
+              </p>
+
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Copiar desde</label>
+                  <div className="border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm font-semibold text-gray-700">
+                    {anio} · {total} capacitación{total !== 1 ? 'es' : ''}
+                  </div>
+                </div>
+                <ChevronRight size={16} className="text-gray-400 mt-5 shrink-0" />
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Crear en</label>
+                  <input
+                    type="number" min={2020} max={2100}
+                    value={anioDestino}
+                    onChange={e => setAnioDestino(parseInt(e.target.value) || anio + 1)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-roka-500"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 text-xs text-blue-800 space-y-1">
+                <p className="flex items-start gap-1.5">
+                  <AlertCircle size={13} className="mt-0.5 shrink-0" />
+                  <span>
+                    Se copian tema, tipo, modalidad, duración, expositor y lugar, con la misma
+                    fecha desplazada un año y estado <strong>Programada</strong>.
+                  </span>
+                </p>
+                <p className="pl-5">No se copian asistentes, evaluaciones ni fechas de ejecución.</p>
+                <p className="pl-5">Se omiten las canceladas y los temas que ya existan en {anioDestino}.</p>
+              </div>
+
+              {anioDestino === anio && (
+                <p className="text-xs text-red-600">El año destino debe ser distinto del de origen.</p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-200">
+              <button onClick={() => setShowGenerar(false)} disabled={generando}
+                className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40">
+                Cancelar
+              </button>
+              <button onClick={generarPrograma} disabled={generando || anioDestino === anio || total === 0}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-roka-500 hover:bg-roka-600 rounded-lg disabled:opacity-40">
+                {generando ? <RefreshCw size={15} className="animate-spin" /> : <CopyPlus size={15} />}
+                {generando ? 'Generando…' : `Generar ${anioDestino}`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -11,6 +11,8 @@ use App\Models\Personal;
 use App\Services\AuditoriaService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class CapacitacionController extends Controller
 {
@@ -205,6 +207,107 @@ class CapacitacionController extends Controller
      * GET /api/capacitaciones/cronograma
      * Retorna todas las capacitaciones del año agrupadas por mes con estado de cumplimiento.
      */
+    /**
+     * POST /api/capacitaciones/generar-programa
+     *
+     * Replica el programa de un año en otro: para el año siguiente se suelen
+     * programar los mismos temas. Copia la ficha de cada capacitación (tema,
+     * tipo, modalidad, duración, expositor…) con la misma fecha desplazada de
+     * año y estado "programada". No arrastra asistentes, evaluaciones ni
+     * fechas de ejecución, y omite las canceladas del año origen.
+     */
+    public function generarPrograma(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'anio_origen'  => 'required|integer|min:2020|max:2100',
+            'anio_destino' => 'required|integer|min:2020|max:2100|different:anio_origen',
+        ]);
+
+        $empresaId    = $request->user()->empresa_id;
+        $anioOrigen   = (int) $validated['anio_origen'];
+        $anioDestino  = (int) $validated['anio_destino'];
+
+        $origen = Capacitacion::where('empresa_id', $empresaId)
+            ->whereYear('fecha_programada', $anioOrigen)
+            ->where('estado', '!=', 'cancelada')
+            ->orderBy('fecha_programada')
+            ->get();
+
+        if ($origen->isEmpty()) {
+            return response()->json([
+                'message'  => "El año {$anioOrigen} no tiene capacitaciones que copiar.",
+                'creadas'  => 0,
+                'omitidas' => 0,
+            ], 422);
+        }
+
+        // Títulos que ya existen en el destino: evita duplicar si se repite la acción
+        $yaExisten = Capacitacion::where('empresa_id', $empresaId)
+            ->whereYear('fecha_programada', $anioDestino)
+            ->pluck('titulo')
+            ->map(fn($t) => mb_strtolower(trim($t)))
+            ->flip();
+
+        $creadas = 0;
+        $omitidas = 0;
+
+        DB::transaction(function () use ($origen, $yaExisten, $anioOrigen, $anioDestino, $empresaId, &$creadas, &$omitidas) {
+            $desfase = $anioDestino - $anioOrigen;
+
+            foreach ($origen as $cap) {
+                if (isset($yaExisten[mb_strtolower(trim($cap->titulo))])) {
+                    $omitidas++;
+                    continue;
+                }
+
+                // NoOverflow: un 29-feb no debe saltar al 1 de marzo
+                $nuevaFecha = $cap->fecha_programada->copy()->addYearsNoOverflow($desfase);
+
+                Capacitacion::create([
+                    'empresa_id'        => $empresaId,
+                    'area_id'           => $cap->area_id,
+                    'titulo'            => $cap->titulo,
+                    'tema'              => $cap->tema,
+                    'bloque'            => $cap->bloque,
+                    'tipo'              => $cap->tipo,
+                    'modalidad'         => $cap->modalidad,
+                    'fecha_programada'  => $nuevaFecha,
+                    'fecha_ejecutada'   => null,
+                    'duracion_horas'    => $cap->duracion_horas,
+                    'expositor'         => $cap->expositor,
+                    'expositor_cargo'   => $cap->expositor_cargo,
+                    'lugar'             => $cap->lugar,
+                    'max_participantes' => $cap->max_participantes,
+                    'estado'            => 'programada',
+                    'observaciones'     => $cap->observaciones,
+                ]);
+
+                $creadas++;
+            }
+        });
+
+        $this->auditoria->registrar(
+            modulo: 'capacitaciones',
+            accion: 'crear',
+            usuario: $request->user(),
+            modelo: 'Capacitacion',
+            modeloId: null,
+            valorNuevo: compact('anioOrigen', 'anioDestino', 'creadas', 'omitidas'),
+            request: $request
+        );
+
+        $mensaje = "Programa {$anioDestino} generado desde {$anioOrigen}: {$creadas} capacitación(es) creada(s)";
+        $mensaje .= $omitidas > 0 ? ", {$omitidas} omitida(s) por existir ya en {$anioDestino}." : '.';
+
+        return response()->json([
+            'message'      => $mensaje,
+            'creadas'      => $creadas,
+            'omitidas'     => $omitidas,
+            'anio_origen'  => $anioOrigen,
+            'anio_destino' => $anioDestino,
+        ]);
+    }
+
     public function cronograma(Request $request): JsonResponse
     {
         $empresaId = $request->user()->empresa_id;
@@ -492,9 +595,13 @@ class CapacitacionController extends Controller
                     return $a->capacitacion->duracion_horas ?? 0;
                 });
 
-            $ultimaCapacitacion = $asistencias->sortByDesc(function($a) {
-                return $a->capacitacion->fecha_ejecutada ?? $a->capacitacion->fecha_programada;
-            })->first();
+            // La "última capacitación" es la última a la que realmente asistió:
+            // solo cuentan las ejecutadas y con asistencia confirmada.
+            $ultimaCapacitacion = $asistencias
+                ->filter(fn($a) => $a->asistio && $a->capacitacion?->estado === 'ejecutada')
+                ->sortByDesc(function($a) {
+                    return $a->capacitacion->fecha_ejecutada ?? $a->capacitacion->fecha_programada;
+                })->first();
 
             $diasSinCapacitacion = null;
             $estado = 'sin_capacitacion';
@@ -502,7 +609,11 @@ class CapacitacionController extends Controller
             if ($ultimaCapacitacion) {
                 $fecha = $ultimaCapacitacion->capacitacion->fecha_ejecutada
                     ?? $ultimaCapacitacion->capacitacion->fecha_programada;
-                $diasSinCapacitacion = now()->diffInDays($fecha);
+                // Carbon 3 devuelve un float con signo (b − a), no un entero absoluto
+                // como Carbon 2: sin esto salía "hace -52.63303120855324d".
+                $diasSinCapacitacion = (int) Carbon::parse($fecha)
+                    ->startOfDay()
+                    ->diffInDays(Carbon::today(), true);
 
                 if ($diasSinCapacitacion <= 30) {
                     $estado = 'al_dia';
@@ -671,18 +782,35 @@ class CapacitacionController extends Controller
         try {
             $empresaId = $request->user()->empresa_id;
 
-            // Obtener capacitaciones más comunes (top temas ejecutados)
-            $temasComunes = Capacitacion::where('empresa_id', $empresaId)
-                ->where('estado', 'ejecutada')
-                ->whereNotNull('tema')
-                ->where('tema', '!=', '')
-                ->select('tema', \DB::raw('COUNT(*) as total'))
-                ->groupBy('tema')
-                ->orderByDesc('total')
-                ->limit(10)
-                ->get()
-                ->pluck('tema')
-                ->toArray();
+            // Una columna por capacitación del cronograma (título), ejecutadas y no
+            // ejecutadas, en orden cronológico. Se agrupa por título por si algún
+            // título se repite. Se excluyen las canceladas: ya no forman parte del
+            // plan y solo distorsionarían el porcentaje de cada trabajador.
+            $temasRaw = Capacitacion::where('empresa_id', $empresaId)
+                ->whereNotNull('titulo')
+                ->where('titulo', '!=', '')
+                ->where('estado', '!=', 'cancelada')
+                ->selectRaw(
+                    "titulo, MAX(tema) as tema, MIN(fecha_programada) as fecha, "
+                    . "COUNT(*) as total, SUM(CASE WHEN estado = 'ejecutada' THEN 1 ELSE 0 END) as ejecutadas"
+                )
+                ->groupBy('titulo')
+                ->orderByRaw('MIN(fecha_programada)')
+                ->get();
+
+            $temas = $temasRaw
+                ->map(fn($t) => [
+                    'titulo'     => $t->titulo,
+                    'tema'       => $t->tema,
+                    'fecha'      => $t->fecha,
+                    'total'      => (int) $t->total,
+                    'ejecutadas' => (int) $t->ejecutadas,
+                    'ejecutada'  => (int) $t->ejecutadas > 0,
+                ])
+                ->values();
+
+            $nombresTemas = $temas->pluck('titulo')->all();
+            $temasEjecutados = $temas->where('ejecutada', true)->pluck('titulo')->all();
 
             // Obtener trabajadores activos
             $trabajadores = \App\Models\Personal::where('empresa_id', $empresaId)
@@ -691,50 +819,71 @@ class CapacitacionController extends Controller
                 ->orderBy('apellidos')
                 ->get();
 
+            // Una sola consulta con la asistencia real: personal_id => [tema => true].
+            // Antes se hacía un exists() por trabajador y tema (N×M consultas).
+            $asistenciaPorPersonal = \DB::table('capacitacion_asistentes as ca')
+                ->join('capacitaciones as c', 'ca.capacitacion_id', '=', 'c.id')
+                ->where('c.empresa_id', $empresaId)
+                ->where('c.estado', 'ejecutada')
+                ->where('ca.asistio', true)
+                ->whereIn('c.titulo', $nombresTemas ?: [''])
+                ->select('ca.personal_id', 'c.titulo')
+                ->distinct()
+                ->get()
+                ->groupBy('personal_id')
+                ->map(fn($filas) => array_flip($filas->pluck('titulo')->all()));
+
             // Construir matriz
+            $totalTemas     = count($nombresTemas);
+            $totalEjecutados = count($temasEjecutados);
             $matriz = [];
+
             foreach ($trabajadores as $trabajador) {
-                $fila = [
-                    'personal_id' => $trabajador->id,
-                    'dni' => $trabajador->dni,
-                    'nombre_completo' => trim($trabajador->nombres . ' ' . $trabajador->apellidos),
-                    'cargo' => $trabajador->cargo->nombre ?? '-',
-                    'area' => $trabajador->area->nombre ?? '-',
-                    'competencias' => [],
-                ];
+                $cubiertos = $asistenciaPorPersonal->get($trabajador->id, []);
 
-                // Para cada tema común, verificar si el trabajador lo tiene
-                foreach ($temasComunes as $tema) {
-                    $tieneCapacitacion = CapacitacionAsistente::whereHas('capacitacion', function($q) use ($empresaId, $tema) {
-                            $q->where('empresa_id', $empresaId)
-                              ->where('tema', $tema)
-                              ->where('estado', 'ejecutada');
-                        })
-                        ->where('personal_id', $trabajador->id)
-                        ->where('asistio', true)
-                        ->exists();
-
-                    $fila['competencias'][$tema] = $tieneCapacitacion;
+                $competencias = [];
+                foreach ($nombresTemas as $tema) {
+                    $competencias[$tema] = isset($cubiertos[$tema]);
                 }
 
-                // Calcular % de cumplimiento
-                $total = count($temasComunes);
-                $completadas = count(array_filter($fila['competencias']));
-                $fila['porcentaje_cumplimiento'] = $total > 0 ? round(($completadas / $total) * 100) : 0;
+                $completadas = count(array_filter($competencias));
+                $completadasEjecutadas = count(array_filter(
+                    $competencias,
+                    fn($v, $tema) => $v && in_array($tema, $temasEjecutados, true),
+                    ARRAY_FILTER_USE_BOTH
+                ));
 
-                $matriz[] = $fila;
+                $matriz[] = [
+                    'personal_id'     => $trabajador->id,
+                    'dni'             => $trabajador->dni,
+                    'nombre_completo' => trim($trabajador->nombres . ' ' . $trabajador->apellidos),
+                    'cargo'           => $trabajador->cargo->nombre ?? '-',
+                    'area'            => $trabajador->area->nombre ?? '-',
+                    'competencias'    => $competencias,
+                    // Avance sobre el plan completo
+                    'completadas'     => $completadas,
+                    'total_temas'     => $totalTemas,
+                    'porcentaje_cumplimiento' => $totalTemas > 0 ? round(($completadas / $totalTemas) * 100) : 0,
+                    // Avance solo sobre lo que ya se dictó
+                    'completadas_ejecutadas'  => $completadasEjecutadas,
+                    'porcentaje_ejecutados'   => $totalEjecutados > 0 ? round(($completadasEjecutadas / $totalEjecutados) * 100) : null,
+                ];
             }
 
             return response()->json([
-                'temas' => $temasComunes,
-                'matriz' => $matriz,
+                'temas'            => $temas,
+                'total_temas'      => $totalTemas,
+                'temas_ejecutados' => $totalEjecutados,
+                'matriz'           => $matriz,
             ]);
         } catch (\Exception $e) {
             \Log::error('Error en matrizCompetencias: ' . $e->getMessage());
             return response()->json([
-                'temas' => [],
-                'matriz' => [],
-                'error' => $e->getMessage()
+                'temas'            => [],
+                'total_temas'      => 0,
+                'temas_ejecutados' => 0,
+                'matriz'           => [],
+                'error'            => $e->getMessage(),
             ], 500);
         }
     }

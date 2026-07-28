@@ -329,6 +329,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('capacitaciones')->group(function () {
         Route::get('/estadisticas',               [CapacitacionController::class, 'estadisticas']);
         Route::get('/cronograma',                 [CapacitacionController::class, 'cronograma']);
+        Route::post('/generar-programa',          [CapacitacionController::class, 'generarPrograma']);
         Route::get('/mis-capacitaciones',         [CapacitacionController::class, 'misCapacitaciones']);
         Route::get('/matriz-trabajadores',        [CapacitacionController::class, 'matrizTrabajadores']);
         Route::get('/matriz-competencias',        [CapacitacionController::class, 'matrizCompetencias']);

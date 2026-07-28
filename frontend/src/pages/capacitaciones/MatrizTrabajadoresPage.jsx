@@ -637,18 +637,36 @@ export default function MatrizTrabajadoresPage() {
                 <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-400px)]">
                   <table className="w-full text-xs border-collapse">
                     <thead>
-                      <tr className="bg-gray-50 sticky top-0 z-10">
-                        <th className="sticky left-0 bg-gray-50 border border-gray-300 p-2 text-left font-semibold text-gray-700 min-w-[150px] align-middle z-20">
+                      <tr className="bg-gray-50 sticky top-0 z-20">
+                        <th className="sticky left-0 bg-gray-50 border border-gray-300 p-2 text-left font-semibold text-gray-700 min-w-[150px] align-bottom z-30">
                           Trabajador
                         </th>
                         {matrizData.temas.map((tema, idx) => (
-                          <th key={idx} className="border border-gray-300 text-center font-semibold text-gray-700 min-w-[120px] h-32 relative overflow-visible align-bottom bg-gray-50">
-                            <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 -rotate-45 origin-bottom-left whitespace-nowrap text-xs">
-                              {tema}
+                          <th key={idx}
+                            title={[
+                              tema.titulo,
+                              tema.tema && `Categoría: ${tema.tema}`,
+                              tema.fecha && `Programada: ${tema.fecha}`,
+                              tema.ejecutada ? `Ejecutada (${tema.ejecutadas} de ${tema.total})` : 'Aún no ejecutada',
+                            ].filter(Boolean).join('\n')}
+                            className={`border border-gray-300 font-semibold w-[74px] min-w-[74px] max-w-[74px] h-60 p-1 align-bottom ${
+                              tema.ejecutada ? 'text-gray-700 bg-gray-50' : 'text-gray-400 bg-gray-100'
+                            }`}>
+                            {/* Texto vertical de abajo hacia arriba. writing-mode hace que la
+                                altura marque el largo de línea, así que los títulos largos se
+                                envuelven en varias líneas dentro del ancho de la columna. */}
+                            <div className="flex justify-center h-[228px]">
+                              <div
+                                style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                                className="h-full text-xs leading-tight font-normal"
+                              >
+                                {!tema.ejecutada && <Clock size={10} className="inline mb-1" />}
+                                {tema.titulo}
+                              </div>
                             </div>
                           </th>
                         ))}
-                        <th className="border border-gray-300 p-2 text-center font-semibold text-gray-700 align-middle bg-gray-50">%</th>
+                        <th className="border border-gray-300 p-2 text-center font-semibold text-gray-700 align-bottom bg-gray-50 min-w-[70px]">%</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -659,12 +677,14 @@ export default function MatrizTrabajadoresPage() {
                             <div className="text-xs text-gray-500">{fila.cargo}</div>
                           </td>
                           {matrizData.temas.map((tema, tIdx) => (
-                            <td key={tIdx} className="border border-gray-300 p-2 text-center align-middle">
+                            <td key={tIdx} className={`border border-gray-300 p-2 text-center align-middle ${tema.ejecutada ? '' : 'bg-gray-50'}`}>
                               <div className="flex items-center justify-center">
-                                {fila.competencias[tema] ? (
+                                {fila.competencias[tema.titulo] ? (
                                   <CheckCircle size={18} className="text-green-600" />
-                                ) : (
+                                ) : tema.ejecutada ? (
                                   <X size={18} className="text-red-400" />
+                                ) : (
+                                  <span className="text-gray-300" title="Capacitación aún no ejecutada">—</span>
                                 )}
                               </div>
                             </td>
@@ -677,18 +697,34 @@ export default function MatrizTrabajadoresPage() {
                             }`}>
                               {fila.porcentaje_cumplimiento}%
                             </span>
+                            <div className="text-[10px] text-gray-400 whitespace-nowrap">
+                              {fila.completadas}/{fila.total_temas}
+                            </div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
 
-                  <div className="mt-4 text-sm text-gray-600">
-                    <p><strong>{matrizData.temas.length}</strong> capacitaciones más comunes</p>
+                  <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-600">
+                    <p>
+                      <strong>{matrizData.temas.length}</strong> capacitaciones del cronograma
+                      {' · '}
+                      <span className="text-green-700">{matrizData.temas_ejecutados ?? 0} ejecutados</span>
+                      {' · '}
+                      <span className="text-gray-500">
+                        {matrizData.temas.length - (matrizData.temas_ejecutados ?? 0)} pendientes
+                      </span>
+                    </p>
                     <p>
                       <strong>{matrizFiltrada.length}</strong> trabajadores
                       {matrizFiltrada.length !== matrizData.matriz.length && ` (de ${matrizData.matriz.length} totales)`}
                     </p>
+                    <div className="flex flex-wrap items-center gap-4 text-xs text-gray-500">
+                      <span className="flex items-center gap-1"><CheckCircle size={13} className="text-green-600" /> Asistió</span>
+                      <span className="flex items-center gap-1"><X size={13} className="text-red-400" /> No asistió</span>
+                      <span className="flex items-center gap-1"><span className="text-gray-300 font-bold">—</span> Tema aún no ejecutado</span>
+                    </div>
                   </div>
                 </div>
               )}
