@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Users, Download, Search, Eye, X,
-  CheckCircle, Clock, Award, TrendingUp, FileText
+  CheckCircle, Clock, Award, TrendingUp, FileText, Calendar
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import api from '../../services/api'
@@ -248,8 +248,9 @@ export default function MatrizTrabajadoresPage() {
   const [personalIdDetalle, setPersonalIdDetalle] = useState(null)
 
   // Estado para matriz de competencias
-  const [matrizData, setMatrizData] = useState({ temas: [], matriz: [] })
+  const [matrizData, setMatrizData] = useState({ temas: [], matriz: [], anios_disponibles: [] })
   const [loadingMatriz, setLoadingMatriz] = useState(false)
+  const [anioMatriz, setAnioMatriz] = useState(new Date().getFullYear())
 
   // Estado para notas por trabajador
   const [notasData, setNotasData] = useState([])
@@ -270,6 +271,23 @@ export default function MatrizTrabajadoresPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const cargarMatriz = async (anio = anioMatriz) => {
+    setLoadingMatriz(true)
+    try {
+      const { data } = await api.get('/capacitaciones/matriz-competencias', { params: { anio } })
+      setMatrizData(data)
+    } catch (err) {
+      toast.error('Error al cargar matriz')
+    } finally {
+      setLoadingMatriz(false)
+    }
+  }
+
+  const cambiarAnioMatriz = (anio) => {
+    setAnioMatriz(anio)
+    cargarMatriz(anio)
   }
 
   const exportarExcel = () => {
@@ -607,23 +625,39 @@ export default function MatrizTrabajadoresPage() {
           {/* TAB: Matriz de Competencias */}
           {tab === 'matriz' && (
             <div>
+              {/* Selector de año: cada año tiene su propio plan de capacitaciones.
+                  Se muestra aunque el año elegido esté vacío, para poder volver. */}
+              {matrizData.anios_disponibles?.length > 0 && (
+                <div className="flex items-center gap-2 mb-4">
+                  <Calendar size={15} className="text-gray-400" />
+                  <span className="text-sm text-gray-600">Plan del año</span>
+                  <select
+                    value={anioMatriz}
+                    onChange={e => cambiarAnioMatriz(Number(e.target.value))}
+                    className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-roka-500"
+                  >
+                    {(matrizData.anios_disponibles?.length
+                      ? matrizData.anios_disponibles
+                      : [anioMatriz]
+                    ).map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+              )}
+
               {!loadingMatriz && matrizData.temas.length === 0 && (
-                <button
-                  onClick={async () => {
-                    setLoadingMatriz(true)
-                    try {
-                      const { data } = await api.get('/capacitaciones/matriz-competencias')
-                      setMatrizData(data)
-                    } catch (err) {
-                      toast.error('Error al cargar matriz')
-                    } finally {
-                      setLoadingMatriz(false)
-                    }
-                  }}
-                  className="mx-auto block px-6 py-3 bg-roka-600 text-white rounded-lg hover:bg-roka-700"
-                >
-                  Cargar Matriz de Competencias
-                </button>
+                <div className="text-center">
+                  <button
+                    onClick={() => cargarMatriz()}
+                    className="px-6 py-3 bg-roka-600 text-white rounded-lg hover:bg-roka-700"
+                  >
+                    Cargar Matriz de Competencias
+                  </button>
+                  {matrizData.anios_disponibles?.length > 0 && (
+                    <p className="text-sm text-gray-500 mt-3">
+                      El año {anioMatriz} no tiene capacitaciones programadas.
+                    </p>
+                  )}
+                </div>
               )}
 
               {loadingMatriz && (
@@ -708,7 +742,7 @@ export default function MatrizTrabajadoresPage() {
 
                   <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-600">
                     <p>
-                      <strong>{matrizData.temas.length}</strong> capacitaciones del cronograma
+                      <strong>{matrizData.temas.length}</strong> capacitaciones del cronograma {matrizData.anio ?? anioMatriz}
                       {' · '}
                       <span className="text-green-700">{matrizData.temas_ejecutados ?? 0} ejecutados</span>
                       {' · '}

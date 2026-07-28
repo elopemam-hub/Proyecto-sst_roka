@@ -786,7 +786,13 @@ class CapacitacionController extends Controller
             // ejecutadas, en orden cronológico. Se agrupa por título por si algún
             // título se repite. Se excluyen las canceladas: ya no forman parte del
             // plan y solo distorsionarían el porcentaje de cada trabajador.
+            // La matriz es de un año concreto: al generar el programa del año
+            // siguiente se duplican los títulos, y sin acotar por año la tabla
+            // mezclaría ambos planes y hundiría el cumplimiento de todos.
+            $anio = $request->integer('anio', now()->year);
+
             $temasRaw = Capacitacion::where('empresa_id', $empresaId)
+                ->whereYear('fecha_programada', $anio)
                 ->whereNotNull('titulo')
                 ->where('titulo', '!=', '')
                 ->where('estado', '!=', 'cancelada')
@@ -826,6 +832,7 @@ class CapacitacionController extends Controller
                 ->where('c.empresa_id', $empresaId)
                 ->where('c.estado', 'ejecutada')
                 ->where('ca.asistio', true)
+                ->whereYear('c.fecha_programada', $anio)
                 ->whereIn('c.titulo', $nombresTemas ?: [''])
                 ->select('ca.personal_id', 'c.titulo')
                 ->distinct()
@@ -870,20 +877,32 @@ class CapacitacionController extends Controller
                 ];
             }
 
+            // Años con plan cargado, para el selector de la pantalla
+            $aniosDisponibles = Capacitacion::where('empresa_id', $empresaId)
+                ->selectRaw('DISTINCT YEAR(fecha_programada) as anio')
+                ->orderByDesc('anio')
+                ->pluck('anio')
+                ->map(fn($a) => (int) $a)
+                ->values();
+
             return response()->json([
-                'temas'            => $temas,
-                'total_temas'      => $totalTemas,
-                'temas_ejecutados' => $totalEjecutados,
-                'matriz'           => $matriz,
+                'anio'              => $anio,
+                'anios_disponibles' => $aniosDisponibles,
+                'temas'             => $temas,
+                'total_temas'       => $totalTemas,
+                'temas_ejecutados'  => $totalEjecutados,
+                'matriz'            => $matriz,
             ]);
         } catch (\Exception $e) {
             \Log::error('Error en matrizCompetencias: ' . $e->getMessage());
             return response()->json([
-                'temas'            => [],
-                'total_temas'      => 0,
-                'temas_ejecutados' => 0,
-                'matriz'           => [],
-                'error'            => $e->getMessage(),
+                'anio'              => $request->integer('anio', now()->year),
+                'anios_disponibles' => [],
+                'temas'             => [],
+                'total_temas'       => 0,
+                'temas_ejecutados'  => 0,
+                'matriz'            => [],
+                'error'             => $e->getMessage(),
             ], 500);
         }
     }
