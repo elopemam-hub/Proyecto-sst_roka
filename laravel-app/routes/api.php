@@ -462,14 +462,25 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/{id}', [EquipoCertificadoController::class, 'destroy']);
     });
 
-    // ─── PROGRAMA SST ANUAL (Fase 9) ───────────────────────────────────────
+    // ─── PROGRAMA ANUAL SST — formato PASST (Fase 9) ───────────────────────
     Route::prefix('programa')->group(function () {
         Route::get('/estadisticas',              [ProgramaSstController::class, 'estadisticas']);
+        Route::post('/{id}/plantilla',           [ProgramaSstController::class, 'generarPlantilla']);
+        Route::post('/{id}/recalcular',          [ProgramaSstController::class, 'recalcular']);
+        Route::post('/{id}/aprobar',             [ProgramaSstController::class, 'aprobar']);
+
+        // Secciones numeradas del programa (1 Línea base, 3 Capacitación…)
+        Route::post('/{id}/elementos',           [ProgramaSstController::class, 'guardarElemento']);
+        Route::put('/elementos/{id}',            [ProgramaSstController::class, 'actualizarElemento']);
+        Route::delete('/elementos/{id}',         [ProgramaSstController::class, 'eliminarElemento']);
+
         Route::get('/{id}/actividades',          [ProgramaSstController::class, 'actividades']);
-        Route::post('/{id}/actividades',         [ProgramaSstController::class, 'registrarActividad']);
+        Route::post('/{id}/actividades',         [ProgramaSstController::class, 'guardarActividad']);
         Route::put('/actividades/{id}',          [ProgramaSstController::class, 'actualizarActividad']);
+        Route::delete('/actividades/{id}',       [ProgramaSstController::class, 'eliminarActividad']);
+        Route::patch('/actividades/{id}/mes',    [ProgramaSstController::class, 'alternarMes']);
     });
-    Route::apiResource('programa', ProgramaSstController::class);
+    Route::apiResource('programa', ProgramaSstController::class)->parameters(['programa' => 'id']);
 
     // ─── NOTIFICACIONES (Fase 9) ───────────────────────────────────────────
     Route::prefix('notificaciones')->group(function () {

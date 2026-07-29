@@ -4,10 +4,17 @@ import { Plus, CalendarRange, CheckCircle2, AlertTriangle, Clock } from 'lucide-
 import api from '../../services/api'
 
 const ESTADO_COLOR = {
-  borrador:   'bg-gray-100 text-gray-600',
-  activo:     'bg-emerald-50 text-emerald-700',
-  completado: 'bg-blue-50 text-blue-700',
-  cancelado:  'bg-red-50 text-red-700',
+  borrador:     'bg-gray-100 text-gray-600',
+  aprobado:     'bg-emerald-50 text-emerald-700',
+  en_ejecucion: 'bg-blue-50 text-blue-700',
+  cerrado:      'bg-slate-100 text-slate-600',
+}
+
+const ESTADO_LABEL = {
+  borrador:     'Borrador',
+  aprobado:     'Aprobado',
+  en_ejecucion: 'En ejecución',
+  cerrado:      'Cerrado',
 }
 
 export default function ProgramaListPage() {
@@ -56,10 +63,10 @@ export default function ProgramaListPage() {
       {stats && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: '% Cumplimiento global', valor: `${stats.porcentaje_global ?? 0}%`, icon: CalendarRange, color: 'text-roka-600',    bg: 'bg-roka-50' },
-            { label: 'Completadas',           valor: stats.completadas ?? 0,             icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-            { label: 'Vencidas',              valor: stats.vencidas ?? 0,                icon: AlertTriangle,color: 'text-red-600',     bg: 'bg-red-50' },
-            { label: 'Pendientes',            valor: stats.pendientes ?? 0,              icon: Clock,        color: 'text-amber-600',   bg: 'bg-amber-50' },
+            { label: `% Cumplimiento ${stats.anio}`, valor: `${stats.porcentaje ?? 0}%`, icon: CalendarRange, color: 'text-roka-600',    bg: 'bg-roka-50' },
+            { label: 'Actividades completadas',      valor: stats.completadas ?? 0,      icon: CheckCircle2,  color: 'text-emerald-600', bg: 'bg-emerald-50' },
+            { label: 'En proceso',                   valor: stats.en_proceso ?? 0,       icon: AlertTriangle, color: 'text-amber-600',   bg: 'bg-amber-50' },
+            { label: 'Pendientes',                   valor: stats.pendientes ?? 0,       icon: Clock,         color: 'text-gray-600',    bg: 'bg-gray-100' },
           ].map(({ label, valor, icon: Icon, color, bg }) => (
             <div key={label} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
               <div className="flex items-center gap-3">
@@ -102,8 +109,9 @@ export default function ProgramaListPage() {
                   <div className="flex items-center gap-3 mb-1">
                     <span className="text-lg font-bold text-gray-900">{p.anio}</span>
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${ESTADO_COLOR[p.estado] || 'bg-gray-100 text-gray-600'}`}>
-                      {p.estado}
+                      {ESTADO_LABEL[p.estado] || p.estado}
                     </span>
+                    <span className="text-xs text-gray-400">{p.actividades_count ?? 0} actividades</span>
                   </div>
                   <p className="text-sm font-medium text-gray-700 truncate">{p.nombre}</p>
                   {p.objetivo_general && (
@@ -126,7 +134,7 @@ export default function ProgramaListPage() {
                 <div className="flex gap-2 flex-shrink-0">
                   <button onClick={() => navigate(`/programa/${p.id}`)}
                     className="text-xs text-roka-600 hover:text-roka-700 font-medium px-3 py-1.5 border border-roka-200 rounded-lg hover:bg-roka-50">
-                    Ver detalle
+                    Ver matriz
                   </button>
                   <button onClick={() => navigate(`/programa/${p.id}/editar`)}
                     className="text-xs text-gray-500 hover:text-gray-700 font-medium px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">

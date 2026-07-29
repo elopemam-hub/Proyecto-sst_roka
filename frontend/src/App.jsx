@@ -180,7 +180,7 @@ const SustanciaInventarioPage        = lazy(() => import('./pages/sustancias/Sus
 
 // Fase 9 — Programa SST
 const ProgramaListPage   = lazy(() => import('./pages/programa/ProgramaListPage'))
-const ProgramaDetailPage = lazy(() => import('./pages/programa/ProgramaDetailPage'))
+const ProgramaMatrizPage = lazy(() => import('./pages/programa/ProgramaMatrizPage'))
 const ProgramaFormPage   = lazy(() => import('./pages/programa/ProgramaFormPage'))
 
 // Fase 9 — Notificaciones
@@ -475,7 +475,7 @@ export default function App() {
             {/* Programa SST */}
             <Route path="programa"                    element={<ProgramaListPage />} />
             <Route path="programa/nuevo"              element={<ProgramaFormPage />} />
-            <Route path="programa/:id"                element={<ProgramaDetailPage />} />
+            <Route path="programa/:id"                element={<ProgramaMatrizPage />} />
             <Route path="programa/:id/editar"         element={<ProgramaFormPage />} />
 
             {/* Notificaciones */}
