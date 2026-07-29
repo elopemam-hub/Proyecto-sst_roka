@@ -45,31 +45,39 @@ function StockBar({ saldo, minimo, maximo, unidad }) {
   )
 }
 
-// ── Tarjeta de área colapsable ──────────────────────────────────────────────
+// ── Colores por área ────────────────────────────────────────────────────────
+// A nivel de módulo para que la pestaña y la tarjeta usen el mismo color.
+const COLORES_POR_AREA = {
+  taller:   { bg:'bg-red-50',     border:'border-red-200',     header:'bg-red-50',     text:'text-red-700',     title:'text-red-800',     badge:'bg-red-100 text-red-700 border-red-200',       sub:'bg-white/70', tab:'bg-red-500' },
+  limpieza: { bg:'bg-emerald-50', border:'border-emerald-200', header:'bg-emerald-50', text:'text-emerald-700', title:'text-emerald-800', badge:'bg-emerald-100 text-emerald-700 border-emerald-200', sub:'bg-white/70', tab:'bg-emerald-500' },
+}
+const COLORES_DEFAULT = [
+  { bg:'bg-blue-50',   border:'border-blue-200',   header:'bg-blue-50',   text:'text-blue-700',   title:'text-blue-800',   badge:'bg-blue-100 text-blue-700 border-blue-200',     tab:'bg-blue-500' },
+  { bg:'bg-violet-50', border:'border-violet-200', header:'bg-violet-50', text:'text-violet-700', title:'text-violet-800', badge:'bg-violet-100 text-violet-700 border-violet-200', tab:'bg-violet-500' },
+  { bg:'bg-amber-50',  border:'border-amber-200',  header:'bg-amber-50',  text:'text-amber-700',  title:'text-amber-800',  badge:'bg-amber-100 text-amber-700 border-amber-200',   tab:'bg-amber-500' },
+  { bg:'bg-teal-50',   border:'border-teal-200',   header:'bg-teal-50',   text:'text-teal-700',   title:'text-teal-800',   badge:'bg-teal-100 text-teal-700 border-teal-200',      tab:'bg-teal-500' },
+  { bg:'bg-sky-50',    border:'border-sky-200',    header:'bg-sky-50',    text:'text-sky-700',    title:'text-sky-800',    badge:'bg-sky-100 text-sky-700 border-sky-200',         tab:'bg-sky-500' },
+]
+
+/** Color por nombre de área, con reserva por índice */
+const colorDeArea = (nombre, idx) =>
+  Object.entries(COLORES_POR_AREA).find(([k]) => nombre.toLowerCase().includes(k))?.[1]
+  ?? COLORES_DEFAULT[idx % COLORES_DEFAULT.length]
+
+/** Mismo criterio de búsqueda en la pestaña y en la tarjeta */
+const filtrarPorBusqueda = (sustancias, busq) => {
+  if (!busq) return sustancias
+  const q = busq.toLowerCase()
+  return sustancias.filter(s =>
+    s.nombre.toLowerCase().includes(q) || s.nombre_quimico?.toLowerCase().includes(q))
+}
+
+// ── Tarjeta de área ─────────────────────────────────────────────────────────
 function TarjetaArea({ areaData, onMovimiento, busq, colorIdx }) {
   const [abierto, setAbierto] = useState(true)
 
-  const COLORES_POR_AREA = {
-    taller:   { bg:'bg-red-50',     border:'border-red-200',     header:'bg-red-50',     text:'text-red-700',     title:'text-red-800',     badge:'bg-red-100 text-red-700 border-red-200',       sub:'bg-white/70' },
-    limpieza: { bg:'bg-emerald-50', border:'border-emerald-200', header:'bg-emerald-50', text:'text-emerald-700', title:'text-emerald-800', badge:'bg-emerald-100 text-emerald-700 border-emerald-200', sub:'bg-white/70' },
-  }
-  const COLORES_DEFAULT = [
-    { bg:'bg-blue-50',   border:'border-blue-200',   header:'bg-blue-50',   text:'text-blue-700',   title:'text-blue-800',   badge:'bg-blue-100 text-blue-700 border-blue-200'   },
-    { bg:'bg-violet-50', border:'border-violet-200', header:'bg-violet-50', text:'text-violet-700', title:'text-violet-800', badge:'bg-violet-100 text-violet-700 border-violet-200' },
-    { bg:'bg-amber-50',  border:'border-amber-200',  header:'bg-amber-50',  text:'text-amber-700',  title:'text-amber-800',  badge:'bg-amber-100 text-amber-700 border-amber-200'  },
-    { bg:'bg-teal-50',   border:'border-teal-200',   header:'bg-teal-50',   text:'text-teal-700',   title:'text-teal-800',   badge:'bg-teal-100 text-teal-700 border-teal-200'   },
-    { bg:'bg-sky-50',    border:'border-sky-200',    header:'bg-sky-50',    text:'text-sky-700',    title:'text-sky-800',    badge:'bg-sky-100 text-sky-700 border-sky-200'       },
-  ]
-  // Asignar color por nombre de área, con fallback por índice
-  const areaNorm = areaData.area.toLowerCase()
-  const c = Object.entries(COLORES_POR_AREA).find(([key]) => areaNorm.includes(key))?.[1]
-    ?? COLORES_DEFAULT[colorIdx % COLORES_DEFAULT.length]
-
-  const filtradas = busq
-    ? areaData.sustancias.filter(s =>
-        s.nombre.toLowerCase().includes(busq.toLowerCase()) ||
-        s.nombre_quimico?.toLowerCase().includes(busq.toLowerCase()))
-    : areaData.sustancias
+  const c = colorDeArea(areaData.area, colorIdx)
+  const filtradas = filtrarPorBusqueda(areaData.sustancias, busq)
 
   if (filtradas.length === 0) return null
 
@@ -238,21 +246,40 @@ export default function SustanciaInventarioPage() {
   const [data, setData]           = useState(null)
   const [loading, setLoading]     = useState(true)
   const [busq, setBusq]           = useState('')
-  const [filtroArea, setFiltroArea] = useState('')
   const [filtroRiesgo, setFiltroRiesgo] = useState('')
+  const [areaActiva, setAreaActiva] = useState('')
 
   const cargar = useCallback(async () => {
     setLoading(true)
     try {
+      // El área ya no se filtra en el servidor: se traen todas y cada una
+      // es una pestaña, así cambiar de pestaña no vuelve a pedir datos.
       const params = {}
-      if (filtroArea)   params.area          = filtroArea
-      if (filtroRiesgo) params.nivel_riesgo  = filtroRiesgo
+      if (filtroRiesgo) params.nivel_riesgo = filtroRiesgo
       const { data: d } = await api.get('/sustancias/inventario-stock', { params })
       setData(d)
     } catch { } finally { setLoading(false) }
-  }, [filtroArea, filtroRiesgo])
+  }, [filtroRiesgo])
 
   useEffect(() => { cargar() }, [cargar])
+
+  const areas = data?.por_area || []
+
+  // Productos que coinciden con la búsqueda, por área: alimenta el contador
+  // de cada pestaña para no tener que ir abriéndolas una por una.
+  const coincidencias = Object.fromEntries(
+    areas.map(a => [a.area, filtrarPorBusqueda(a.sustancias, busq).length])
+  )
+
+  // Al cargar (o si desaparece el área activa) se abre la primera pestaña.
+  // Depende de `data`, no de `areas`, que es un array nuevo en cada render.
+  useEffect(() => {
+    const lista = data?.por_area || []
+    if (lista.length === 0) { setAreaActiva(''); return }
+    setAreaActiva(prev => lista.some(a => a.area === prev) ? prev : lista[0].area)
+  }, [data])
+
+  const areaVisible = areas.find(a => a.area === areaActiva)
 
   const onMovimiento = (id, tipo) => {
     navigate(`/sustancias/${id}/movimientos`)
@@ -351,14 +378,7 @@ export default function SustanciaInventarioPage() {
           {busq && <button onClick={() => setBusq('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"><X size={13}/></button>}
         </div>
 
-        {/* Filtro por área */}
-        <select value={filtroArea} onChange={e => setFiltroArea(e.target.value)}
-          className="border border-gray-300 text-gray-700 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-roka-500">
-          <option value="">Todas las áreas</option>
-          {(data?.areas_disponibles || []).map(a => (
-            <option key={a} value={a}>{a}</option>
-          ))}
-        </select>
+        {/* El área ya no se filtra aquí: cada una tiene su propia pestaña */}
 
         {/* Filtro riesgo */}
         <select value={filtroRiesgo} onChange={e => setFiltroRiesgo(e.target.value)}
@@ -370,59 +390,78 @@ export default function SustanciaInventarioPage() {
           <option value="bajo">Bajo</option>
         </select>
 
-        {(busq || filtroArea || filtroRiesgo) && (
-          <button onClick={() => { setBusq(''); setFiltroArea(''); setFiltroRiesgo('') }}
+        {(busq || filtroRiesgo) && (
+          <button onClick={() => { setBusq(''); setFiltroRiesgo('') }}
             className="text-xs text-gray-500 border border-gray-300 rounded-lg px-3 py-2 hover:bg-gray-50">
             Limpiar filtros
           </button>
         )}
-
-        {/* Acceso rápido — Áreas específicas */}
-        <div className="flex gap-1 ml-auto">
-          <span className="text-xs text-gray-400 self-center mr-1">Acceso rápido:</span>
-          {['Limpieza', 'Taller', 'Almacén'].map(area => (
-            <button key={area}
-              onClick={() => setFiltroArea(filtroArea === area ? '' : area)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                filtroArea === area
-                  ? 'bg-roka-500 text-white border-roka-500'
-                  : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-roka-400'
-              }`}>
-              {area}
-            </button>
-          ))}
-        </div>
       </div>
 
-      {/* Lista por área */}
+      {/* Una pestaña por área */}
       {loading ? (
         <div className="flex justify-center py-16">
           <div className="w-7 h-7 border-2 border-roka-500 border-t-transparent rounded-full animate-spin"/>
         </div>
-      ) : (data?.por_area || []).length === 0 ? (
+      ) : areas.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-12 text-center">
           <Package size={40} className="text-gray-200 mx-auto mb-3"/>
           <p className="text-gray-500 font-medium">No se encontraron sustancias</p>
-          <p className="text-xs text-gray-400 mt-1">
-            {filtroArea ? `Sin productos en el área "${filtroArea}"` : 'Registra sustancias con área de uso asignada'}
-          </p>
+          <p className="text-xs text-gray-400 mt-1">Registra sustancias con área de uso asignada</p>
           <button onClick={() => navigate('/sustancias/nueva')}
             className="mt-4 flex items-center gap-2 bg-roka-500 text-white px-4 py-2 rounded-lg text-sm font-medium mx-auto">
             <Plus size={14}/> Nueva sustancia
           </button>
         </div>
       ) : (
-        <div className="space-y-4">
-          {(data.por_area || []).map((areaData, idx) => (
+        <>
+          <div className="flex gap-1.5 flex-wrap border-b border-gray-200 pb-px">
+            {areas.map((a, idx) => {
+              const c        = colorDeArea(a.area, idx)
+              const activa   = a.area === areaActiva
+              const coincide = coincidencias[a.area] ?? 0
+              // Al buscar, las áreas sin coincidencias se atenúan pero siguen accesibles
+              const apagada  = busq && coincide === 0
+
+              return (
+                <button key={a.area} onClick={() => setAreaActiva(a.area)}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-t-lg text-sm font-medium border border-b-0 -mb-px transition-colors ${
+                    activa
+                      ? `${c.bg} ${c.border} ${c.title}`
+                      : `bg-gray-50 border-transparent text-gray-500 hover:bg-gray-100 ${apagada ? 'opacity-40' : ''}`
+                  }`}>
+                  <span className={`w-2 h-2 rounded-full ${c.tab} ${apagada ? 'opacity-40' : ''}`}/>
+                  {a.area}
+                  <span className={`text-[11px] px-1.5 py-0.5 rounded-full ${activa ? c.badge + ' border' : 'bg-gray-200 text-gray-600'}`}>
+                    {coincide}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+
+          {areaVisible && coincidencias[areaVisible.area] > 0 ? (
             <TarjetaArea
-              key={areaData.area}
-              areaData={areaData}
+              key={areaVisible.area}
+              areaData={areaVisible}
               onMovimiento={onMovimiento}
               busq={busq}
-              colorIdx={idx}
+              colorIdx={areas.findIndex(a => a.area === areaVisible.area)}
             />
-          ))}
-        </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-12 text-center">
+              <Package size={36} className="text-gray-200 mx-auto mb-3"/>
+              <p className="text-gray-500 font-medium">
+                Sin coincidencias en «{areaActiva}»
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                {busq
+                  ? 'Otras pestañas pueden tener resultados: el número junto a cada área lo indica.'
+                  : 'Esta área no tiene productos registrados.'}
+              </p>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

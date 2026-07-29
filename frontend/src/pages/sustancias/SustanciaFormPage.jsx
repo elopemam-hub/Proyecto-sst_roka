@@ -4,6 +4,9 @@ import { ChevronLeft, Save, FlaskConical, Upload, FileText, Download } from 'luc
 import api from '../../services/api'
 import NfpaDiamond from '../../components/NfpaDiamond'
 
+// Debe coincidir con EvaluacionExposicionService::UNIDADES en el backend
+const UNIDADES_EXPOSICION = ['ppm', 'mg/m3', 'fibras/cm3', '%']
+
 const GHS_OPCIONES = [
   { key: 'GHS01', label: 'GHS01 — Explosivo',          emoji: '💥' },
   { key: 'GHS02', label: 'GHS02 — Inflamable',         emoji: '🔥' },
@@ -34,6 +37,9 @@ const INICIAL = {
   stock_minimo: '', stock_maximo: '',
   nfpa_salud: 0, nfpa_inflamabilidad: 0, nfpa_inestabilidad: 0, nfpa_especial: '',
   limite_tlv_twa: '', limite_stel: '', limite_idlh: '',
+  limite_tlv_twa_valor: '', limite_tlv_twa_unidad: '',
+  limite_stel_valor: '',    limite_stel_unidad: '',
+  limite_idlh_valor: '',    limite_idlh_unidad: '',
   observaciones: '', activo: true,
 }
 
@@ -86,6 +92,12 @@ export default function SustanciaFormPage() {
         limite_tlv_twa:        data.limite_tlv_twa || '',
         limite_stel:           data.limite_stel    || '',
         limite_idlh:           data.limite_idlh    || '',
+        limite_tlv_twa_valor:  data.limite_tlv_twa_valor  ?? '',
+        limite_tlv_twa_unidad: data.limite_tlv_twa_unidad || '',
+        limite_stel_valor:     data.limite_stel_valor     ?? '',
+        limite_stel_unidad:    data.limite_stel_unidad    || '',
+        limite_idlh_valor:     data.limite_idlh_valor     ?? '',
+        limite_idlh_unidad:    data.limite_idlh_unidad    || '',
       })
     }).catch(() => {})
   }, [id])
@@ -357,20 +369,43 @@ export default function SustanciaFormPage() {
       {/* Límites de exposición laboral */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
         <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Límites de exposición laboral · D.S. 015-2005-SA</h2>
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">TLV-TWA <span className="text-gray-300">(8h/día)</span></label>
-            <input value={form.limite_tlv_twa} onChange={e => f('limite_tlv_twa', e.target.value)} className={inp} placeholder="Ej: 0.5 ppm" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">STEL <span className="text-gray-300">(15 min)</span></label>
-            <input value={form.limite_stel} onChange={e => f('limite_stel', e.target.value)} className={inp} placeholder="Ej: 1 ppm" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">IDLH <span className="text-gray-300">(peligro inmediato)</span></label>
-            <input value={form.limite_idlh} onChange={e => f('limite_idlh', e.target.value)} className={inp} placeholder="Ej: 10 ppm" />
-          </div>
+
+        {/* Valor y unidad separados: es lo único que el sistema puede
+            contrastar contra una medición. El texto libre de abajo queda
+            para notas de la ficha ("techo", "piel"). */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[
+            { campo:'limite_tlv_twa', label:'TLV-TWA', nota:'(8h/día)',            ph:'0.5' },
+            { campo:'limite_stel',    label:'STEL',    nota:'(15 min)',            ph:'1' },
+            { campo:'limite_idlh',    label:'IDLH',    nota:'(peligro inmediato)', ph:'10' },
+          ].map(({ campo, label, nota, ph }) => (
+            <div key={campo}>
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                {label} <span className="text-gray-300">{nota}</span>
+              </label>
+              <div className="flex gap-2">
+                <input type="number" step="any" min="0"
+                  value={form[`${campo}_valor`]}
+                  onChange={e => f(`${campo}_valor`, e.target.value)}
+                  className={inp} placeholder={ph} />
+                <select value={form[`${campo}_unidad`]}
+                  onChange={e => f(`${campo}_unidad`, e.target.value)}
+                  className={`${inp} w-32`}>
+                  <option value="">Unidad</option>
+                  {UNIDADES_EXPOSICION.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+              <input value={form[campo]} onChange={e => f(campo, e.target.value)}
+                className={`${inp} mt-2 text-xs`} placeholder="Nota de la ficha (opcional)" />
+            </div>
+          ))}
         </div>
+
+        <p className="text-[11px] text-gray-500 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+          El valor y la unidad se usan para evaluar automáticamente las mediciones de exposición.
+          Solo se comparan magnitudes en la <strong>misma unidad</strong>: no se convierte entre ppm y mg/m³
+          porque eso exige el peso molecular de la sustancia.
+        </p>
       </div>
 
       {/* HDS y Estado */}

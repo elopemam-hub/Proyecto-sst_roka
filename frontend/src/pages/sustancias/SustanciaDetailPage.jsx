@@ -8,6 +8,17 @@ import {
 import api from '../../services/api'
 import NfpaDiamond, { NfpaLeyenda } from '../../components/NfpaDiamond'
 
+// Debe coincidir con EvaluacionExposicionService::UNIDADES en el backend
+const UNIDADES_EXPOSICION = ['ppm', 'mg/m3', 'fibras/cm3', '%']
+
+const EVAL_AUTO = {
+  aceptable:         { label:'Aceptable',        cls:'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  vigilancia:        { label:'Vigilancia',       cls:'bg-amber-50 text-amber-700 border-amber-200' },
+  sobre_limite:      { label:'Sobre límite',     cls:'bg-red-50 text-red-700 border-red-200' },
+  peligro_inmediato: { label:'Peligro inmediato',cls:'bg-red-600 text-white border-red-700' },
+  no_comparable:     { label:'No comparable',    cls:'bg-gray-100 text-gray-500 border-gray-200' },
+}
+
 const GHS_INFO = {
   GHS01:{label:'Explosivo',emoji:'💥'},GHS02:{label:'Inflamable',emoji:'🔥'},
   GHS03:{label:'Comburente',emoji:'⭕'},GHS04:{label:'Gas a presión',emoji:'🔵'},
@@ -68,7 +79,7 @@ export default function SustanciaDetailPage() {
   // Exposiciones
   const [exps, setExps]         = useState([])
   const [showExpForm, setShowExpForm] = useState(false)
-  const [exp, setExp]           = useState({ nombre_trabajador:'', cargo:'', frecuencia:'ocasional', duracion_horas:'', via_exposicion:'', resultado_evaluacion:'sin_medicion', fecha_evaluacion:'' })
+  const [exp, setExp]           = useState({ nombre_trabajador:'', cargo:'', frecuencia:'ocasional', duracion_horas:'', via_exposicion:'', nivel_medido_valor:'', nivel_medido_unidad:'', resultado_evaluacion:'sin_medicion', fecha_evaluacion:'' })
   // Capacitaciones
   const [caps, setCaps]         = useState([])
   const [showCapForm, setShowCapForm] = useState(false)
@@ -97,7 +108,16 @@ export default function SustanciaDetailPage() {
     catch(e){ alert(e.response?.data?.message||'Error') }
   }
   const guardarExp = async () => {
-    try { await api.post(`/sustancias/${id}/exposiciones`, exp); setShowExpForm(false); api.get(`/sustancias/${id}/exposiciones`).then(({data})=>setExps(data)) }
+    // Los campos numéricos vacíos se omiten: "" no es 0 ni null para el validador
+    const payload = Object.fromEntries(Object.entries(exp).filter(([, v]) => v !== '' && v !== null))
+    try {
+      const { data } = await api.post(`/sustancias/${id}/exposiciones`, payload)
+      setShowExpForm(false)
+      if (data?.discrepancia) {
+        alert('Registrado. Atención: tu clasificación no coincide con la evaluación calculada contra el límite.')
+      }
+      api.get(`/sustancias/${id}/exposiciones`).then(({data})=>setExps(data))
+    }
     catch(e){ alert(e.response?.data?.message||'Error') }
   }
   const guardarCap = async () => {
@@ -363,7 +383,28 @@ export default function SustanciaDetailPage() {
                   <div><label className="text-xs text-gray-500 mb-1 block">Cargo</label><input value={exp.cargo} onChange={e=>setExp(p=>({...p,cargo:e.target.value}))} className={inp}/></div>
                   <div><label className="text-xs text-gray-500 mb-1 block">Frecuencia</label><select value={exp.frecuencia} onChange={e=>setExp(p=>({...p,frecuencia:e.target.value}))} className={inp}><option value="ocasional">Ocasional</option><option value="diaria">Diaria</option><option value="semanal">Semanal</option><option value="mensual">Mensual</option></select></div>
                   <div><label className="text-xs text-gray-500 mb-1 block">Vía de exposición</label><input value={exp.via_exposicion} onChange={e=>setExp(p=>({...p,via_exposicion:e.target.value}))} className={inp} placeholder="inhalación, dérmica..."/></div>
-                  <div><label className="text-xs text-gray-500 mb-1 block">Resultado evaluación</label><select value={exp.resultado_evaluacion} onChange={e=>setExp(p=>({...p,resultado_evaluacion:e.target.value}))} className={inp}><option value="sin_medicion">Sin medición</option><option value="normal">Normal (bajo límite)</option><option value="sobre_limite">Sobre el límite</option></select></div>
+
+                  {/* Duración y nivel medido: con esto el sistema elige STEL o TWA y calcula el % del límite */}
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Duración <span className="text-gray-300">(horas)</span></label>
+                    <input type="number" step="any" min="0" value={exp.duracion_horas}
+                      onChange={e=>setExp(p=>({...p,duracion_horas:e.target.value}))} className={inp} placeholder="8"/>
+                    <p className="text-[10px] text-gray-400 mt-1">≤ 0.25 h se compara contra el STEL</p>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Nivel medido</label>
+                    <div className="flex gap-2">
+                      <input type="number" step="any" min="0" value={exp.nivel_medido_valor}
+                        onChange={e=>setExp(p=>({...p,nivel_medido_valor:e.target.value}))} className={inp} placeholder="0.5"/>
+                      <select value={exp.nivel_medido_unidad}
+                        onChange={e=>setExp(p=>({...p,nivel_medido_unidad:e.target.value}))} className={`${inp} w-28`}>
+                        <option value="">Unidad</option>
+                        {UNIDADES_EXPOSICION.map(u=><option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div><label className="text-xs text-gray-500 mb-1 block">Resultado evaluación <span className="text-gray-300">(criterio del higienista)</span></label><select value={exp.resultado_evaluacion} onChange={e=>setExp(p=>({...p,resultado_evaluacion:e.target.value}))} className={inp}><option value="sin_medicion">Sin medición</option><option value="normal">Normal (bajo límite)</option><option value="sobre_limite">Sobre el límite</option></select></div>
                   <div><label className="text-xs text-gray-500 mb-1 block">Fecha evaluación</label><input type="date" value={exp.fecha_evaluacion} onChange={e=>setExp(p=>({...p,fecha_evaluacion:e.target.value}))} className={inp}/></div>
                   <div className="flex items-end gap-2">
                     <button onClick={guardarExp} className="flex-1 bg-roka-500 text-white rounded-lg py-2 text-xs font-medium">Guardar</button>
@@ -373,16 +414,42 @@ export default function SustanciaDetailPage() {
               )}
               <div className="space-y-2">
                 {exps.length===0?<p className="text-center py-8 text-gray-400 text-sm">Sin registros de exposición</p>:exps.map(e=>(
-                  <div key={e.id} className="flex items-center gap-4 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
-                    <Users size={16} className="text-gray-400 flex-shrink-0"/>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-800">{e.nombre_trabajador}</p>
-                      <p className="text-xs text-gray-500">{e.cargo} · {e.frecuencia}</p>
+                  <div key={e.id} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
+                    <div className="flex items-center gap-4">
+                      <Users size={16} className="text-gray-400 flex-shrink-0"/>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-800">{e.nombre_trabajador}</p>
+                        <p className="text-xs text-gray-500">
+                          {e.cargo} · {e.frecuencia}
+                          {e.nivel_medido_valor != null && ` · ${e.nivel_medido_valor} ${e.nivel_medido_unidad || ''}`}
+                        </p>
+                      </div>
+
+                      {/* Evaluación calculada contra el límite ocupacional */}
+                      {e.evaluacion_automatica && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${EVAL_AUTO[e.evaluacion_automatica]?.cls || 'bg-gray-100 text-gray-500 border-gray-200'}`}
+                          title={e.motivo_evaluacion || ''}>
+                          {EVAL_AUTO[e.evaluacion_automatica]?.label || e.evaluacion_automatica}
+                          {e.pct_limite != null && ` · ${e.pct_limite}%`}
+                        </span>
+                      )}
+
+                      <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${e.resultado_evaluacion==='normal'?'bg-emerald-50 text-emerald-700 border-emerald-200':e.resultado_evaluacion==='sobre_limite'?'bg-red-50 text-red-700 border-red-200':'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                        {e.resultado_evaluacion==='normal'?'✓ Normal':e.resultado_evaluacion==='sobre_limite'?'⚠ Sobre límite':'Sin medición'}
+                      </span>
+                      <button onClick={()=>eliminarExp(e.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button>
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${e.resultado_evaluacion==='normal'?'bg-emerald-50 text-emerald-700 border-emerald-200':e.resultado_evaluacion==='sobre_limite'?'bg-red-50 text-red-700 border-red-200':'bg-gray-100 text-gray-500 border-gray-200'}`}>
-                      {e.resultado_evaluacion==='normal'?'✓ Normal':e.resultado_evaluacion==='sobre_limite'?'⚠ Sobre límite':'Sin medición'}
-                    </span>
-                    <button onClick={()=>eliminarExp(e.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button>
+
+                    {e.motivo_evaluacion && (
+                      <p className="text-[11px] text-gray-500 mt-1.5 ml-9">{e.motivo_evaluacion}</p>
+                    )}
+
+                    {/* El criterio manual contradice al cálculo: hay que mirarlo, no ocultarlo */}
+                    {e.discrepancia && (
+                      <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-1.5 ml-9">
+                        La clasificación manual no coincide con la evaluación calculada. Revisa cuál corresponde.
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>

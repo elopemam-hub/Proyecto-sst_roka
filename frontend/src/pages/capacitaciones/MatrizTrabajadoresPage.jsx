@@ -350,6 +350,29 @@ export default function MatrizTrabajadoresPage() {
     return matchSearch && matchArea && matchEstado
   })
 
+  // Promedio de avance del grupo visible en la matriz (respeta los filtros activos).
+  // Se suman completadas y totales en vez de promediar los porcentajes ya redondeados
+  // de cada fila, para que el total no arrastre el error de redondeo de cada trabajador.
+  const promedioMatriz = (() => {
+    if (matrizFiltrada.length === 0) return null
+
+    const completadas = matrizFiltrada.reduce((s, t) => s + (t.completadas || 0), 0)
+    const totales     = matrizFiltrada.reduce((s, t) => s + (t.total_temas || 0), 0)
+
+    // Avance sobre lo que ya se dictó: deja fuera los temas del plan aún no ejecutados,
+    // que son inalcanzables y hunden el porcentaje sobre el plan completo.
+    const hechas    = matrizFiltrada.reduce((s, t) => s + (t.completadas_ejecutadas || 0), 0)
+    const dictadas  = (matrizData.temas_ejecutados || 0) * matrizFiltrada.length
+
+    return {
+      completadas,
+      totales,
+      trabajadores: matrizFiltrada.length,
+      plan:      totales  > 0 ? Math.round((completadas / totales) * 100) : 0,
+      ejecutado: dictadas > 0 ? Math.round((hechas / dictadas) * 100) : null,
+    }
+  })()
+
   // Filtrar notas por trabajador
   const notasFiltradas = notasData.filter(t => {
     const matchSearch = !search ||
@@ -641,6 +664,72 @@ export default function MatrizTrabajadoresPage() {
                       : [anioMatriz]
                     ).map(a => <option key={a} value={a}>{a}</option>)}
                   </select>
+                </div>
+              )}
+
+              {/* Resumen del avance del grupo visible, sobre la tabla */}
+              {!loadingMatriz && matrizData.temas.length > 0 && promedioMatriz && (
+                <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                  <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-lg bg-white p-2 text-roka-600 border border-gray-200">
+                        <TrendingUp size={20} />
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">
+                          Avance promedio · plan {matrizData.anio ?? anioMatriz}
+                        </p>
+                        <p className={`text-2xl font-bold leading-tight ${
+                          promedioMatriz.plan >= 80 ? 'text-green-600' :
+                          promedioMatriz.plan >= 60 ? 'text-yellow-600' :
+                          'text-red-600'
+                        }`}>
+                          {promedioMatriz.plan}%
+                        </p>
+                      </div>
+                    </div>
+
+                    {promedioMatriz.ejecutado !== null && (
+                      <div className="border-l border-gray-200 pl-8">
+                        <p className="text-xs text-gray-500">Sobre lo ya dictado</p>
+                        <p className={`text-2xl font-bold leading-tight ${
+                          promedioMatriz.ejecutado >= 80 ? 'text-green-600' :
+                          promedioMatriz.ejecutado >= 60 ? 'text-yellow-600' :
+                          'text-red-600'
+                        }`}>
+                          {promedioMatriz.ejecutado}%
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="border-l border-gray-200 pl-8">
+                      <p className="text-xs text-gray-500">Asistencias registradas</p>
+                      <p className="text-2xl font-bold leading-tight text-gray-900">
+                        {promedioMatriz.completadas}
+                        <span className="text-sm font-normal text-gray-400">/{promedioMatriz.totales}</span>
+                      </p>
+                    </div>
+
+                    {/* Barra de avance sobre el plan del año */}
+                    <div className="min-w-[180px] flex-1">
+                      <div className="mb-1 flex justify-between text-xs text-gray-500">
+                        <span>{promedioMatriz.trabajadores} trabajadores</span>
+                        <span>
+                          {matrizData.temas_ejecutados ?? 0} de {matrizData.temas.length} capacit. dictadas
+                        </span>
+                      </div>
+                      <div className="h-2.5 w-full overflow-hidden rounded-full bg-gray-200">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            promedioMatriz.plan >= 80 ? 'bg-green-500' :
+                            promedioMatriz.plan >= 60 ? 'bg-yellow-500' :
+                            'bg-red-500'
+                          }`}
+                          style={{ width: `${promedioMatriz.plan}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 

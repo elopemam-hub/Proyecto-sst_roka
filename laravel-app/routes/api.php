@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\AccidenteController;
 use App\Http\Controllers\Api\SeguimientoController;
 use App\Http\Controllers\Api\EppController;
 use App\Http\Controllers\Api\SaludController;
+use App\Http\Controllers\Api\SaludCitaController;
 use App\Http\Controllers\Api\CapacitacionController;
 use App\Http\Controllers\Api\SimulacroController;
 use App\Http\Controllers\Api\AuditoriaInternaController;
@@ -307,13 +308,27 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/mi-ficha',                              [SaludController::class, 'miFicha']);
         Route::get('/cronograma-medico',                     [SaludController::class, 'cronogramaMedico']);
         Route::post('/emo/importar',                         [SaludController::class, 'importarEmos']);
+
+        // Agenda de citas (exámenes programados, aún sin resultado)
+        Route::get('/citas',                                 [SaludCitaController::class, 'index']);
+        Route::post('/citas',                                [SaludCitaController::class, 'store']);
+        Route::post('/citas/importar',                       [SaludCitaController::class, 'importar']);
+        Route::post('/citas/{id}/realizar',                  [SaludCitaController::class, 'realizar']);
+        Route::put('/citas/{id}',                            [SaludCitaController::class, 'update']);
+        Route::delete('/citas/{id}',                         [SaludCitaController::class, 'destroy']);
         Route::get('/certificado/{personalId}',              [SaludController::class, 'certificado']);
         Route::get('/personal/{personalId}/restricciones',   [SaludController::class, 'restricciones']);
         Route::post('/restricciones',                        [SaludController::class, 'registrarRestriccion']);
         Route::get('/atenciones',                            [SaludController::class, 'atenciones']);
         Route::post('/atenciones',                           [SaludController::class, 'registrarAtencion']);
     });
-    Route::apiResource('salud', SaludController::class)->parameters(['salud' => 'id']);
+    // Eliminar un EMO borra historial médico: solo administrador.
+    // Se saca del apiResource para poder exigir el rol en el propio enrutado.
+    Route::delete('salud/{id}', [SaludController::class, 'destroy'])
+        ->middleware('check.rol:administrador');
+    Route::apiResource('salud', SaludController::class)
+        ->parameters(['salud' => 'id'])
+        ->except(['destroy']);
 
     // ─── FIRMAS DIGITALES (módulo transversal) ─────────────────────────────
     Route::prefix('firmas')->group(function () {
@@ -397,6 +412,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/salud',             [ReporteController::class, 'salud']);
         Route::get('/epps',              [ReporteController::class, 'epps']);
         Route::get('/sunafil',           [ReporteController::class, 'sunafil']);
+        // Registros obligatorios RM 050-2013-TR traídos al módulo de reportes
+        Route::get('/auditorias',           [ReporteController::class, 'auditorias']);
+        Route::get('/simulacros',           [ReporteController::class, 'simulacros']);
+        Route::get('/equipos-emergencia',   [ReporteController::class, 'equiposEmergencia']);
     });
 
     // ─── VEHÍCULOS (Fase 9) ────────────────────────────────────────────────
@@ -471,6 +490,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/importar/sustancias',               [SustanciaController::class, 'importarSustancias']);
         Route::post('/importar/trabajadores',             [SustanciaController::class, 'importarTrabajadores']);
         Route::get('/incompatibilidades',                  [SustanciaController::class, 'incompatibilidades']);
+        // Cruce de la matriz contra lo que realmente comparte ubicación física
+        Route::get('/incompatibilidades/almacenamiento',   [SustanciaController::class, 'verificarAlmacenamiento']);
         Route::post('/incompatibilidades',                 [SustanciaController::class, 'registrarIncompatibilidad']);
         Route::delete('/incompatibilidades/{id}',          [SustanciaController::class, 'eliminarIncompatibilidad']);
         Route::post('/{id}/hds',                           [SustanciaController::class, 'uploadHds']);

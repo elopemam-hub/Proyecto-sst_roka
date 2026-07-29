@@ -1,12 +1,144 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Plus, Trash2, GitCompare } from 'lucide-react'
+import {
+  ArrowLeft, Plus, Trash2, GitCompare, ShieldAlert, MapPin,
+  CheckCircle2, AlertTriangle, RefreshCw,
+} from 'lucide-react'
 import api from '../../services/api'
 
 const NIVEL_CFG = {
   incompatible: { label:'Incompatible',  cls:'bg-red-100 text-red-700 border-red-300',     cell:'bg-red-100 text-red-700' },
   precaucion:   { label:'Precaución',    cls:'bg-amber-100 text-amber-700 border-amber-300', cell:'bg-amber-100 text-amber-700' },
   compatible:   { label:'Compatible',    cls:'bg-emerald-100 text-emerald-700 border-emerald-300', cell:'bg-emerald-100 text-emerald-700' },
+}
+
+const GHS_LABEL = {
+  GHS01:'Explosivo', GHS02:'Inflamable', GHS03:'Comburente', GHS04:'Gas a presión',
+  GHS05:'Corrosivo', GHS06:'Tóxico', GHS07:'Irritante', GHS08:'Peligro salud', GHS09:'Peligro ambiental',
+}
+
+/**
+ * Verificación de almacenamiento: cruza qué sustancias comparten ubicación
+ * física contra la matriz declarada y las reglas de segregación GHS.
+ * Es lo que convierte la matriz en un control real y no en una tabla muerta.
+ */
+function VerificacionAlmacenamiento() {
+  const [data, setData]       = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState(null)
+
+  const cargar = () => {
+    setLoading(true); setError(null)
+    api.get('/sustancias/incompatibilidades/almacenamiento')
+      .then(r => setData(r.data))
+      .catch(e => setError(e.response?.data?.message || 'No se pudo verificar el almacenamiento'))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(cargar, [])
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 text-center text-gray-400 text-sm">
+        Verificando almacenamiento…
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 flex items-center gap-2">
+        <AlertTriangle size={16} /> {error}
+      </div>
+    )
+  }
+
+  const r = data.resumen
+  const sinConflictos = data.conflictos.length === 0
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-200 flex-wrap">
+        <div>
+          <h2 className="font-semibold text-gray-800 flex items-center gap-2">
+            <ShieldAlert size={17} className="text-red-500" /> Verificación de almacenamiento
+          </h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Sustancias que comparten ubicación física y no deberían estar juntas
+          </p>
+        </div>
+        <button onClick={cargar}
+          className="flex items-center gap-1.5 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-1.5 rounded-lg text-xs">
+          <RefreshCw size={13} /> Revisar
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-5 py-4 bg-gray-50 border-b border-gray-200">
+        {[
+          { label:'Incompatibles', valor:r.incompatibles, color: r.incompatibles > 0 ? 'text-red-600' : 'text-gray-400' },
+          { label:'Precaución',    valor:r.precaucion,    color: r.precaucion > 0 ? 'text-amber-600' : 'text-gray-400' },
+          { label:'Ubicaciones revisadas', valor:r.ubicaciones, color:'text-gray-700' },
+          { label:'Sin ubicación', valor:r.sin_ubicacion, color: r.sin_ubicacion > 0 ? 'text-amber-600' : 'text-gray-400' },
+        ].map(k => (
+          <div key={k.label} className="text-center">
+            <p className={`text-2xl font-bold ${k.color}`}>{k.valor}</p>
+            <p className="text-[11px] text-gray-500 mt-0.5">{k.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {sinConflictos ? (
+        <div className="px-5 py-10 text-center">
+          <CheckCircle2 size={28} className="mx-auto mb-2 text-emerald-500" />
+          <p className="text-gray-700 font-medium">Sin conflictos de almacenamiento</p>
+          <p className="text-sm text-gray-400 mt-1">
+            Ninguna de las {r.sustancias_ubicadas} sustancias ubicadas comparte estante con una incompatible.
+          </p>
+        </div>
+      ) : (
+        <ul className="divide-y divide-gray-100">
+          {data.conflictos.map((c, i) => {
+            const cfg = NIVEL_CFG[c.nivel] || NIVEL_CFG.precaucion
+            return (
+              <li key={i} className="px-5 py-3.5 hover:bg-gray-50">
+                <div className="flex items-start gap-3 flex-wrap">
+                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${cfg.cls} shrink-0`}>
+                    {cfg.label}
+                  </span>
+                  <span className="text-xs text-gray-500 flex items-center gap-1 shrink-0">
+                    <MapPin size={12} /> {c.ubicacion}
+                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${
+                    c.origen === 'matriz'
+                      ? 'bg-purple-50 text-purple-700 border-purple-200'
+                      : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                    {c.origen === 'matriz' ? 'Matriz declarada' : 'Regla clase GHS'}
+                  </span>
+                </div>
+
+                <p className="text-sm text-gray-800 font-medium mt-1.5">
+                  {c.sustancia_a.nombre} <span className="text-gray-400 font-normal">+</span> {c.sustancia_b.nombre}
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">{c.motivo}</p>
+
+                {c.clases && (
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    {c.clases.map(k => GHS_LABEL[k] || k).join(' + ')}
+                  </p>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      <p className="px-5 py-3 bg-gray-50 border-t border-gray-100 text-[11px] text-gray-500">
+        Las reglas por clase GHS son criterios estándar de segregación y sirven como red de seguridad
+        cuando la matriz está incompleta. <strong>No sustituyen a la HDS</strong> de cada producto:
+        confirma siempre la incompatibilidad concreta en su ficha de seguridad.
+      </p>
+    </div>
+  )
 }
 
 export default function SustanciaIncompatibilidadesPage() {
@@ -67,6 +199,9 @@ export default function SustanciaIncompatibilidadesPage() {
           <Plus size={15}/> Agregar relación
         </button>
       </div>
+
+      {/* La verificación va primero: es el hallazgo accionable, la matriz es la referencia */}
+      <VerificacionAlmacenamiento />
 
       {/* Formulario */}
       {showForm && (

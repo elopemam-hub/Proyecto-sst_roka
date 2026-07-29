@@ -1,10 +1,13 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useSelector } from 'react-redux'
 import {
   ArrowLeft, Search, Plus, ChevronRight, CheckCircle,
   Clock, XCircle, AlertCircle, Download, LayoutList, BarChart2,
+  Edit, Trash2,
 } from 'lucide-react'
 import api from '../../services/api'
+import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -211,6 +214,8 @@ function GanttChart({ filas, anio, onVerEmo, onNuevoEmo }) {
 // ── Página principal ──────────────────────────────────────────────
 export default function CronogramaMedicoPage() {
   const navigate = useNavigate()
+  const user     = useSelector(s => s.auth.user)
+  const esAdmin  = user?.rol === 'administrador'
   const [data, setData]             = useState(null)
   const [loading, setLoading]       = useState(true)
   const [search, setSearch]         = useState('')
@@ -219,6 +224,7 @@ export default function CronogramaMedicoPage() {
   const [filtroArea, setFiltroArea] = useState('')
   const [vista, setVista]           = useState('gantt')   // 'tabla' | 'gantt'
   const [anio, setAnio]             = useState(new Date().getFullYear())
+  const [eliminando, setEliminando] = useState(null)
 
   useEffect(() => {
     api.get('/areas', { params: { per_page: 1000 } }).then(r => setAreas(r.data.data || r.data)).catch(() => {})
@@ -234,6 +240,31 @@ export default function CronogramaMedicoPage() {
       })
       setData(d)
     } catch { } finally { setLoading(false) }
+  }
+
+  /** Elimina el examen más reciente del trabajador — solo administrador */
+  const eliminarExamen = async (r) => {
+    const fecha = r.ultimo_examen
+      ? format(new Date(r.ultimo_examen), 'd MMM yyyy', { locale: es })
+      : 'sin fecha'
+
+    if (!confirm(
+      `¿Eliminar el examen del ${fecha} de ${r.apellidos}, ${r.nombres}?\n\n` +
+      'Se borra del historial. Si el trabajador tiene exámenes anteriores, ' +
+      'el cronograma pasará a mostrar el más reciente de ellos.\n\n' +
+      'Esta acción no se puede deshacer.'
+    )) return
+
+    setEliminando(r.emo_id)
+    try {
+      await api.delete(`/salud/${r.emo_id}`)
+      toast.success('Examen eliminado')
+      await cargar()
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'No se pudo eliminar el examen')
+    } finally {
+      setEliminando(null)
+    }
   }
 
   const exportarCSV = () => {
@@ -424,15 +455,38 @@ export default function CronogramaMedicoPage() {
                         <div className="flex items-center gap-1">
                           {r.emo_id && (
                             <button onClick={() => navigate(`/salud/${r.emo_id}`)}
+                              title="Ver detalle del examen"
                               className="p-1.5 text-gray-400 hover:text-roka-600 hover:bg-roka-50 rounded-lg">
                               <ChevronRight size={14} />
                             </button>
                           )}
+
+                          {/* Modificar / Eliminar — solo administrador y si hay examen */}
+                          {esAdmin && r.emo_id && (
+                            <>
+                              <button onClick={() => navigate(`/salud/${r.emo_id}/editar`)}
+                                title="Modificar examen"
+                                className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg">
+                                <Edit size={14} />
+                              </button>
+                              <button onClick={() => eliminarExamen(r)}
+                                disabled={eliminando === r.emo_id}
+                                title="Eliminar examen"
+                                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-40">
+                                {eliminando === r.emo_id
+                                  ? <div className="w-3.5 h-3.5 border border-red-400 border-t-transparent rounded-full animate-spin" />
+                                  : <Trash2 size={14} />}
+                              </button>
+                            </>
+                          )}
+
                           <button onClick={() => navigate(`/salud/nuevo?personal_id=${r.personal_id}`)}
+                            title="Registrar nuevo examen"
                             className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg">
                             <Plus size={14} />
                           </button>
                           <button onClick={() => navigate(`/salud/certificado/${r.personal_id}`)}
+                            title="Certificado de aptitud"
                             className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
                             <Download size={14} />
                           </button>

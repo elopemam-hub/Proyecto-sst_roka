@@ -23,6 +23,9 @@ class SustanciaPeligrosa extends Model
         'hds_path', 'hds_fecha_emision', 'hds_fecha_vencimiento',
         'nfpa_salud', 'nfpa_inflamabilidad', 'nfpa_inestabilidad', 'nfpa_especial',
         'limite_tlv_twa', 'limite_stel', 'limite_idlh',
+        'limite_tlv_twa_valor', 'limite_tlv_twa_unidad',
+        'limite_stel_valor', 'limite_stel_unidad',
+        'limite_idlh_valor', 'limite_idlh_unidad',
         'observaciones', 'activo',
     ];
 
@@ -37,6 +40,9 @@ class SustanciaPeligrosa extends Model
         'stock_maximo'        => 'decimal:2',
         'hds_fecha_emision'   => 'date',
         'hds_fecha_vencimiento' => 'date',
+        'limite_tlv_twa_valor' => 'decimal:4',
+        'limite_stel_valor'    => 'decimal:4',
+        'limite_idlh_valor'    => 'decimal:4',
     ];
 
     public function empresa(): BelongsTo { return $this->belongsTo(Empresa::class); }

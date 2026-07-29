@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useSelector } from 'react-redux'
 import { Plus, HeartPulse, AlertTriangle, Clock, ShieldAlert, Pencil, Trash2, ArrowLeft } from 'lucide-react'
 import api from '../../services/api'
 import { format, parseISO } from 'date-fns'
@@ -29,6 +30,8 @@ const TIPOS_ATENCION = {
 
 export default function SaludListPage() {
   const navigate = useNavigate()
+  const user     = useSelector(s => s.auth.user)
+  const esAdmin  = user?.rol === 'administrador'
   const [tab, setTab]       = useState('emo')
   const [emos, setEmos]     = useState([])
   const [atenciones, setAtenciones] = useState([])
@@ -93,7 +96,9 @@ export default function SaludListPage() {
       await api.delete(`/salud/${emo.id}`)
       setEmos(prev => prev.filter(x => x.id !== emo.id))
       cargarStats()
-    } catch { alert('Error al eliminar') }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Error al eliminar')
+    }
   }
 
   const vencimientoColor = (emo) => {
@@ -235,11 +240,14 @@ export default function SaludListPage() {
                         title="Editar">
                         <Pencil size={14} />
                       </button>
-                      <button onClick={ev => eliminarEmo(ev, e)}
-                        className="p-1.5 rounded-md text-slate-400 hover:text-red-400 hover:bg-slate-700 transition-colors"
-                        title="Eliminar">
-                        <Trash2 size={14} />
-                      </button>
+                      {/* Eliminar — solo administrador (el backend lo exige) */}
+                      {esAdmin && (
+                        <button onClick={ev => eliminarEmo(ev, e)}
+                          className="p-1.5 rounded-md text-slate-400 hover:text-red-400 hover:bg-slate-700 transition-colors"
+                          title="Eliminar">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
