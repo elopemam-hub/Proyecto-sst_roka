@@ -43,7 +43,8 @@ class CapacitacionController extends Controller
             );
         }
 
-        $capacitaciones = $query->orderBy('fecha_programada')
+        $capacitaciones = $query->orderByDesc('fecha_programada')
+            ->orderByDesc('id')
             ->paginate(min($request->integer('per_page', 15), 100));
 
         return response()->json($capacitaciones);

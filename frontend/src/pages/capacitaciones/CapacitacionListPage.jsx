@@ -55,14 +55,15 @@ export default function CapacitacionListPage() {
       if (filtroSearch)  params.search = filtroSearch
       const { data } = await api.get('/capacitaciones', { params })
       setCapacitaciones(data.data || data)
-      setMeta(data.meta || null)
+      // Laravel devuelve la paginación en el nivel raíz (no dentro de "meta")
+      setMeta(data.last_page ? data : (data.meta || null))
     } catch { /* silent */ } finally { setLoading(false) }
   }
 
   const buscar = (e) => {
     e.preventDefault()
-    setPagina(1)
-    cargarCapacitaciones()
+    if (pagina !== 1) setPagina(1)   // el efecto vuelve a cargar
+    else cargarCapacitaciones()
   }
 
   return (
