@@ -351,7 +351,6 @@ export default function InspeccionChecklistWizard() {
   const location = useLocation()
   const user = useSelector(selectUser)
   const preselCatalogoId = searchParams.get('catalogo_id')
-  const progId           = searchParams.get('prog_id')
   // asignacion_id viene de query params o de location.state (reanudación)
   const asignacionId      = searchParams.get('asignacion_id') || location.state?.asignacion_id || null
   const fromMisEquipos    = Boolean(asignacionId) || location.state?.from === 'mis-equipos'
@@ -514,9 +513,6 @@ export default function InspeccionChecklistWizard() {
       const { data } = await api.post('/inspecciones', body)
       setInspeccion(data)
       setPaso(3)
-      if (progId) {
-        api.put(`/inspecciones-programadas/${progId}/realizar`, { inspeccion_id: data.id }).catch(() => {})
-      }
     } catch (err) {
       alert(err.response?.data?.message || 'Error al crear la inspección')
     } finally { setSaving(false) }

@@ -20,10 +20,14 @@ const ESTADO_CFG = {
 
 const pctColor = v => v == null ? 'text-gray-300' : v >= 90 ? 'text-emerald-600 font-bold' : v >= 70 ? 'text-amber-600 font-bold' : 'text-red-500 font-bold'
 
+const HOY_ISO = () => new Date().toISOString().slice(0, 10)
+
 function TarjetaInspeccion({ insp, onEjecutar, onVer }) {
   const cfg      = ESTADO_CFG[insp.estado] || ESTADO_CFG.programada
   const EstIcon  = cfg.icon
   const puedeEjecutar = ['programada', 'en_ejecucion'].includes(insp.estado)
+  const vencida  = puedeEjecutar && insp.planificada_para &&
+                   String(insp.planificada_para).slice(0, 10) < HOY_ISO()
 
   return (
     <div className={`bg-white rounded-xl border ${cfg.bg} p-4 mb-3 shadow-sm`}>
@@ -51,9 +55,14 @@ function TarjetaInspeccion({ insp, onEjecutar, onVer }) {
               <span className="bg-gray-100 px-2 py-0.5 rounded-full">{insp.area.nombre}</span>
             )}
             {insp.planificada_para && (
-              <span className="flex items-center gap-1">
+              <span className={`flex items-center gap-1 ${vencida ? 'text-red-600 font-semibold' : ''}`}>
                 <Calendar size={10}/>
                 {format(parseISO(insp.planificada_para), 'dd MMM yyyy', { locale: es })}
+              </span>
+            )}
+            {vencida && (
+              <span className="bg-red-50 text-red-600 border border-red-200 px-2 py-0.5 rounded-full font-semibold">
+                Vencida
               </span>
             )}
             {insp.porcentaje_cumplimiento != null && (
@@ -186,7 +195,9 @@ export default function MisInspeccionesPage() {
               { l: 'Total',        v: r.total      || 0, color: 'text-gray-700',    bg: 'bg-white' },
               { l: 'Pendientes',   v: r.programadas|| 0, color: 'text-blue-700',    bg: 'bg-blue-50' },
               { l: 'En ejecución', v: r.en_progreso|| 0, color: 'text-amber-700',   bg: 'bg-amber-50' },
-              { l: 'Ejecutadas',   v: r.ejecutadas  || 0, color: 'text-emerald-700', bg: 'bg-emerald-50' },
+              filtroMes
+                ? { l: 'Ejecutadas', v: r.ejecutadas || 0, color: 'text-emerald-700', bg: 'bg-emerald-50' }
+                : { l: 'Vencidas',   v: r.vencidas   || 0, color: 'text-red-600',     bg: 'bg-red-50' },
             ].map(({ l, v, color, bg }) => (
               <div key={l} className={`${bg} rounded-xl border border-gray-200 p-3 text-center shadow-sm`}>
                 <p className={`text-xl font-black ${color}`}>{v}</p>

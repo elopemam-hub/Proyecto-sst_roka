@@ -388,7 +388,14 @@ class EquipoAsignacionController extends Controller
 
         // Buscar o crear la inspección del día
         if (!$inspeccionId) {
-            $plantilla = $asignacion->equipo?->plantillas?->first();
+            // Una asignación diaria debe usar la plantilla DIARIA del equipo: hay
+            // equipos con checklist diario y mensual a la vez, y coger la primera
+            // creaba la inspección contra el checklist equivocado.
+            $plantillas = $asignacion->equipo?->plantillas
+                ?->filter(fn($p) => (int) ($p->pivot->activo ?? 1) === 1);
+
+            $plantilla = $plantillas?->first(fn($p) => $p->pivot->frecuencia_inspeccion === 'diaria')
+                ?? $plantillas?->first();
 
             if ($plantilla) {
                 $hoy = Carbon::today();

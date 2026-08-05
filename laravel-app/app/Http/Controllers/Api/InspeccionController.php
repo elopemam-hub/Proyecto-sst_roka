@@ -35,14 +35,19 @@ class InspeccionController extends Controller
         $desde = sprintf('%04d-%02d-01', $anio, $mes);
         $hasta = date('Y-m-t', strtotime($desde));
 
-        // Solo catálogos activos con frecuencia mensual que tengan al menos 1 equipo activo
+        // La frecuencia real vive en el pivot equipos_plantillas, no en el catálogo:
+        // un equipo puede tener plantilla diaria Y mensual a la vez, y su
+        // equipo_catalogo_id puede apuntar a la diaria. Filtrar por el catálogo
+        // dejaba fuera del mensual a equipos que sí tienen inspección mensual.
         $catalogos = DB::table('equipos_catalogo as ec')
             ->leftJoin('inspeccion_submodulos as sm', 'sm.id', '=', 'ec.submodulo_id')
             ->where('ec.activo', true)
-            ->where('ec.frecuencia_inspeccion', 'mensual')
             ->whereExists(fn($q) => $q
-                ->from('equipos')
-                ->whereColumn('equipos.equipo_catalogo_id', 'ec.id')
+                ->from('equipos_plantillas as ep')
+                ->join('equipos', 'equipos.id', '=', 'ep.equipo_id')
+                ->whereColumn('ep.plantilla_id', 'ec.id')
+                ->where('ep.activo', true)
+                ->where('ep.frecuencia_inspeccion', 'mensual')
                 ->where('equipos.empresa_id', $eid)
                 ->whereIn('equipos.estado', ['operativo', 'en_mantenimiento'])
                 ->whereNull('equipos.deleted_at')
@@ -51,29 +56,40 @@ class InspeccionController extends Controller
             ->orderBy('ec.orden')
             ->get(['ec.id','ec.codigo','ec.nombre','ec.submodulo_id','sm.codigo as submod_codigo','sm.nombre as submod_nombre']);
 
-        // Inspecciones existentes en el mes para estos catálogos
+        // Inspecciones existentes en el mes para estos catálogos.
+        // Se excluyen las nacidas de una asignación diaria: hasta el 05/08/2026
+        // se creaban contra la plantilla mensual por error, y aparecerían aquí
+        // como si el equipo ya tuviera hecha su inspección del mes.
         $inspExistentes = DB::table('inspecciones')
             ->where('empresa_id', $eid)
             ->whereIn('equipo_catalogo_id', $catalogos->pluck('id'))
             ->whereBetween('planificada_para', [$desde, $hasta])
             ->whereNull('deleted_at')
+            ->whereNotExists(fn($q) => $q->from('equipo_asignaciones as ea')
+                ->whereColumn('ea.inspeccion_id', 'inspecciones.id'))
             ->get(['id','codigo','equipo_catalogo_id','equipo_id','estado','planificada_para','porcentaje_cumplimiento','area_id','inspector_id','inspector_usuario_id'])
             ->groupBy('equipo_catalogo_id');
 
-        // Equipos físicos por catálogo
-        $equiposPorCat = DB::table('equipos')
-            ->where('empresa_id', $eid)
-            ->whereIn('equipo_catalogo_id', $catalogos->pluck('id'))
-            ->whereNull('deleted_at')
-            ->get(['id','codigo','nombre','area_id','equipo_catalogo_id'])
+        // Equipos por plantilla mensual, tomados del pivot (no de equipo_catalogo_id).
+        // La clave del grupo es la plantilla, que es contra la que se inspecciona.
+        $equiposPorCat = DB::table('equipos_plantillas as ep')
+            ->join('equipos as e', 'e.id', '=', 'ep.equipo_id')
+            ->where('e.empresa_id', $eid)
+            ->whereIn('ep.plantilla_id', $catalogos->pluck('id'))
+            ->where('ep.activo', true)
+            ->where('ep.frecuencia_inspeccion', 'mensual')
+            ->whereNull('e.deleted_at')
+            ->get(['e.id','e.codigo','e.nombre','e.area_id', 'ep.plantilla_id as equipo_catalogo_id'])
             ->groupBy('equipo_catalogo_id');
 
         // Índice de equipos por ID para lookup rápido
-        $equiposPorId = DB::table('equipos')
-            ->where('empresa_id', $eid)
-            ->whereIn('equipo_catalogo_id', $catalogos->pluck('id'))
-            ->whereNull('deleted_at')
-            ->pluck('codigo', 'id');
+        $equiposPorId = DB::table('equipos_plantillas as ep')
+            ->join('equipos as e', 'e.id', '=', 'ep.equipo_id')
+            ->where('e.empresa_id', $eid)
+            ->whereIn('ep.plantilla_id', $catalogos->pluck('id'))
+            ->where('ep.activo', true)
+            ->whereNull('e.deleted_at')
+            ->pluck('e.codigo', 'e.id');
 
         // Áreas
         $areas = DB::table('areas')->pluck('nombre','id');
@@ -299,6 +315,13 @@ class InspeccionController extends Controller
         $desde = sprintf('%04d-%02d-01', $anio, $mes);
         $hasta = date('Y-m-t', strtotime($desde));
 
+        // Modo "equipo": una inspección por equipo físico, cada una con su propio
+        // inspector. El modo "catalogo" (por defecto) se conserva para no romper
+        // llamadas antiguas: genera una sola inspección por plantilla.
+        if ($request->input('modo') === 'equipo') {
+            return $this->generarProgramaPorEquipo($request, $eid, $desde, $hasta, $sobreescribir, $inspectorUsuarioId);
+        }
+
         // Solo catálogos activos con frecuencia mensual que tengan equipos activos
         $catalogos = \App\Models\EquipoCatalogo::where('activo', true)
             ->where('frecuencia_inspeccion', 'mensual')
@@ -359,6 +382,168 @@ class InspeccionController extends Controller
             'mes'      => $mes,
             'anio'     => $anio,
             'message'  => "$creadas inspecciones creadas para " . date('F Y', strtotime($desde)),
+        ]);
+    }
+
+    /**
+     * Genera una inspección por EQUIPO FÍSICO, cada una con el inspector elegido.
+     *
+     * Recibe `asignaciones`: [{equipo_id, inspector_usuario_id|null}, ...]. A
+     * diferencia del modo por catálogo, aquí sí se guarda `equipo_id`, que es lo
+     * que permite atribuir la ejecución a un equipo concreto en el Programa.
+     */
+    private function generarProgramaPorEquipo(
+        Request $request, int $eid, string $desde, string $hasta,
+        bool $sobreescribir, ?int $inspectorGlobal
+    ): JsonResponse {
+        $validated = $request->validate([
+            'asignaciones'                        => 'required|array|min:1',
+            'asignaciones.*.equipo_id'            => 'required|integer',
+            'asignaciones.*.plantilla_id'         => 'nullable|integer',
+            'asignaciones.*.inspector_usuario_id' => 'nullable|integer',
+        ]);
+
+        $ids = collect($validated['asignaciones'])->pluck('equipo_id')->unique();
+
+        $equipos = DB::table('equipos as e')
+            ->join('equipos_catalogo as c', 'c.id', '=', 'e.equipo_catalogo_id')
+            ->leftJoin('inspeccion_submodulos as sm', 'sm.id', '=', 'c.submodulo_id')
+            ->where('e.empresa_id', $eid)
+            ->whereIn('e.id', $ids)
+            ->whereNull('e.deleted_at')
+            ->get([
+                'e.id', 'e.nombre', 'e.codigo', 'e.area_id', 'e.equipo_catalogo_id',
+                'c.nombre as cat_nombre', 'c.submodulo_id', 'sm.tipo_inspeccion',
+            ])
+            ->keyBy('id');
+
+        // Un inspector de otra empresa no puede quedar asignado.
+        $usuariosValidos = DB::table('usuarios')->where('empresa_id', $eid)->pluck('id')->flip();
+        $areaFallback    = DB::table('areas')->where('empresa_id', $eid)->value('id');
+
+        $creadas = 0; $omitidas = 0; $conInspector = 0;
+
+        // Plantillas mensuales válidas de cada equipo, según el pivot. Un equipo
+        // con checklist diario y mensual tiene su equipo_catalogo_id apuntando a
+        // uno de los dos, así que no sirve para decidir contra qué se inspecciona.
+        $plantillasPorEquipo = DB::table('equipos_plantillas')
+            ->whereIn('equipo_id', $ids)
+            ->where('activo', true)
+            ->where('frecuencia_inspeccion', 'mensual')
+            ->get(['equipo_id', 'plantilla_id'])
+            ->groupBy('equipo_id')
+            ->map(fn($g) => $g->pluck('plantilla_id')->all());
+
+        $plantillasInfo = DB::table('equipos_catalogo as c')
+            ->leftJoin('inspeccion_submodulos as sm', 'sm.id', '=', 'c.submodulo_id')
+            ->get(['c.id', 'c.nombre', 'c.submodulo_id', 'sm.tipo_inspeccion'])
+            ->keyBy('id');
+
+        foreach ($validated['asignaciones'] as $asig) {
+            $eq = $equipos->get($asig['equipo_id']);
+            if (!$eq) { $omitidas++; continue; }
+
+            // Plantilla contra la que se inspecciona: la indicada, si es una
+            // mensual válida del equipo; si no, su primera mensual del pivot.
+            $mensuales = $plantillasPorEquipo->get($eq->id, []);
+            $plantillaId = $asig['plantilla_id'] ?? null;
+            if (!$plantillaId || !in_array($plantillaId, $mensuales)) {
+                $plantillaId = $mensuales[0] ?? $eq->equipo_catalogo_id;
+            }
+            $plantilla = $plantillasInfo->get($plantillaId);
+
+            // Una inspección nacida de asignación diaria no cuenta como la mensual
+            // del equipo: si no se excluye, el generador cree que ya está hecha y
+            // nunca crea la mensual que falta.
+            $existe = Inspeccion::where('empresa_id', $eid)
+                ->where('equipo_id', $eq->id)
+                ->where('equipo_catalogo_id', $plantillaId)
+                ->whereBetween('planificada_para', [$desde, $hasta])
+                ->whereNull('deleted_at')
+                ->whereNotExists(fn($q) => $q->from('equipo_asignaciones as ea')
+                    ->whereColumn('ea.inspeccion_id', 'inspecciones.id'))
+                ->exists();
+
+            if ($existe && !$sobreescribir) { $omitidas++; continue; }
+
+            $areaId = $eq->area_id ?? $areaFallback;
+            if (!$areaId) { $omitidas++; continue; }
+
+            $inspector = $asig['inspector_usuario_id'] ?? $inspectorGlobal;
+            if ($inspector && !isset($usuariosValidos[$inspector])) {
+                $inspector = null;
+            }
+
+            $tipo = $plantilla?->tipo_inspeccion ?: ($eq->tipo_inspeccion ?: 'equipos');
+
+            Inspeccion::create([
+                'empresa_id'          => $eid,
+                'sede_id'             => 1,
+                'area_id'             => $areaId,
+                'tipo'                => $tipo,
+                'titulo'              => $eq->nombre ?: $eq->cat_nombre,
+                'planificada_para'    => $desde,
+                'equipo_catalogo_id'  => $plantillaId,
+                'equipo_id'           => $eq->id,
+                'submodulo_id'        => $plantilla?->submodulo_id ?? $eq->submodulo_id,
+                'inspector_usuario_id'=> $inspector,
+                'estado'              => 'programada',
+                'codigo'              => Inspeccion::generarCodigo($eid, $tipo),
+                'elaborado_por'       => $request->user()->id,
+            ]);
+
+            $creadas++;
+            if ($inspector) $conInspector++;
+        }
+
+        return response()->json([
+            'creadas'       => $creadas,
+            'omitidas'      => $omitidas,
+            'con_inspector' => $conInspector,
+            'modo'          => 'equipo',
+            'message'       => "{$creadas} inspecciones creadas por equipo ({$conInspector} con inspector asignado).",
+        ]);
+    }
+
+    /**
+     * PUT /api/inspecciones/asignar-inspector-masivo
+     * Reasigna el inspector de varias inspecciones ya existentes de una sola vez.
+     */
+    public function asignarInspectorMasivo(Request $request): JsonResponse
+    {
+        $eid = $request->user()->empresa_id;
+
+        $validated = $request->validate([
+            'inspeccion_ids'       => 'required|array|min:1',
+            'inspeccion_ids.*'     => 'integer',
+            'inspector_usuario_id' => 'nullable|integer',
+        ]);
+
+        $usuarioId = $validated['inspector_usuario_id'] ?? null;
+
+        if ($usuarioId && !DB::table('usuarios')->where('empresa_id', $eid)->where('id', $usuarioId)->exists()) {
+            return response()->json(['message' => 'El usuario no pertenece a esta empresa.'], 422);
+        }
+
+        // Solo tiene sentido reasignar lo que aún no se ejecutó.
+        $elegibles = fn() => Inspeccion::where('empresa_id', $eid)
+            ->whereIn('id', $validated['inspeccion_ids'])
+            ->whereNull('deleted_at')
+            ->whereIn('estado', ['programada', 'en_ejecucion']);
+
+        // Se cuenta ANTES de actualizar: update() devuelve filas modificadas, y
+        // las que ya tenían ese inspector saldrían como omitidas sin serlo.
+        $actualizadas = $elegibles()->count();
+        $elegibles()->update(['inspector_usuario_id' => $usuarioId]);
+
+        $omitidas = count(array_unique($validated['inspeccion_ids'])) - $actualizadas;
+
+        return response()->json([
+            'actualizadas' => $actualizadas,
+            'omitidas'     => $omitidas,
+            'message'      => $usuarioId
+                ? "{$actualizadas} inspecciones reasignadas."
+                : "{$actualizadas} inspecciones sin inspector.",
         ]);
     }
 
@@ -1314,14 +1499,18 @@ class InspeccionController extends Controller
             ->whereNotIn('estado', ['anulada'])
             ->with(['area:id,nombre', 'equipoCatalogo:id,nombre,codigo']);
 
-        // Filtro de mes opcional. Sin mes → muestra todas (pendientes no cerradas por defecto)
+        // Filtro de mes opcional.
+        // Sin mes → solo lo que el usuario todavía tiene que hacer (pendiente / en ejecución),
+        // sin importar el mes: lo ya ejecutado no debe seguir apareciendo en la bandeja.
+        $soloPendientes = false;
+
         if ($request->filled('mes') && $request->filled('anio')) {
             $desde = sprintf('%04d-%02d-01', $request->integer('anio'), $request->integer('mes'));
             $hasta = date('Y-m-t', strtotime($desde));
             $query->whereBetween('planificada_para', [$desde, $hasta]);
         } elseif (!$request->boolean('todas', false)) {
-            // Por defecto: solo no cerradas (pendientes + en progreso + ejecutadas sin cerrar)
-            $query->whereNotIn('estado', ['cerrada']);
+            $soloPendientes = true;
+            $query->whereIn('estado', ['programada', 'en_ejecucion']);
         }
 
         if ($request->filled('estado')) {
@@ -1330,13 +1519,21 @@ class InspeccionController extends Controller
 
         $inspecciones = $query->orderBy('planificada_para')->get();
 
+        $hoy      = now()->toDateString();
+        $vencidas = $inspecciones
+            ->whereIn('estado', ['programada', 'en_ejecucion'])
+            ->filter(fn($i) => $i->planificada_para && substr((string) $i->planificada_para, 0, 10) < $hoy)
+            ->count();
+
         return response()->json([
             'inspecciones' => $inspecciones,
+            'modo'         => $soloPendientes ? 'pendientes' : 'periodo',
             'resumen' => [
                 'total'       => $inspecciones->count(),
                 'programadas' => $inspecciones->where('estado', 'programada')->count(),
                 'en_progreso' => $inspecciones->where('estado', 'en_ejecucion')->count(),
                 'ejecutadas'  => $inspecciones->whereIn('estado', ['ejecutada', 'con_hallazgos', 'cerrada'])->count(),
+                'vencidas'    => $vencidas,
             ],
         ]);
     }

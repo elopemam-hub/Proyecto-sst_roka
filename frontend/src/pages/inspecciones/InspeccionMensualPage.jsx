@@ -349,65 +349,489 @@ function FilaCatalogo({ cat, navigate, onProgramar, usuarios, onAsignarInspector
   )
 }
 
-// ── Modal confirmar generar programa ─────────────────────────────────────
-function ModalGenerarPrograma({ anio, mes, resumen, onConfirmar, onClose, generando, usuarios }) {
+// ── Nombre legible de un usuario ─────────────────────────────────────────
+const nombreUsuario = (u) =>
+  u?.nombre || `${u?.nombres ?? ''} ${u?.apellidos ?? ''}`.trim() || `Usuario ${u?.id}`
+
+// ── Modal generar programa ───────────────────────────────────────────────
+// Flujo en dos pasos: (1) marcar equipos, (2) asignarles un inspector.
+// Se repite por lotes para repartir los equipos entre varias personas.
+function ModalGenerarPrograma({ anio, mes, catalogos, onConfirmar, onClose, generando, usuarios }) {
+  const [paso, setPaso]                   = useState(1)
   const [sobreescribir, setSobreescribir] = useState(false)
-  const [inspectorId, setInspectorId]     = useState('')
-  const sinProg = resumen?.sin_prog || 0
+  // Clave compuesta equipo::plantilla: un mismo equipo puede tener más de una
+  // plantilla mensual, y cada una es una inspección independiente.
+  const [lote, setLote]                   = useState({})   // clave -> {usuarioId, equipoId, plantillaId}
+  const [marcados, setMarcados]           = useState({})   // clave -> bool
+  const [abiertos, setAbiertos]           = useState({})
+  const [buscar, setBuscar]               = useState('')
+  const [usuarioPaso2, setUsuarioPaso2]   = useState('')
+
+  const q = buscar.trim().toLowerCase()
+  const grupos = (catalogos || [])
+    .map(c => ({
+      id: c.catalogo_id,
+      nombre: c.catalogo_nombre,
+      equipos: (c.equipos || [])
+        .filter(e =>
+          !q || `${e.nombre ?? ''} ${e.codigo ?? ''} ${e.area ?? ''} ${c.catalogo_nombre ?? ''}`.toLowerCase().includes(q)
+        )
+        // La plantilla del grupo es contra la que se inspecciona: un equipo con
+        // checklist diario y mensual aparece bajo su plantilla mensual.
+        .map(e => ({ ...e, plantillaId: c.catalogo_id })),
+    }))
+    .filter(g => g.equipos.length > 0)
+
+  const clave       = (e) => `${e.id}::${e.plantillaId}`
+  const todos       = grupos.flatMap(g => g.equipos)
+  const disponible  = (e) => sobreescribir || !e.inspeccion
+  const disponibles = todos.filter(disponible)
+  const seleccion   = disponibles.filter(e => marcados[clave(e)])
+
+  // Filas ya repartidas en lotes (lo que realmente se va a generar)
+  const incluidos = Object.keys(lote)
+  const nombreDe = (id) => {
+    const u = usuarios.find(x => String(x.id) === String(id))
+    return u ? nombreUsuario(u) : null
+  }
+
+  // Resumen por inspector, para ver el reparto de un vistazo
+  const reparto = incluidos.reduce((acc, k) => {
+    const uid = lote[k]?.usuarioId ?? null
+    const key = uid ?? 'sin'
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+
+  const marcarTodos = (valor) => {
+    const next = { ...marcados }
+    disponibles.forEach(e => { next[clave(e)] = valor })
+    setMarcados(next)
+  }
+
+  // Paso 2 → aplica el inspector a la selección y vuelve al paso 1 limpio,
+  // listo para el siguiente lote.
+  const aplicarLote = () => {
+    const next = { ...lote }
+    seleccion.forEach(e => {
+      next[clave(e)] = {
+        usuarioId:   usuarioPaso2 ? parseInt(usuarioPaso2) : null,
+        equipoId:    e.id,
+        plantillaId: e.plantillaId,
+      }
+    })
+    setLote(next)
+    setMarcados({})
+    setUsuarioPaso2('')
+    setPaso(1)
+  }
+
+  const quitarDelLote = (claves) => {
+    const next = { ...lote }
+    claves.forEach(k => { delete next[k] })
+    setLote(next)
+  }
+
+  const confirmar = () => {
+    onConfirmar({
+      sobreescribir,
+      asignaciones: incluidos.map(k => ({
+        equipo_id:            lote[k].equipoId,
+        plantilla_id:         lote[k].plantillaId,
+        inspector_usuario_id: lote[k].usuarioId ?? null,
+      })),
+    })
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Generar programa {MESES_ES[mes-1]} {anio}</h2>
-          <p className="text-xs text-gray-400 mt-0.5">Crea inspecciones para todos los catálogos activos</p>
-        </div>
-        <div className="p-5 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-roka-50 rounded-xl p-3 text-center border border-roka-100">
-              <p className="text-2xl font-black text-roka-600">{sinProg}</p>
-              <p className="text-xs text-roka-600">Sin programar</p>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3 text-center border border-gray-200">
-              <p className="text-2xl font-black text-gray-500">{(resumen?.programadas || 0) + (resumen?.completadas || 0)}</p>
-              <p className="text-xs text-gray-500">Ya tienen insp.</p>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+
+        {/* Cabecera con indicador de paso */}
+        <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="font-bold text-gray-900">Generar programa {MESES_ES[mes-1]} {anio}</h2>
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className={`flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full border ${
+                paso === 1 ? 'bg-roka-50 text-roka-700 border-roka-200' : 'bg-gray-50 text-gray-400 border-gray-200'
+              }`}>
+                <span className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center ${
+                  paso === 1 ? 'bg-roka-500 text-white' : 'bg-gray-200 text-gray-500'
+                }`}>1</span>
+                Seleccionar equipos
+              </span>
+              <ChevronRight size={12} className="text-gray-300"/>
+              <span className={`flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full border ${
+                paso === 2 ? 'bg-roka-50 text-roka-700 border-roka-200' : 'bg-gray-50 text-gray-400 border-gray-200'
+              }`}>
+                <span className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center ${
+                  paso === 2 ? 'bg-roka-500 text-white' : 'bg-gray-200 text-gray-500'
+                }`}>2</span>
+                Asignar inspector
+              </span>
             </div>
           </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18}/></button>
+        </div>
 
-          {/* Inspector por defecto */}
-          {usuarios.length > 0 && (
-            <div>
-              <label className="flex items-center gap-1.5 text-xs font-medium text-gray-700 mb-1.5">
-                <User size={12} className="text-gray-500"/>
-                Inspector por defecto (opcional)
+        {/* ── PASO 1: seleccionar equipos ── */}
+        {paso === 1 && (
+          <>
+            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex flex-wrap items-center gap-2">
+              <input value={buscar} onChange={e => setBuscar(e.target.value)}
+                placeholder="🔍 Buscar equipo, código o área..."
+                className="flex-1 min-w-[180px] bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-roka-300"/>
+              <button onClick={() => marcarTodos(true)}
+                className="text-xs border border-gray-300 bg-white text-gray-600 rounded-lg px-2.5 py-1.5 hover:bg-gray-100">
+                Marcar todos ({disponibles.length})
+              </button>
+              <button onClick={() => marcarTodos(false)}
+                className="text-xs border border-gray-300 bg-white text-gray-600 rounded-lg px-2.5 py-1.5 hover:bg-gray-100">
+                Ninguno
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-3">
+              {grupos.length === 0 ? (
+                <p className="text-center text-sm text-gray-400 py-10">Sin equipos que coincidan</p>
+              ) : grupos.map(g => {
+                const abierto     = abiertos[g.id] !== false
+                const delGrupo    = g.equipos.filter(disponible)
+                const marcadosGrp = delGrupo.filter(e => marcados[clave(e)]).length
+
+                return (
+                  <div key={g.id} className="mb-2 border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-100">
+                      <button onClick={() => setAbiertos(a => ({ ...a, [g.id]: !abierto }))}
+                        className="text-gray-400 hover:text-gray-600">
+                        <ChevronDown size={14} className={`transition-transform ${abierto ? '' : '-rotate-90'}`}/>
+                      </button>
+                      <input type="checkbox"
+                        checked={delGrupo.length > 0 && marcadosGrp === delGrupo.length}
+                        onChange={e => {
+                          const next = { ...marcados }
+                          delGrupo.forEach(eq => { next[clave(eq)] = e.target.checked })
+                          setMarcados(next)
+                        }}
+                        disabled={delGrupo.length === 0}
+                        className="w-4 h-4 rounded accent-roka-500 disabled:opacity-30"/>
+                      <span className="text-sm font-semibold text-gray-700 flex-1">{g.nombre}</span>
+                      <span className="text-[11px] text-gray-400">
+                        {marcadosGrp}/{delGrupo.length} marcados
+                      </span>
+                    </div>
+
+                    {abierto && (
+                      <div className="divide-y divide-gray-50">
+                        {g.equipos.map(eq => {
+                          const k         = clave(eq)
+                          const yaTiene   = Boolean(eq.inspeccion)
+                          const bloqueado = yaTiene && !sobreescribir
+                          const enLote    = lote[k]
+                          const insp      = enLote ? nombreDe(enLote.usuarioId) : null
+
+                          return (
+                            <label key={k}
+                              className={`flex items-center gap-2 px-3 py-2 ${
+                                bloqueado ? 'bg-gray-50/60' : 'hover:bg-gray-50 cursor-pointer'
+                              }`}>
+                              <input type="checkbox"
+                                checked={Boolean(marcados[k]) && !bloqueado}
+                                onChange={() => setMarcados(m => ({ ...m, [k]: !m[k] }))}
+                                disabled={bloqueado}
+                                className="w-4 h-4 rounded accent-roka-500 disabled:opacity-30 ml-5"/>
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-sm truncate ${bloqueado ? 'text-gray-400' : 'text-gray-800'}`}>
+                                  {eq.nombre}
+                                </p>
+                                <p className="text-[10px] text-gray-400 font-mono">{eq.codigo} · {eq.area}</p>
+                              </div>
+
+                              {yaTiene && (
+                                <span className="text-[10px] bg-gray-100 text-gray-500 border border-gray-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                  ya generada
+                                </span>
+                              )}
+
+                              {enLote && (
+                                <span
+                                  onClick={(ev) => { ev.preventDefault(); quitarDelLote([k]) }}
+                                  title="Quitar del programa"
+                                  className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap cursor-pointer ${
+                                    insp
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                      : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                                  }`}>
+                                  {insp ?? 'sin inspector'} <X size={9}/>
+                                </span>
+                              )}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Pie del paso 1 */}
+            <div className="px-5 py-3 border-t border-gray-100 space-y-3">
+              <label className="flex items-center gap-2.5 p-2.5 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer">
+                <input type="checkbox" checked={sobreescribir} onChange={e => setSobreescribir(e.target.checked)}
+                  className="w-4 h-4 rounded accent-amber-500"/>
+                <div>
+                  <p className="text-xs font-medium text-amber-800">Sobreescribir existentes</p>
+                  <p className="text-[10px] text-amber-600">
+                    Permite incluir equipos que ya tienen inspección este mes
+                  </p>
+                </div>
               </label>
-              <select value={inspectorId} onChange={e => setInspectorId(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-roka-300 bg-white">
-                <option value="">Sin asignar</option>
+
+              {/* Reparto acumulado */}
+              {incluidos.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-gray-500">En el programa:</span>
+                  {Object.entries(reparto).map(([k, n]) => (
+                    <span key={k}
+                      className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                        k === 'sin'
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      }`}>
+                      {k === 'sin' ? 'Sin inspector' : nombreDe(k)}: {n}
+                    </span>
+                  ))}
+                  <button onClick={() => setLote({})}
+                    className="text-[11px] text-red-500 hover:text-red-700 underline ml-1">
+                    vaciar
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-gray-500 flex-1">
+                  <strong className="text-gray-800">{seleccion.length}</strong> marcados ·{' '}
+                  <strong className="text-gray-800">{incluidos.length}</strong> en el programa
+                </p>
+                <button onClick={onClose}
+                  className="border border-gray-300 text-gray-600 rounded-lg px-4 py-2 text-sm hover:bg-gray-50">
+                  Cancelar
+                </button>
+                <button onClick={() => setPaso(2)} disabled={seleccion.length === 0}
+                  className="flex items-center gap-1.5 border border-roka-300 text-roka-600 hover:bg-roka-50 rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-40">
+                  Asignar inspector <ChevronRight size={14}/>
+                </button>
+                <button onClick={confirmar} disabled={generando || incluidos.length === 0}
+                  className="flex items-center justify-center gap-2 bg-roka-500 hover:bg-roka-600 text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-40">
+                  {generando ? <RefreshCw size={13} className="animate-spin"/> : <Plus size={13}/>}
+                  {generando ? 'Generando...' : `Generar ${incluidos.length}`}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── PASO 2: asignar inspector a lo seleccionado ── */}
+        {paso === 2 && (
+          <>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <p className="text-sm text-gray-600 mb-3">
+                Asignar <strong className="text-gray-900">{seleccion.length} equipo{seleccion.length !== 1 ? 's' : ''}</strong> a:
+              </p>
+
+              <div className="space-y-1.5 mb-4">
                 {usuarios.map(u => (
-                  <option key={u.id} value={u.id}>{u.nombre || `${u.nombres ?? ''} ${u.apellidos ?? ''}`.trim()}</option>
+                  <label key={u.id}
+                    className={`flex items-center gap-2.5 px-3 py-2.5 border rounded-xl cursor-pointer transition-colors ${
+                      String(usuarioPaso2) === String(u.id)
+                        ? 'border-roka-400 bg-roka-50'
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}>
+                    <input type="radio" name="inspectorLote" value={u.id}
+                      checked={String(usuarioPaso2) === String(u.id)}
+                      onChange={e => setUsuarioPaso2(e.target.value)}
+                      className="w-4 h-4 accent-roka-500"/>
+                    <User size={14} className="text-gray-400"/>
+                    <span className="text-sm text-gray-800 flex-1">{nombreUsuario(u)}</span>
+                    {reparto[u.id] > 0 && (
+                      <span className="text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">
+                        ya tiene {reparto[u.id]}
+                      </span>
+                    )}
+                  </label>
                 ))}
-              </select>
-              <p className="text-[10px] text-gray-400 mt-1">Se asignará a todas las inspecciones generadas</p>
+
+                <label className={`flex items-center gap-2.5 px-3 py-2.5 border rounded-xl cursor-pointer transition-colors ${
+                  usuarioPaso2 === '' ? 'border-blue-300 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'
+                }`}>
+                  <input type="radio" name="inspectorLote" value=""
+                    checked={usuarioPaso2 === ''}
+                    onChange={() => setUsuarioPaso2('')}
+                    className="w-4 h-4 accent-blue-500"/>
+                  <span className="text-sm text-gray-600 flex-1">Incluir sin inspector</span>
+                  <span className="text-[10px] text-gray-400">se asigna después</span>
+                </label>
+              </div>
+
+              {/* Vista previa de lo que se va a asignar */}
+              <div className="border border-gray-200 rounded-xl max-h-48 overflow-y-auto divide-y divide-gray-50">
+                {seleccion.map(e => (
+                  <div key={clave(e)} className="px-3 py-1.5 flex items-center gap-2">
+                    <span className="text-xs text-gray-700 flex-1 truncate">{e.nombre}</span>
+                    <span className="text-[10px] text-gray-400 font-mono">{e.area}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="px-5 py-3 border-t border-gray-100 flex items-center gap-2">
+              <button onClick={() => setPaso(1)}
+                className="flex items-center gap-1.5 border border-gray-300 text-gray-600 rounded-lg px-4 py-2 text-sm hover:bg-gray-50">
+                <ChevronLeft size={14}/> Volver
+              </button>
+              <div className="flex-1"/>
+              <button onClick={aplicarLote}
+                className="flex items-center gap-2 bg-roka-500 hover:bg-roka-600 text-white rounded-lg px-4 py-2 text-sm font-medium">
+                <User size={13}/>
+                Asignar a {seleccion.length}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Modal reasignar inspector en bloque (inspecciones ya generadas) ──────
+function ModalAsignarMasivo({ anio, mes, catalogos, usuarios, onConfirmar, onClose, guardando }) {
+  const [marcados, setMarcados] = useState({})
+  const [usuarioId, setUsuarioId] = useState('')
+  const [buscar, setBuscar]     = useState('')
+  const [soloSinAsignar, setSoloSinAsignar] = useState(false)
+
+  // Solo se puede reasignar lo que aún no se ejecutó.
+  const REASIGNABLES = ['programada', 'en_ejecucion']
+
+  const q = buscar.trim().toLowerCase()
+  const filas = (catalogos || []).flatMap(c =>
+    (c.equipos || [])
+      .filter(e => e.inspeccion && REASIGNABLES.includes(e.inspeccion.estado))
+      .filter(e => !soloSinAsignar || !e.inspeccion.inspector_usuario_id)
+      .filter(e => !q || `${e.nombre ?? ''} ${e.codigo ?? ''} ${e.area ?? ''} ${c.catalogo_nombre ?? ''}`.toLowerCase().includes(q))
+      .map(e => ({
+        inspeccionId: e.inspeccion.id,
+        codigo:       e.inspeccion.codigo,
+        estado:       e.inspeccion.estado,
+        actual:       e.inspeccion.inspector_usuario_id,
+        equipo:       e.nombre,
+        equipoCodigo: e.codigo,
+        area:         e.area,
+        catalogo:     c.catalogo_nombre,
+      }))
+  )
+
+  const seleccionados = filas.filter(f => marcados[f.inspeccionId])
+
+  const marcarTodos = (valor) => {
+    const next = { ...marcados }
+    filas.forEach(f => { next[f.inspeccionId] = valor })
+    setMarcados(next)
+  }
+
+  const nombreDe = (id) => {
+    const u = usuarios.find(x => String(x.id) === String(id))
+    return u ? nombreUsuario(u) : null
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="font-bold text-gray-900">Asignar inspectores · {MESES_ES[mes-1]} {anio}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Reasigna en bloque las inspecciones ya generadas que siguen pendientes
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18}/></button>
+        </div>
+
+        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex flex-wrap items-center gap-2">
+          <input value={buscar} onChange={e => setBuscar(e.target.value)}
+            placeholder="🔍 Buscar equipo o área..."
+            className="flex-1 min-w-[180px] bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-roka-300"/>
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 cursor-pointer">
+            <input type="checkbox" checked={soloSinAsignar} onChange={e => setSoloSinAsignar(e.target.checked)}
+              className="w-3.5 h-3.5 rounded accent-roka-500"/>
+            Solo sin inspector
+          </label>
+          <button onClick={() => marcarTodos(true)}
+            className="text-xs border border-gray-300 bg-white text-gray-600 rounded-lg px-2.5 py-1.5 hover:bg-gray-100">
+            Marcar todos ({filas.length})
+          </button>
+          <button onClick={() => marcarTodos(false)}
+            className="text-xs border border-gray-300 bg-white text-gray-600 rounded-lg px-2.5 py-1.5 hover:bg-gray-100">
+            Ninguno
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-3">
+          {filas.length === 0 ? (
+            <p className="text-center text-sm text-gray-400 py-10">
+              No hay inspecciones pendientes que reasignar en este mes
+            </p>
+          ) : (
+            <div className="border border-gray-200 rounded-xl divide-y divide-gray-50 overflow-hidden">
+              {filas.map(f => (
+                <label key={f.inspeccionId}
+                  className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                  <input type="checkbox"
+                    checked={Boolean(marcados[f.inspeccionId])}
+                    onChange={() => setMarcados(m => ({ ...m, [f.inspeccionId]: !m[f.inspeccionId] }))}
+                    className="w-4 h-4 rounded accent-roka-500"/>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-800 truncate">{f.equipo}</p>
+                    <p className="text-[10px] text-gray-400 font-mono">
+                      {f.codigo} · {f.equipoCodigo} · {f.area}
+                    </p>
+                  </div>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${
+                    f.actual
+                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                      : 'bg-gray-100 text-gray-500 border-gray-200'
+                  }`}>
+                    {f.actual ? (nombreDe(f.actual) ?? 'Asignada') : 'Sin inspector'}
+                  </span>
+                </label>
+              ))}
             </div>
           )}
-
-          <label className="flex items-center gap-2.5 p-3 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer">
-            <input type="checkbox" checked={sobreescribir} onChange={e => setSobreescribir(e.target.checked)}
-              className="w-4 h-4 rounded accent-amber-500"/>
-            <div>
-              <p className="text-xs font-medium text-amber-800">Sobreescribir existentes</p>
-              <p className="text-[10px] text-amber-600">Crea inspecciones incluso para los que ya tienen una este mes</p>
-            </div>
-          </label>
         </div>
-        <div className="px-5 pb-5 flex gap-2">
-          <button onClick={onClose} className="flex-1 border border-gray-300 text-gray-600 rounded-lg py-2 text-sm hover:bg-gray-50">
+
+        <div className="px-5 py-3 border-t border-gray-100 flex flex-wrap items-center gap-2">
+          <select value={usuarioId} onChange={e => setUsuarioId(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-roka-300">
+            <option value="">Quitar inspector</option>
+            {usuarios.map(u => <option key={u.id} value={u.id}>{nombreUsuario(u)}</option>)}
+          </select>
+          <p className="text-xs text-gray-500 flex-1">
+            <strong className="text-gray-800">{seleccionados.length}</strong> seleccionadas
+          </p>
+          <button onClick={onClose}
+            className="border border-gray-300 text-gray-600 rounded-lg px-4 py-2 text-sm hover:bg-gray-50">
             Cancelar
           </button>
-          <button onClick={() => onConfirmar(sobreescribir, inspectorId ? parseInt(inspectorId) : null)} disabled={generando}
-            className="flex-1 flex items-center justify-center gap-2 bg-roka-500 hover:bg-roka-600 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-40">
-            {generando ? <RefreshCw size={13} className="animate-spin"/> : <Plus size={13}/>}
-            {generando ? 'Generando...' : 'Generar programa'}
+          <button
+            onClick={() => onConfirmar(
+              seleccionados.map(f => f.inspeccionId),
+              usuarioId ? parseInt(usuarioId) : null,
+            )}
+            disabled={guardando || seleccionados.length === 0}
+            className="flex items-center justify-center gap-2 bg-roka-500 hover:bg-roka-600 text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-40">
+            {guardando ? <RefreshCw size={13} className="animate-spin"/> : <User size={13}/>}
+            {guardando ? 'Asignando...' : `Asignar ${seleccionados.length}`}
           </button>
         </div>
       </div>
@@ -910,6 +1334,8 @@ export default function InspeccionMensualPage() {
   const [ordenRiesgo, setOrdenRiesgo]     = useState(false)
   const [buscar, setBuscar]               = useState('')
   const [modalGen, setModalGen]           = useState(false)
+  const [modalAsignar, setModalAsignar]   = useState(false)
+  const [asignando, setAsignando]         = useState(false)
   const [generando, setGenerando]         = useState(false)
   const [usuarios, setUsuarios]           = useState([])
   const [limpiando, setLimpiando]         = useState(false)
@@ -934,17 +1360,31 @@ export default function InspeccionMensualPage() {
     } finally { setLoading(false) }
   }
 
-  const generarPrograma = async (sobreescribir, inspectorId = null) => {
+  const generarPrograma = async ({ sobreescribir, asignaciones }) => {
     setGenerando(true)
     try {
-      const payload = { anio, mes, sobreescribir }
-      if (inspectorId) payload.inspector_usuario_id = inspectorId
-      const { data: res } = await api.post('/inspecciones/generar-programa', payload)
-      toast.success(`✓ ${res.creadas} inspecciones creadas · ${res.omitidas} omitidas`)
+      const { data: res } = await api.post('/inspecciones/generar-programa', {
+        anio, mes, sobreescribir, modo: 'equipo', asignaciones,
+      })
+      toast.success(`✓ ${res.creadas} inspecciones creadas · ${res.con_inspector} con inspector`)
       setModalGen(false)
       cargar()
     } catch (e) { toast.error(e.response?.data?.message || 'Error al generar') }
     finally { setGenerando(false) }
+  }
+
+  const asignarMasivo = async (inspeccionIds, usuarioId) => {
+    setAsignando(true)
+    try {
+      const { data: res } = await api.put('/inspecciones/asignar-inspector-masivo', {
+        inspeccion_ids: inspeccionIds,
+        inspector_usuario_id: usuarioId,
+      })
+      toast.success(`✓ ${res.actualizadas} inspecciones reasignadas`)
+      setModalAsignar(false)
+      cargar()
+    } catch (e) { toast.error(e.response?.data?.message || 'Error al asignar') }
+    finally { setAsignando(false) }
   }
 
   const handleAsignarInspector = async (inspeccionId, usuarioId) => {
@@ -1066,10 +1506,17 @@ export default function InspeccionMensualPage() {
               <button onClick={() => setAnio(a=>a+1)} className="p-0.5 text-gray-400 hover:text-gray-700"><ChevronRight size={12}/></button>
             </div>
           </div>
-          <button onClick={() => setModalGen(true)}
-            className="flex items-center gap-2 bg-roka-500 hover:bg-roka-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm">
-            <Zap size={15}/> Generar programa
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setModalAsignar(true)}
+              title="Reasignar en bloque las inspecciones ya generadas"
+              className="flex items-center gap-2 border border-roka-300 text-roka-600 hover:bg-roka-50 px-3 py-2.5 rounded-xl text-sm font-semibold">
+              <User size={15}/> Asignar inspectores
+            </button>
+            <button onClick={() => setModalGen(true)}
+              className="flex items-center gap-2 bg-roka-500 hover:bg-roka-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm">
+              <Zap size={15}/> Generar programa
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1294,11 +1741,22 @@ export default function InspeccionMensualPage() {
       {modalGen && (
         <ModalGenerarPrograma
           anio={anio} mes={mes}
-          resumen={data?.resumen}
+          catalogos={data?.catalogos}
           generando={generando}
           onConfirmar={generarPrograma}
           onClose={() => setModalGen(false)}
           usuarios={usuarios}
+        />
+      )}
+
+      {modalAsignar && (
+        <ModalAsignarMasivo
+          anio={anio} mes={mes}
+          catalogos={data?.catalogos}
+          usuarios={usuarios}
+          guardando={asignando}
+          onConfirmar={asignarMasivo}
+          onClose={() => setModalAsignar(false)}
         />
       )}
     </div>

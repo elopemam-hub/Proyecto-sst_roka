@@ -28,7 +28,7 @@ use App\Http\Controllers\Api\ReporteController;
 use App\Http\Controllers\Api\VehiculoController;
 use App\Http\Controllers\Api\EquipoController;
 use App\Http\Controllers\Api\EquipoTipoController;
-use App\Http\Controllers\Api\InspeccionProgramadaController;
+use App\Http\Controllers\Api\ProgramaInspeccionesController;
 use App\Http\Controllers\Api\EquipoAsignacionController;
 use App\Http\Controllers\Api\InspeccionSubmoduloController;
 use App\Http\Controllers\Api\EquipoQrController;
@@ -65,6 +65,15 @@ Route::get('/ping', fn() => response()->json([
 // throttle:10,1 = máx 10 intentos por minuto por IP (previene brute-force)
 Route::prefix('auth')->middleware('throttle:10,1')->group(function () {
     Route::post('/login',  [AuthController::class, 'login']);
+});
+
+// Lectura pública de OPL y SOP publicados (el QR impreso en la hoja).
+// throttle: el token es la única credencial, así que se limita por IP.
+Route::prefix('publico')->middleware('throttle:30,1')->group(function () {
+    Route::get('/documento/{tipo}/{token}',
+        [\App\Http\Controllers\Api\DocumentoPublicoController::class, 'mostrar']);
+    Route::post('/documento/{tipo}/{token}/acuse',
+        [\App\Http\Controllers\Api\DocumentoPublicoController::class, 'acusar']);
 });
 
 // QR público (resolver código de equipo sin autenticación)
@@ -180,6 +189,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/catalogo/lista',         [EquipoCatalogoController::class, 'lista'])->name('inspecciones.catalogo-lista');
         Route::get('/catalogo/{id}/dashboard',[EquipoCatalogoController::class, 'dashboard'])->name('inspecciones.catalogo-dashboard');
         Route::post('/generar-programa',      [InspeccionController::class, 'generarPrograma']);
+        Route::put('/asignar-inspector-masivo', [InspeccionController::class, 'asignarInspectorMasivo']);
         Route::delete('/limpiar-programadas', [InspeccionController::class, 'limpiarProgramadas']);
         Route::get('/programadas-checklist',  [InspeccionController::class, 'programadasChecklist']);
         Route::post('/programar-checklist',   [InspeccionController::class, 'programarChecklist']);
@@ -403,6 +413,53 @@ Route::middleware('auth:sanctum')->group(function () {
     });
     Route::apiResource('documentos', DocumentoController::class);
 
+    // ─── ESTUDIOS DOCUMENTALES (OPL / SOP) ──────────────────────────────
+    // Maestros que ambos editores cargan al abrir para poblar sus desplegables.
+    Route::get('estudios/contexto', \App\Http\Controllers\Api\EstudioContextoController::class);
+
+    // ─── OPL STUDIO (Lecciones de un Punto) ─────────────────────────────
+    Route::middleware('permiso:opl,ver')->group(function () {
+        Route::get('opls',      [\App\Http\Controllers\Api\OplController::class, 'index']);
+        Route::get('opls/{id}', [\App\Http\Controllers\Api\OplController::class, 'show']);
+    });
+    Route::middleware('permiso:opl,crear')->group(function () {
+        Route::post('opls',                [\App\Http\Controllers\Api\OplController::class, 'store']);
+        Route::post('opls/{id}/duplicar',  [\App\Http\Controllers\Api\OplController::class, 'duplicar']);
+    });
+    Route::put('opls/{id}', [\App\Http\Controllers\Api\OplController::class, 'update'])
+        ->middleware('permiso:opl,editar');
+    Route::delete('opls/{id}', [\App\Http\Controllers\Api\OplController::class, 'destroy'])
+        ->middleware('permiso:opl,eliminar');
+
+    // Difusión: publicar genera el token del QR; las lecturas son el registro.
+    Route::post('opls/{id}/publicar', [\App\Http\Controllers\Api\DocumentoPublicacionController::class, 'publicarOpl'])
+        ->middleware('permiso:opl,aprobar');
+    Route::post('opls/{id}/despublicar', [\App\Http\Controllers\Api\DocumentoPublicacionController::class, 'despublicarOpl'])
+        ->middleware('permiso:opl,aprobar');
+    Route::get('opls/{id}/lecturas', [\App\Http\Controllers\Api\DocumentoPublicacionController::class, 'lecturasOpl'])
+        ->middleware('permiso:opl,ver');
+
+    // ─── SOP STUDIO (Procedimientos Operativos Estándar) ────────────────
+    Route::middleware('permiso:sop,ver')->group(function () {
+        Route::get('sops',      [\App\Http\Controllers\Api\SopController::class, 'index']);
+        Route::get('sops/{id}', [\App\Http\Controllers\Api\SopController::class, 'show']);
+    });
+    Route::middleware('permiso:sop,crear')->group(function () {
+        Route::post('sops',               [\App\Http\Controllers\Api\SopController::class, 'store']);
+        Route::post('sops/{id}/duplicar', [\App\Http\Controllers\Api\SopController::class, 'duplicar']);
+    });
+    Route::put('sops/{id}', [\App\Http\Controllers\Api\SopController::class, 'update'])
+        ->middleware('permiso:sop,editar');
+    Route::delete('sops/{id}', [\App\Http\Controllers\Api\SopController::class, 'destroy'])
+        ->middleware('permiso:sop,eliminar');
+
+    Route::post('sops/{id}/publicar', [\App\Http\Controllers\Api\DocumentoPublicacionController::class, 'publicarSop'])
+        ->middleware('permiso:sop,aprobar');
+    Route::post('sops/{id}/despublicar', [\App\Http\Controllers\Api\DocumentoPublicacionController::class, 'despublicarSop'])
+        ->middleware('permiso:sop,aprobar');
+    Route::get('sops/{id}/lecturas', [\App\Http\Controllers\Api\DocumentoPublicacionController::class, 'lecturasSop'])
+        ->middleware('permiso:sop,ver');
+
     // ─── REPORTES MINTRA (Fase 7) ───────────────────────────────────────────
     Route::prefix('reportes')->group(function () {
         Route::get('/consolidado',       [ReporteController::class, 'consolidado']);
@@ -440,15 +497,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/equipos/todas-etiquetas', [EquipoPdfController::class, 'todasEtiquetasHtml']);
     Route::apiResource('equipos', EquipoController::class);
 
-    // ─── INSPECCIONES PROGRAMADAS (Fase 2 scheduler) ──────────────────────
-    Route::prefix('inspecciones-programadas')->group(function () {
-        Route::get('/dashboard',  [InspeccionProgramadaController::class, 'dashboard']);
-        Route::post('/generar',   [InspeccionProgramadaController::class, 'generar']);
-        Route::delete('/limpiar', [InspeccionProgramadaController::class, 'limpiar']);
-        Route::get('/',           [InspeccionProgramadaController::class, 'index']);
-        Route::put('/{id}/realizar', [InspeccionProgramadaController::class, 'realizar']);
-        Route::put('/{id}/omitir',   [InspeccionProgramadaController::class, 'omitir']);
-        Route::delete('/{id}',       [InspeccionProgramadaController::class, 'destroy']);
+    // ─── PROGRAMA DE INSPECCIONES (vista de solo lectura) ──────────────────
+    // Cruza frecuencias configuradas vs inspecciones ejecutadas. Sustituye al
+    // scheduler paralelo inspeccion_programadas, que nadie cerraba.
+    Route::prefix('programa-inspecciones')->group(function () {
+        Route::get('/resumen', [ProgramaInspeccionesController::class, 'resumen']);
+        Route::get('/detalle', [ProgramaInspeccionesController::class, 'detalle']);
     });
 
     // ─── CERTIFICADOS DE OPERATIVIDAD DE EQUIPOS ───────────────────────────

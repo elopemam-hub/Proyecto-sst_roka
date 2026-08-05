@@ -22,7 +22,7 @@ function SeccionMisInspecciones({ fecha, navigate }) {
   const [abierta, setAbierta] = useState(true)
 
   useEffect(() => {
-    // Sin filtro de mes → muestra todas las pendientes (no cerradas)
+    // Sin filtro de mes → solo las pendientes (programadas / en ejecución)
     api.get('/inspecciones/mis-inspecciones')
       .then(({ data: res }) => setData(res))
       .catch(() => {})
@@ -37,7 +37,7 @@ function SeccionMisInspecciones({ fecha, navigate }) {
         className="w-full flex items-center justify-between bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-sm mb-2">
         <div className="flex items-center gap-2">
           <ClipboardList size={16} className="text-blue-600" />
-          <span className="font-semibold text-gray-800 text-sm">Mis inspecciones del mes</span>
+          <span className="font-semibold text-gray-800 text-sm">Mis inspecciones pendientes</span>
           <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
             {data.resumen.total}
           </span>
