@@ -13,13 +13,9 @@ Options -MultiViews
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
-    # Archivos reales se sirven directamente (css, js, img, etc.)
-    RewriteCond %{REQUEST_FILENAME} -f
-    RewriteRule ^ - [L]
-
-    # Rutas API → Laravel (api/index.php)
-    RewriteCond %{REQUEST_URI} ^/api
-    RewriteRule .* /api/index.php [L]
+    # No reescribir archivos o directorios reales
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
 
     # Todo lo demás → React SPA (index.html)
     RewriteRule ^ /index.html [L]
@@ -56,4 +52,21 @@ Options -MultiViews
     ExpiresByType image/png                "access plus 1 month"
     ExpiresByType image/svg+xml            "access plus 1 month"
     ExpiresByType font/woff2               "access plus 1 year"
+</IfModule>
+
+# ── NO-CACHE-HTML ────────────────────────────────────────────
+# Los assets llevan hash en el nombre y se cachean 1 año, pero el HTML que
+# los referencia debe revalidarse siempre. Si index.html queda cacheado, el
+# navegador sigue cargando el build anterior: los chunks viejos nunca se
+# borran del servidor, así que la app antigua funciona entera y sin errores,
+# y parece que el deploy no surtió efecto.
+<IfModule mod_headers.c>
+    <FilesMatch "^(index\.html|sw\.js|manifest\.webmanifest)$">
+        Header set Cache-Control "no-cache, no-store, must-revalidate"
+        Header set Pragma "no-cache"
+        Header set Expires "0"
+    </FilesMatch>
+</IfModule>
+<IfModule mod_expires.c>
+    ExpiresByType text/html "access plus 0 seconds"
 </IfModule>
